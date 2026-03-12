@@ -8,6 +8,8 @@ import { loadConfig } from './config'
 import authRoutes from './routes/auth.routes'
 import haRoutes from './routes/ha.routes'
 import vehicleRoutes from './routes/vehicle.routes'
+import engineRoutes from './routes/engine.routes'
+import sessionRoutes from './routes/sessions.routes'
 import { startHaPoll } from './services/ha.service'
 import { startProxyPoll } from './services/proxy.service'
 import { initTelegram } from './services/telegram.service'
@@ -32,6 +34,8 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/ha', haRoutes)
 app.use('/api/vehicle', vehicleRoutes)
+app.use('/api/engine', engineRoutes)
+app.use('/api/sessions', sessionRoutes)
 
 const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
 
