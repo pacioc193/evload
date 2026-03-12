@@ -10,6 +10,7 @@ export interface HaState {
 
 export interface VehicleState {
   connected: boolean
+  pluggedIn: boolean
   charging: boolean
   stateOfCharge: number | null
   batteryRange: number | null
@@ -40,6 +41,7 @@ export interface EngineStatus {
   balancingStartedAt: string | null
   phase: 'idle' | 'charging' | 'balancing' | 'complete' | 'paused'
   message: string
+  haThrottled: boolean
 }
 
 export interface FailsafeState {

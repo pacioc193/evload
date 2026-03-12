@@ -57,12 +57,40 @@ export async function saveConfig(content: string) {
   return res.data as { success: boolean }
 }
 
+// ─── Structured Settings ─────────────────────────────────────────────────────
+
+export interface AppSettings {
+  demo: boolean
+  haUrl: string
+  haPowerEntityId: string
+  haGridEntityId: string
+  haMaxHomePowerW: number
+  proxyUrl: string
+  vehicleId: string
+  batteryCapacityKwh: number
+  defaultAmps: number
+  maxAmps: number
+  minAmps: number
+}
+
+export async function getSettings() {
+  const res = await api.get('/settings')
+  return res.data as AppSettings
+}
+
+export async function patchSettings(partial: Partial<AppSettings>) {
+  const res = await api.patch('/settings', partial)
+  return res.data as { success: boolean }
+}
+
 // ─── Scheduling ──────────────────────────────────────────────────────────────
 
 export interface ScheduledCharge {
   id: number
   vehicleId: string
-  scheduledAt: string
+  scheduleType: string
+  scheduledAt: string | null
+  finishBy: string | null
   targetSoc: number
   targetAmps: number | null
   enabled: boolean
@@ -83,8 +111,12 @@ export async function getScheduledCharges() {
   return res.data as ScheduledCharge[]
 }
 
-export async function createScheduledCharge(scheduledAt: string, targetSoc: number, targetAmps?: number) {
-  const res = await api.post('/schedule/charges', { scheduledAt, targetSoc, targetAmps })
+export async function createScheduledCharge(
+  options:
+    | { scheduleType: 'start_at'; scheduledAt: string; targetSoc: number; targetAmps?: number }
+    | { scheduleType: 'finish_by'; finishBy: string; targetSoc: number; targetAmps?: number }
+) {
+  const res = await api.post('/schedule/charges', options)
   return res.data as ScheduledCharge
 }
 

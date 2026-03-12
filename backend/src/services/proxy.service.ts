@@ -5,6 +5,7 @@ import { getConfig } from '../config'
 
 export interface VehicleState {
   connected: boolean
+  pluggedIn: boolean
   charging: boolean
   stateOfCharge: number | null
   batteryRange: number | null
@@ -29,6 +30,7 @@ export const vehicleEvents = new EventEmitter()
 
 let vehicleState: VehicleState = {
   connected: false,
+  pluggedIn: false,
   charging: false,
   stateOfCharge: null,
   batteryRange: null,
@@ -67,6 +69,7 @@ let demoClimateTemp = 21
 function getDemoVehicleState(): VehicleState {
   return {
     connected: true,
+    pluggedIn: true,
     charging: true,
     stateOfCharge: Math.min(demoSoc, 100),
     batteryRange: Math.round(Math.min(demoSoc, 100) * 4.5),
@@ -128,6 +131,7 @@ async function pollProxyOnce(): Promise<void> {
 
     vehicleState = {
       connected: vd !== null,
+      pluggedIn: cd !== null && cd.charging_state !== 'Disconnected',
       charging: cd?.charging_state === 'Charging',
       stateOfCharge: cd?.battery_level ?? null,
       batteryRange: cd?.battery_range ?? null,

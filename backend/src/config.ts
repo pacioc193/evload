@@ -12,6 +12,7 @@ const ConfigSchema = z.object({
     maxAmps: z.number().min(1).max(48).default(32),
     minAmps: z.number().min(1).max(48).default(5),
     balancingHoldMinutes: z.number().default(10),
+    batteryCapacityKwh: z.number().min(1).default(75),
   }).default({}),
   climate: z.object({
     defaultTempC: z.number().default(21),
@@ -20,6 +21,7 @@ const ConfigSchema = z.object({
     url: z.string().default('http://homeassistant.local:8123'),
     powerEntityId: z.string().default('sensor.home_power'),
     gridEntityId: z.string().optional(),
+    maxHomePowerW: z.number().default(7000),
   }).default({}),
   telegram: z.object({
     enabled: z.boolean().default(false),

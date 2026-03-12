@@ -3,9 +3,10 @@ import { EventEmitter } from 'events'
 import { logger } from '../logger'
 import { getConfig } from '../config'
 import { getVehicleState, sendProxyCommand } from '../services/proxy.service'
+import { getHaState } from '../services/ha.service'
 import { isFailsafeActive } from '../services/failsafe.service'
 import { sendTelegramNotification } from '../services/telegram.service'
-import { computeBalancingAction, shouldAdjustAmps } from './balancing'
+import { computeBalancingAction, shouldAdjustAmps, clampAmps } from './balancing'
 
 const prisma = new PrismaClient()
 
@@ -21,6 +22,7 @@ export interface EngineStatus {
   balancingStartedAt: Date | null
   phase: 'idle' | 'charging' | 'balancing' | 'complete' | 'paused'
   message: string
+  haThrottled: boolean
 }
 
 let status: EngineStatus = {
@@ -33,6 +35,7 @@ let status: EngineStatus = {
   balancingStartedAt: null,
   phase: 'idle',
   message: 'Engine idle',
+  haThrottled: false,
 }
 
 let engineTimer: NodeJS.Timeout | null = null
@@ -100,6 +103,7 @@ export async function stopEngine(): Promise<void> {
     message: 'Engine stopped',
     balancing: false,
     balancingStartedAt: null,
+    haThrottled: false,
   }
   engineEvents.emit('stopped', status)
 }
@@ -140,6 +144,47 @@ async function runEngineStep(): Promise<void> {
 
     status.currentAmps = actualAmps
 
+    // HA LIMITS ALWAYS WIN
+    const haThrottleAmps = computeHaAllowedAmps(cfg, vState)
+    if (haThrottleAmps !== null) {
+      if (haThrottleAmps < cfg.charging.minAmps) {
+        if (!status.haThrottled) {
+          status.haThrottled = true
+          const haS = getHaState()
+          logger.warn(`HA pause: home power ${haS.powerW}W exceeds limit ${cfg.homeAssistant.maxHomePowerW}W`)
+          sendTelegramNotification(
+            `⏸️ Charging paused: home power ${haS.powerW?.toFixed(0)}W exceeds limit ${cfg.homeAssistant.maxHomePowerW}W. Overriding schedule.`
+          ).catch(() => {})
+        }
+        status.phase = 'paused'
+        status.message = `Paused by HA: home power ${getHaState().powerW?.toFixed(0)}W`
+        engineEvents.emit('tick', status)
+        return
+      }
+      if (haThrottleAmps < status.targetAmps) {
+        const vid = cfg.proxy.vehicleId
+        if (vid) {
+          const throttled = clampAmps(haThrottleAmps, cfg.charging.minAmps, status.targetAmps)
+          if (shouldAdjustAmps(throttled, actualAmps)) {
+            await sendProxyCommand(vid, 'set_charging_amps', { charging_amps: throttled }).catch((err) =>
+              logger.error('HA throttle set_charging_amps failed', { err })
+            )
+            logger.info(`HA throttle: set charging to ${throttled}A (home power ${getHaState().powerW?.toFixed(0)}W)`)
+            if (!status.haThrottled) {
+              status.haThrottled = true
+              sendTelegramNotification(
+                `⚡ Charging throttled to ${throttled}A: home power ${getHaState().powerW?.toFixed(0)}W exceeds limit.`
+              ).catch(() => {})
+            }
+          }
+        }
+      } else if (status.haThrottled) {
+        status.haThrottled = false
+      }
+    } else if (status.haThrottled) {
+      status.haThrottled = false
+    }
+
     const action = computeBalancingAction({
       soc,
       targetSoc: status.targetSoc,
@@ -153,7 +198,7 @@ async function runEngineStep(): Promise<void> {
       case 'continue_charging':
         if (vState.charging) {
           status.phase = 'charging'
-          status.message = `Charging at ${actualAmps}A, SoC: ${soc}%`
+          status.message = `Charging at ${actualAmps}A, SoC: ${soc}%${status.haThrottled ? ' (HA throttled)' : ''}`
           await adjustAmps(cfg)
         } else {
           status.phase = 'paused'
@@ -189,11 +234,28 @@ async function runEngineStep(): Promise<void> {
   }
 }
 
+function computeHaAllowedAmps(
+  cfg: ReturnType<typeof getConfig>,
+  vState: ReturnType<typeof getVehicleState>
+): number | null {
+  if (cfg.demo) return null
+  const haS = getHaState()
+  if (!haS.connected || haS.powerW === null || cfg.homeAssistant.maxHomePowerW <= 0) return null
+  const carChargeW = (vState.chargeRateKw ?? 0) * 1000
+  const houseOnlyW = haS.powerW - carChargeW
+  const availableW = cfg.homeAssistant.maxHomePowerW - houseOnlyW
+  const voltage = vState.chargerVoltage ?? 230
+  return Math.floor(availableW / voltage)
+}
+
 async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
   const vid = cfg.proxy.vehicleId
   if (!vid) return
-  const desired = Math.min(status.targetAmps, cfg.charging.maxAmps)
-  const actual = getVehicleState().chargerActualCurrent ?? 0
+  const vState = getVehicleState()
+  const haAllowed = computeHaAllowedAmps(cfg, vState)
+  const maxAllowed = haAllowed !== null ? Math.min(status.targetAmps, haAllowed, cfg.charging.maxAmps) : Math.min(status.targetAmps, cfg.charging.maxAmps)
+  const desired = clampAmps(maxAllowed, cfg.charging.minAmps, cfg.charging.maxAmps)
+  const actual = vState.chargerActualCurrent ?? 0
   if (shouldAdjustAmps(desired, actual)) {
     try {
       await sendProxyCommand(vid, 'set_charging_amps', { charging_amps: desired })

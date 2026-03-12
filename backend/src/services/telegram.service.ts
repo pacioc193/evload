@@ -4,6 +4,13 @@ import { getConfig } from '../config'
 
 let bot: TelegramBot | null = null
 
+type CommandHandler = (chatId: string, args: string[]) => Promise<string>
+const commandHandlers = new Map<string, CommandHandler>()
+
+export function registerTelegramCommand(command: string, handler: CommandHandler): void {
+  commandHandlers.set(command, handler)
+}
+
 export function initTelegram(): void {
   const token = process.env.TELEGRAM_BOT_TOKEN
   const cfg = getConfig()
@@ -38,10 +45,31 @@ export function initTelegram(): void {
 
 async function handleCommand(chatId: string, text: string): Promise<void> {
   if (!bot) return
-  if (text === '/status') {
+  const parts = text.trim().split(/\s+/)
+  const cmd = parts[0]?.replace('/', '') ?? ''
+  const args = parts.slice(1)
+
+  const handler = commandHandlers.get(cmd)
+  if (handler) {
+    try {
+      const reply = await handler(chatId, args)
+      await bot.sendMessage(chatId, reply)
+    } catch (err) {
+      logger.error(`Telegram handler for /${cmd} failed`, { err })
+      await bot.sendMessage(chatId, `❌ Command failed: ${String(err)}`)
+    }
+    return
+  }
+
+  if (cmd === 'status') {
     await bot.sendMessage(chatId, 'Status: evload running ✅')
-  } else if (text === '/help') {
-    await bot.sendMessage(chatId, '/status - get status\n/help - this message')
+  } else if (cmd === 'help') {
+    await bot.sendMessage(
+      chatId,
+      '/status — get status\n/start [soc] [amps] — start charging\n/stop — stop charging\n/help — this message'
+    )
+  } else {
+    await bot.sendMessage(chatId, `Unknown command: ${text}\nType /help for available commands`)
   }
 }
 

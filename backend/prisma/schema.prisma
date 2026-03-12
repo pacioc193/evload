@@ -56,7 +56,9 @@ model ChargingTelemetry {
 model ScheduledCharge {
   id           Int       @id @default(autoincrement())
   vehicleId    String
-  scheduledAt  DateTime
+  scheduleType String    @default("start_at")
+  scheduledAt  DateTime?
+  finishBy     DateTime?
   targetSoc    Int
   targetAmps   Int?
   enabled      Boolean   @default(true)

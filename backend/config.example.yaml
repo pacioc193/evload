@@ -6,6 +6,7 @@ charging:
   maxAmps: 32
   minAmps: 5
   balancingHoldMinutes: 10
+  batteryCapacityKwh: 75
 
 climate:
   defaultTempC: 21
@@ -14,6 +15,7 @@ homeAssistant:
   url: "http://homeassistant.local:8123"
   powerEntityId: "sensor.home_power"
   # gridEntityId: "sensor.grid_power"
+  maxHomePowerW: 7000
 
 telegram:
   enabled: false

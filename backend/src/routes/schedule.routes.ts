@@ -22,13 +22,28 @@ router.get('/charges', limiter, requireAuth, async (_req, res) => {
 })
 
 router.post('/charges', limiter, requireAuth, async (req, res) => {
-  const { scheduledAt, targetSoc, targetAmps } = req.body as {
+  const { scheduledAt, finishBy, scheduleType, targetSoc, targetAmps } = req.body as {
     scheduledAt?: string
+    finishBy?: string
+    scheduleType?: string
     targetSoc?: number
     targetAmps?: number
   }
-  if (!scheduledAt || targetSoc == null) {
-    res.status(400).json({ error: 'scheduledAt and targetSoc are required' })
+  const type = scheduleType ?? 'start_at'
+  if (type !== 'start_at' && type !== 'finish_by') {
+    res.status(400).json({ error: 'scheduleType must be start_at or finish_by' })
+    return
+  }
+  if (type === 'start_at' && !scheduledAt) {
+    res.status(400).json({ error: 'scheduledAt is required for start_at schedules' })
+    return
+  }
+  if (type === 'finish_by' && !finishBy) {
+    res.status(400).json({ error: 'finishBy is required for finish_by schedules' })
+    return
+  }
+  if (targetSoc == null) {
+    res.status(400).json({ error: 'targetSoc is required' })
     return
   }
   const soc = Number(targetSoc)
@@ -36,9 +51,14 @@ router.post('/charges', limiter, requireAuth, async (req, res) => {
     res.status(400).json({ error: 'targetSoc must be 1-100' })
     return
   }
-  const date = new Date(scheduledAt)
-  if (isNaN(date.getTime())) {
+  const scheduledAtDate = scheduledAt ? new Date(scheduledAt) : undefined
+  if (scheduledAtDate && isNaN(scheduledAtDate.getTime())) {
     res.status(400).json({ error: 'Invalid scheduledAt date' })
+    return
+  }
+  const finishByDate = finishBy ? new Date(finishBy) : undefined
+  if (finishByDate && isNaN(finishByDate.getTime())) {
+    res.status(400).json({ error: 'Invalid finishBy date' })
     return
   }
   try {
@@ -46,7 +66,9 @@ router.post('/charges', limiter, requireAuth, async (req, res) => {
     const item = await prisma.scheduledCharge.create({
       data: {
         vehicleId: cfg.proxy.vehicleId,
-        scheduledAt: date,
+        scheduleType: type,
+        scheduledAt: scheduledAtDate ?? null,
+        finishBy: finishByDate ?? null,
         targetSoc: soc,
         targetAmps: targetAmps != null ? Number(targetAmps) : null,
       },

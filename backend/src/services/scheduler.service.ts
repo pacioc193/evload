@@ -4,6 +4,7 @@ import { startEngine, getEngineStatus } from '../engine/charging.engine'
 import { sendProxyCommand, getVehicleState } from './proxy.service'
 import { getConfig } from '../config'
 import { isFailsafeActive } from './failsafe.service'
+import { sendTelegramNotification } from './telegram.service'
 
 const prisma = new PrismaClient()
 
@@ -11,16 +12,16 @@ let schedulerTimer: NodeJS.Timeout | null = null
 
 async function runSchedulerTick(): Promise<void> {
   const now = new Date()
+  const cfg = getConfig()
 
-  // Scheduled charges
-  const pendingCharges = await prisma.scheduledCharge.findMany({
-    where: { enabled: true, scheduledAt: { lte: now } },
+  // ── Start-at scheduled charges ────────────────────────────────────────────
+  const pendingStartAt = await prisma.scheduledCharge.findMany({
+    where: { enabled: true, scheduleType: 'start_at', scheduledAt: { lte: now } },
   })
 
-  for (const sc of pendingCharges) {
-    // Disable first to prevent double-firing
+  for (const sc of pendingStartAt) {
     await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
-    logger.info(`Executing scheduled charge id=${sc.id} targetSoc=${sc.targetSoc}`)
+    logger.info(`Executing start_at charge id=${sc.id} targetSoc=${sc.targetSoc}`)
     if (!isFailsafeActive() && !getEngineStatus().running) {
       try {
         await startEngine(sc.targetSoc, sc.targetAmps ?? undefined)
@@ -32,7 +33,47 @@ async function runSchedulerTick(): Promise<void> {
     }
   }
 
-  // Scheduled climate
+  // ── Finish-by scheduled charges ───────────────────────────────────────────
+  const pendingFinishBy = await prisma.scheduledCharge.findMany({
+    where: { enabled: true, scheduleType: 'finish_by', finishBy: { gte: now } },
+  })
+
+  const vState = getVehicleState()
+  const currentSoc = vState.stateOfCharge ?? 0
+  const batteryKwh = cfg.charging.batteryCapacityKwh
+  const chargerVoltage = vState.chargerVoltage ?? 230
+
+  for (const sc of pendingFinishBy) {
+    if (!sc.finishBy) continue
+    const amps = sc.targetAmps ?? cfg.charging.defaultAmps
+    const powerKw = (amps * chargerVoltage) / 1000
+    const requiredKwh = ((sc.targetSoc - currentSoc) / 100) * batteryKwh
+    if (requiredKwh <= 0) {
+      await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
+      logger.info(`Finish-by charge id=${sc.id} already at/above target SoC ${sc.targetSoc}%`)
+      continue
+    }
+    const requiredMs = (requiredKwh / powerKw) * 3600 * 1000
+    const startMs = sc.finishBy.getTime() - requiredMs
+    if (Date.now() >= startMs) {
+      await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
+      logger.info(`Executing finish_by charge id=${sc.id} targetSoc=${sc.targetSoc} (must finish by ${sc.finishBy.toISOString()})`)
+      if (!isFailsafeActive() && !getEngineStatus().running) {
+        try {
+          await startEngine(sc.targetSoc, amps)
+          await sendTelegramNotification(
+            `⚡ Charging started for "finish by ${sc.finishBy.toLocaleTimeString()}" schedule → ${sc.targetSoc}%`
+          )
+        } catch (err) {
+          logger.error(`Finish-by charge id=${sc.id} failed to start engine`, { err })
+        }
+      } else {
+        logger.warn(`Finish-by charge id=${sc.id} skipped (failsafe or engine already running)`)
+      }
+    }
+  }
+
+  // ── Scheduled climate ────────────────────────────────────────────────────
   const pendingClimate = await prisma.scheduledClimate.findMany({
     where: { enabled: true, scheduledAt: { lte: now } },
   })
@@ -42,15 +83,14 @@ async function runSchedulerTick(): Promise<void> {
     logger.info(`Executing scheduled climate id=${sc.id} temp=${sc.targetTempC}°C`)
     if (!isFailsafeActive()) {
       try {
-        const cfg = getConfig()
         const vid = sc.vehicleId || cfg.proxy.vehicleId
         if (!vid) {
           logger.warn(`Scheduled climate id=${sc.id} skipped: no vehicle ID`)
           continue
         }
-        const vState = getVehicleState()
-        if (!vState.connected && !cfg.demo) {
-          logger.warn(`Scheduled climate id=${sc.id} skipped: vehicle not connected`)
+        const latestState = getVehicleState()
+        if (!latestState.pluggedIn && !cfg.demo) {
+          logger.warn(`Scheduled climate id=${sc.id} skipped: vehicle not plugged in`)
           continue
         }
         await sendProxyCommand(vid, 'set_temps', {
@@ -69,7 +109,6 @@ async function runSchedulerTick(): Promise<void> {
 
 export function startScheduler(): void {
   if (schedulerTimer) return
-  // run immediately, then every 30s
   runSchedulerTick().catch((err) => logger.error('Scheduler initial tick error', { err }))
   schedulerTimer = setInterval(() => {
     runSchedulerTick().catch((err) => logger.error('Scheduler tick error', { err }))
@@ -84,3 +123,4 @@ export function stopScheduler(): void {
     logger.info('Scheduler service stopped')
   }
 }
+
