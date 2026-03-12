@@ -1,0 +1,85 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AppConfig {
+  id           Int     @id @default(autoincrement())
+  key          String  @unique
+  value        String
+}
+
+model ChargingSession {
+  id              Int               @id @default(autoincrement())
+  startedAt       DateTime          @default(now())
+  endedAt         DateTime?
+  vehicleId       String
+  locationName    String?
+  targetSoc       Int?
+  targetAmps      Int?
+  totalEnergyKwh  Float             @default(0)
+  peakPowerW      Float             @default(0)
+  averageAmps     Float             @default(0)
+  notes           String?
+  telemetry       ChargingTelemetry[]
+}
+
+model ChargingTelemetry {
+  id               Int             @id @default(autoincrement())
+  sessionId        Int
+  recordedAt       DateTime        @default(now())
+  voltageV         Float?
+  currentA         Float?
+  powerW           Float?
+  energyKwh        Float?
+  stateOfCharge    Int?
+  tempBatteryC     Float?
+  tempCabinC       Float?
+  chargerPilotA    Int?
+  chargerActualA   Int?
+  chargerPhases    Int?
+  chargerVoltage   Int?
+  chargerPower     Float?
+  timeToFullCharge Float?
+  session          ChargingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, recordedAt])
+}
+
+model ScheduledCharge {
+  id           Int       @id @default(autoincrement())
+  vehicleId    String
+  scheduledAt  DateTime
+  targetSoc    Int
+  targetAmps   Int?
+  enabled      Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model ScheduledClimate {
+  id           Int       @id @default(autoincrement())
+  vehicleId    String
+  scheduledAt  DateTime
+  targetTempC  Float
+  enabled      Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model TelegramCommand {
+  id          Int       @id @default(autoincrement())
+  chatId      String
+  command     String
+  args        String?
+  response    String?
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+}

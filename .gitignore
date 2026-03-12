@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+config.yaml
+*.db
+*.db-journal
+coverage/
+.nyc_output/
+logs/
+*.log
+.vscode/settings.json
