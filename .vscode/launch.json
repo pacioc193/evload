@@ -2,19 +2,52 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug Backend",
-      "type": "node",
+      "name": "Debug Backend (npm)",
+      "type": "pwa-node",
       "request": "launch",
-      "runtimeExecutable": "ts-node-dev",
-      "runtimeArgs": ["--respawn", "--transpile-only"],
+      "cwd": "${workspaceFolder}/backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "console": "externalTerminal",
+      "env": {
+        "NODE_ENV": "development",
+        "NODE_TLS_REJECT_UNAUTHORIZED": "0"
+      }
+    },
+    {
+      "name": "Debug Backend (direct)",
+      "type": "pwa-node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--require", "ts-node/register"],
       "args": ["src/index.ts"],
       "cwd": "${workspaceFolder}/backend",
-      "sourceMaps": true,
       "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
+      "env": {
+        "NODE_ENV": "development",
+        "NODE_TLS_REJECT_UNAUTHORIZED": "0"
+      }
+    }
+    ,
+    {
+      "name": "Frontend (npm)",
+      "type": "pwa-node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "console": "integratedTerminal",
       "env": {
         "NODE_ENV": "development"
       }
+    }
+  ]
+  ,
+  "compounds": [
+    {
+      "name": "Full Stack (Backend + Frontend)",
+      "configurations": ["Debug Backend (npm)", "Frontend (npm)"],
+      "preLaunchTask": null
     }
   ]
 }
