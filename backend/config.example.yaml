@@ -1,0 +1,20 @@
+charging:
+  defaultTargetSoc: 80
+  defaultAmps: 16
+  maxAmps: 32
+  minAmps: 5
+  balancingHoldMinutes: 10
+
+climate:
+  defaultTempC: 21
+
+homeAssistant:
+  powerEntityId: "sensor.home_power"
+
+telegram:
+  enabled: false
+  allowedChatIds: []
+
+proxy:
+  vehicleId: ""
+  pollIntervalMs: 1000
