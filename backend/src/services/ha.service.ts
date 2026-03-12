@@ -3,6 +3,7 @@ import { EventEmitter } from 'events'
 import { PrismaClient } from '@prisma/client'
 import { logger } from '../logger'
 import { getConfig } from '../config'
+import { getVehicleState } from './proxy.service'
 
 const prisma = new PrismaClient()
 
@@ -68,7 +69,18 @@ async function pollHaOnce(): Promise<void> {
   try {
     const cfg = getConfig()
     if (cfg.demo) {
-      haState = { connected: true, powerW: 1800, gridW: 200, lastUpdated: new Date() }
+      const v = getVehicleState()
+      const carW = Math.max(0, ((v.chargerActualCurrent ?? 0) * (v.chargerVoltage ?? 0)))
+      const baseHomeW = 900 + Math.round((Date.now() / 1000) % 120)
+      const homePowerW = baseHomeW + carW
+      const rawGridW = Math.round(homePowerW * 0.35)
+      const gridPowerW = Math.max(0, Math.min(rawGridW, Math.max(0, homePowerW - 100)))
+      haState = {
+        connected: true,
+        powerW: homePowerW,
+        gridW: gridPowerW,
+        lastUpdated: new Date(),
+      }
       haEvents.emit('state', haState)
       return
     }

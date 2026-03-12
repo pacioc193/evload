@@ -61,25 +61,39 @@ function vehicleId(): string {
   return getConfig().proxy.vehicleId
 }
 
+function computeChargeRateKw(currentA: number | null | undefined, voltageV: number | null | undefined, fallbackKw?: number | null): number | null {
+  if (currentA != null && voltageV != null) {
+    const kw = (currentA * voltageV) / 1000
+    if (Number.isFinite(kw)) return parseFloat(kw.toFixed(2))
+  }
+  if (fallbackKw != null && Number.isFinite(fallbackKw)) return fallbackKw
+  return null
+}
+
 // Demo mode state
 let demoSoc = 45
 let demoClimateOn = false
 let demoClimateTemp = 21
+let demoCommandedAmps = 16
+let demoChargingEnabled = false
 
 function getDemoVehicleState(): VehicleState {
+  const chargerVoltage = 230
+  const chargerActualCurrent = demoChargingEnabled ? demoCommandedAmps : 0
+  const socInt = Math.max(0, Math.min(100, Math.round(demoSoc)))
   return {
     connected: true,
     pluggedIn: true,
-    charging: true,
-    stateOfCharge: Math.min(demoSoc, 100),
-    batteryRange: Math.round(Math.min(demoSoc, 100) * 4.5),
-    chargingState: 'Charging',
-    chargerVoltage: 230,
-    chargerActualCurrent: 16,
+    charging: chargerActualCurrent > 0,
+    stateOfCharge: socInt,
+    batteryRange: Math.round(socInt * 4.5),
+    chargingState: chargerActualCurrent > 0 ? 'Charging' : 'Connected',
+    chargerVoltage,
+    chargerActualCurrent,
     chargerPilotCurrent: 16,
     chargerPhases: 1,
-    chargeRateKw: 3.68,
-    timeToFullChargeH: parseFloat(((100 - Math.min(demoSoc, 100)) / 100 * 8.5).toFixed(1)),
+    chargeRateKw: computeChargeRateKw(chargerActualCurrent, chargerVoltage),
+    timeToFullChargeH: parseFloat(((100 - socInt) / 100 * 8.5).toFixed(1)),
     insideTempC: demoClimateOn ? demoClimateTemp : 18,
     outsideTempC: 12,
     climateOn: demoClimateOn,
@@ -98,7 +112,10 @@ async function pollProxyOnce(): Promise<void> {
   pollLock = true
   try {
     if (getConfig().demo) {
-      demoSoc = Math.min(demoSoc + 0.005, 100) // ~1% per 200s in demo
+      // Rough demo charging progression based on commanded current.
+      if (demoChargingEnabled) {
+        demoSoc = Math.min(demoSoc + (demoCommandedAmps / 16) * 0.005, 100)
+      }
       const prev = vehicleState.connected
       vehicleState = getDemoVehicleState()
       if (!prev) vehicleEvents.emit('connected', vehicleState)
@@ -129,18 +146,24 @@ async function pollProxyOnce(): Promise<void> {
     const cd = chargeRes.status === 'fulfilled' ? chargeRes.value.data.response : null
     const cl = climateRes.status === 'fulfilled' ? climateRes.value.data.response : null
 
+    const chargingState = cd?.charging_state ?? null
+    const pluggedIn = chargingState !== null && chargingState !== 'Disconnected'
+    const charging = (chargingState?.toLowerCase().includes('charging') ?? false)
+      || ((cd?.charger_actual_current ?? 0) > 0)
+    const chargeRateKw = computeChargeRateKw(cd?.charger_actual_current, cd?.charger_voltage, cd?.charge_rate)
+
     vehicleState = {
       connected: vd !== null,
-      pluggedIn: cd !== null && cd.charging_state !== 'Disconnected',
-      charging: cd?.charging_state === 'Charging',
-      stateOfCharge: cd?.battery_level ?? null,
+      pluggedIn,
+      charging,
+      stateOfCharge: cd?.battery_level != null ? Math.round(cd.battery_level) : null,
       batteryRange: cd?.battery_range ?? null,
-      chargingState: cd?.charging_state ?? null,
+      chargingState,
       chargerVoltage: cd?.charger_voltage ?? null,
       chargerActualCurrent: cd?.charger_actual_current ?? null,
       chargerPilotCurrent: cd?.charger_pilot_current ?? null,
       chargerPhases: cd?.charger_phases ?? null,
-      chargeRateKw: cd?.charge_rate ?? null,
+      chargeRateKw,
       timeToFullChargeH: cd?.time_to_full_charge ?? null,
       insideTempC: cl?.inside_temp ?? null,
       outsideTempC: cl?.outside_temp ?? null,
@@ -194,12 +217,26 @@ export function getVehicleState(): VehicleState {
 export async function sendProxyCommand(vehicleId: string, command: string, body?: Record<string, unknown>): Promise<unknown> {
   if (getConfig().demo) {
     logger.debug(`[DEMO] sendProxyCommand ${command}`, { body })
+    if (command === 'charge_start') demoChargingEnabled = true
+    if (command === 'charge_stop') demoChargingEnabled = false
     if (command === 'auto_conditioning_start') demoClimateOn = true
     if (command === 'auto_conditioning_stop') demoClimateOn = false
+    if (command === 'set_charging_amps') {
+      const requested = Number(body?.['charging_amps'] ?? demoCommandedAmps)
+      if (Number.isFinite(requested)) {
+        demoCommandedAmps = Math.max(0, Math.round(requested))
+      }
+    }
     if (command === 'set_temps' && body?.['driver_temp'] !== undefined) {
       demoClimateTemp = Number(body['driver_temp'])
     }
-    return { result: true, reason: 'demo' }
+    return {
+      result: true,
+      reason: 'demo',
+      command,
+      appliedAmps: demoCommandedAmps,
+      chargingEnabled: demoChargingEnabled,
+    }
   }
   const url = `${proxyUrl()}/api/1/vehicles/${vehicleId}/command/${command}`
   const res = await axios.post<unknown>(url, body ?? {}, { timeout: 10000 })

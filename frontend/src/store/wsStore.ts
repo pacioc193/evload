@@ -36,12 +36,14 @@ export interface EngineStatus {
   sessionId: number | null
   targetSoc: number
   targetAmps: number
+  setpointAmps: number
   currentAmps: number
   balancing: boolean
   balancingStartedAt: string | null
   phase: 'idle' | 'charging' | 'balancing' | 'complete' | 'paused'
   message: string
   haThrottled: boolean
+  debugLog: string[]
 }
 
 export interface FailsafeState {

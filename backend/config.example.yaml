@@ -16,6 +16,7 @@ homeAssistant:
   powerEntityId: "sensor.home_power"
   # gridEntityId: "sensor.grid_power"
   maxHomePowerW: 7000
+  resumeDelaySec: 30
 
 telegram:
   enabled: false

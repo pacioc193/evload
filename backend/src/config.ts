@@ -22,6 +22,7 @@ const ConfigSchema = z.object({
     powerEntityId: z.string().default('sensor.home_power'),
     gridEntityId: z.string().optional(),
     maxHomePowerW: z.number().default(7000),
+    resumeDelaySec: z.number().min(0).default(30),
   }).default({}),
   telegram: z.object({
     enabled: z.boolean().default(false),
