@@ -31,7 +31,7 @@ const ConfigSchema = z.object({
 
 export type AppConfig = z.infer<typeof ConfigSchema>
 
-const CONFIG_PATH = process.env.CONFIG_PATH ?? path.join(process.cwd(), 'config.yaml')
+const CONFIG_PATH = process.env.CONFIG_PATH ?? path.join(__dirname, '../../config.yaml')
 
 let cachedConfig: AppConfig | null = null
 

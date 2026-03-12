@@ -18,7 +18,7 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
-const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
+const FRONTEND_DIST = process.env.FRONTEND_DIST ?? path.join(__dirname, '../../frontend/dist')
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(FRONTEND_DIST))
