@@ -27,7 +27,7 @@ export default function ClimatePage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Climate Control</h1>
-      {!vehicle?.connected ? (
+      {!vehicle?.connected && vehicle?.vin !== 'DEMO000000000001' ? (
         <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center text-evload-muted">
           Vehicle not connected
         </div>

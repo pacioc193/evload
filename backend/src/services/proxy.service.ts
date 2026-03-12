@@ -52,11 +52,39 @@ let pollLock = false
 let pollTimer: NodeJS.Timeout | null = null
 
 function proxyUrl(): string {
-  return process.env.PROXY_URL ?? 'http://localhost:8080'
+  return getConfig().proxy.url
 }
 
 function vehicleId(): string {
   return getConfig().proxy.vehicleId
+}
+
+// Demo mode state
+let demoSoc = 45
+let demoClimateOn = false
+let demoClimateTemp = 21
+
+function getDemoVehicleState(): VehicleState {
+  return {
+    connected: true,
+    charging: true,
+    stateOfCharge: Math.min(demoSoc, 100),
+    batteryRange: Math.round(Math.min(demoSoc, 100) * 4.5),
+    chargingState: 'Charging',
+    chargerVoltage: 230,
+    chargerActualCurrent: 16,
+    chargerPilotCurrent: 16,
+    chargerPhases: 1,
+    chargeRateKw: 3.68,
+    timeToFullChargeH: parseFloat(((100 - Math.min(demoSoc, 100)) / 100 * 8.5).toFixed(1)),
+    insideTempC: demoClimateOn ? demoClimateTemp : 18,
+    outsideTempC: 12,
+    climateOn: demoClimateOn,
+    locked: false,
+    odometer: 25241,
+    vin: 'DEMO000000000001',
+    displayName: 'Demo Vehicle',
+  }
 }
 
 async function pollProxyOnce(): Promise<void> {
@@ -66,6 +94,14 @@ async function pollProxyOnce(): Promise<void> {
   }
   pollLock = true
   try {
+    if (getConfig().demo) {
+      demoSoc = Math.min(demoSoc + 0.005, 100) // ~1% per 200s in demo
+      const prev = vehicleState.connected
+      vehicleState = getDemoVehicleState()
+      if (!prev) vehicleEvents.emit('connected', vehicleState)
+      vehicleEvents.emit('state', vehicleState)
+      return
+    }
     const vid = vehicleId()
     if (!vid) {
       vehicleState = { ...vehicleState, connected: false, error: 'No vehicle ID configured' }
@@ -152,6 +188,15 @@ export function getVehicleState(): VehicleState {
 }
 
 export async function sendProxyCommand(vehicleId: string, command: string, body?: Record<string, unknown>): Promise<unknown> {
+  if (getConfig().demo) {
+    logger.debug(`[DEMO] sendProxyCommand ${command}`, { body })
+    if (command === 'auto_conditioning_start') demoClimateOn = true
+    if (command === 'auto_conditioning_stop') demoClimateOn = false
+    if (command === 'set_temps' && body?.['driver_temp'] !== undefined) {
+      demoClimateTemp = Number(body['driver_temp'])
+    }
+    return { result: true, reason: 'demo' }
+  }
   const url = `${proxyUrl()}/api/1/vehicles/${vehicleId}/command/${command}`
   const res = await axios.post<unknown>(url, body ?? {}, { timeout: 10000 })
   return res.data

@@ -56,3 +56,54 @@ export async function saveConfig(content: string) {
   const res = await api.post('/config', { content })
   return res.data as { success: boolean }
 }
+
+// ─── Scheduling ──────────────────────────────────────────────────────────────
+
+export interface ScheduledCharge {
+  id: number
+  vehicleId: string
+  scheduledAt: string
+  targetSoc: number
+  targetAmps: number | null
+  enabled: boolean
+  createdAt: string
+}
+
+export interface ScheduledClimate {
+  id: number
+  vehicleId: string
+  scheduledAt: string
+  targetTempC: number
+  enabled: boolean
+  createdAt: string
+}
+
+export async function getScheduledCharges() {
+  const res = await api.get('/schedule/charges')
+  return res.data as ScheduledCharge[]
+}
+
+export async function createScheduledCharge(scheduledAt: string, targetSoc: number, targetAmps?: number) {
+  const res = await api.post('/schedule/charges', { scheduledAt, targetSoc, targetAmps })
+  return res.data as ScheduledCharge
+}
+
+export async function deleteScheduledCharge(id: number) {
+  const res = await api.delete(`/schedule/charges/${id}`)
+  return res.data as { success: boolean }
+}
+
+export async function getScheduledClimates() {
+  const res = await api.get('/schedule/climate')
+  return res.data as ScheduledClimate[]
+}
+
+export async function createScheduledClimate(scheduledAt: string, targetTempC: number) {
+  const res = await api.post('/schedule/climate', { scheduledAt, targetTempC })
+  return res.data as ScheduledClimate
+}
+
+export async function deleteScheduledClimate(id: number) {
+  const res = await api.delete(`/schedule/climate/${id}`)
+  return res.data as { success: boolean }
+}

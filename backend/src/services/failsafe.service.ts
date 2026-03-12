@@ -3,6 +3,7 @@ import { logger } from '../logger'
 import { sendTelegramNotification } from './telegram.service'
 import { haEvents } from './ha.service'
 import { vehicleEvents } from './proxy.service'
+import { getConfig } from '../config'
 
 export const failsafeEvents = new EventEmitter()
 
@@ -18,6 +19,10 @@ export function getFailsafeReason(): string {
 }
 
 async function activateFailsafe(reason: string): Promise<void> {
+  if (getConfig().demo) {
+    logger.debug(`[DEMO] Failsafe skipped: ${reason}`)
+    return
+  }
   if (failsafeActive) return
   failsafeActive = true
   failsafeReason = reason

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { logger } from './logger'
 
 const ConfigSchema = z.object({
+  demo: z.boolean().default(false),
   charging: z.object({
     defaultTargetSoc: z.number().min(1).max(100).default(80),
     defaultAmps: z.number().min(1).max(48).default(16),
@@ -16,6 +17,7 @@ const ConfigSchema = z.object({
     defaultTempC: z.number().default(21),
   }).default({}),
   homeAssistant: z.object({
+    url: z.string().default('http://homeassistant.local:8123'),
     powerEntityId: z.string().default('sensor.home_power'),
     gridEntityId: z.string().optional(),
   }).default({}),
@@ -24,6 +26,7 @@ const ConfigSchema = z.object({
     allowedChatIds: z.array(z.string()).default([]),
   }).default({}),
   proxy: z.object({
+    url: z.string().default('http://localhost:8080'),
     vehicleId: z.string().default(''),
     pollIntervalMs: z.number().default(1000),
   }).default({}),

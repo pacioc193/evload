@@ -1,3 +1,5 @@
+demo: false
+
 charging:
   defaultTargetSoc: 80
   defaultAmps: 16
@@ -9,12 +11,15 @@ climate:
   defaultTempC: 21
 
 homeAssistant:
+  url: "http://homeassistant.local:8123"
   powerEntityId: "sensor.home_power"
+  # gridEntityId: "sensor.grid_power"
 
 telegram:
   enabled: false
   allowedChatIds: []
 
 proxy:
+  url: "http://localhost:8080"
   vehicleId: ""
   pollIntervalMs: 1000

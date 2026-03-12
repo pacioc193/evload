@@ -44,6 +44,7 @@ export default function DashboardPage() {
   const engine = useWsStore((s) => s.engine)
   const ha = useWsStore((s) => s.ha)
   const failsafe = useWsStore((s) => s.failsafe)
+  const isDemo = vehicle?.vin === 'DEMO000000000001'
   const [targetSoc, setTargetSoc] = useState(80)
   const [targetAmps, setTargetAmps] = useState(16)
   const [loading, setLoading] = useState(false)
@@ -66,6 +67,12 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold">Dashboard</h1>
         {vehicle?.displayName && <span className="text-evload-muted text-sm">{vehicle.displayName}</span>}
       </div>
+
+      {isDemo && (
+        <div className="bg-evload-warning/10 border border-evload-warning text-evload-warning rounded-xl px-4 py-2 text-sm font-medium">
+          🎮 Demo mode — no real vehicle connected
+        </div>
+      )}
 
       {!vehicle?.connected && (
         <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center text-evload-muted">
@@ -132,11 +139,11 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <button onClick={handleStart}
-                  disabled={loading || !!failsafe?.active || !vehicle.charging}
+                  disabled={loading || !!failsafe?.active || (!vehicle.charging && !isDemo)}
                   className="px-6 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50">
                   Start Charging Control
                 </button>
-                {!vehicle.charging && (
+                {!vehicle.charging && !isDemo && (
                   <p className="text-sm text-evload-muted">Vehicle must be plugged in and charging to start control</p>
                 )}
               </div>

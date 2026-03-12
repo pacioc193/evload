@@ -1,6 +1,6 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Zap, Car, Thermometer, BarChart2, Settings, Wifi, WifiOff } from 'lucide-react'
+import { Zap, Car, Thermometer, BarChart2, Settings, Wifi, WifiOff, Calendar } from 'lucide-react'
 import { useWsStore } from '../store/wsStore'
 import { clsx } from 'clsx'
 
@@ -38,6 +38,7 @@ export default function Layout({ children }: LayoutProps) {
             { to: '/dashboard', icon: Car, label: 'Dashboard' },
             { to: '/climate', icon: Thermometer, label: 'Climate' },
             { to: '/statistics', icon: BarChart2, label: 'Statistics' },
+            { to: '/schedule', icon: Calendar, label: 'Schedule' },
             { to: '/settings', icon: Settings, label: 'Settings' },
           ].map(({ to, icon: Icon, label }) => (
             <NavLink

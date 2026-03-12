@@ -3,13 +3,14 @@ import axios from 'axios'
 import rateLimit from 'express-rate-limit'
 import { requireAuth } from '../middleware/auth.middleware'
 import { saveHaTokenObj, getHaState } from '../services/ha.service'
+import { getConfig } from '../config'
 import { logger } from '../logger'
 
 const router = Router()
 
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 })
 
-const HA_URL = () => process.env.HA_URL ?? 'http://homeassistant.local:8123'
+const HA_URL = () => getConfig().homeAssistant.url
 const CLIENT_ID = () => process.env.HA_CLIENT_ID ?? ''
 const CLIENT_SECRET = () => process.env.HA_CLIENT_SECRET ?? ''
 const REDIRECT_URI = () => process.env.APP_URL ? `${process.env.APP_URL}/api/ha/callback` : `http://localhost:3001/api/ha/callback`

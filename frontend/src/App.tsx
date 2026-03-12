@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage'
 import ClimatePage from './pages/ClimatePage'
 import StatisticsPage from './pages/StatisticsPage'
 import SettingsPage from './pages/SettingsPage'
+import SchedulePage from './pages/SchedulePage'
 import Layout from './components/Layout'
 
 function AppContent() {
@@ -24,6 +25,7 @@ function AppContent() {
           <Route path="/dashboard" element={<Layout><DashboardPage /></Layout>} />
           <Route path="/climate" element={<Layout><ClimatePage /></Layout>} />
           <Route path="/statistics" element={<Layout><StatisticsPage /></Layout>} />
+          <Route path="/schedule" element={<Layout><SchedulePage /></Layout>} />
           <Route path="/settings" element={<Layout><SettingsPage /></Layout>} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </>

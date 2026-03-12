@@ -12,10 +12,12 @@ import vehicleRoutes from './routes/vehicle.routes'
 import engineRoutes from './routes/engine.routes'
 import sessionRoutes from './routes/sessions.routes'
 import configRoutes from './routes/config.routes'
+import scheduleRoutes from './routes/schedule.routes'
 import { startHaPoll } from './services/ha.service'
 import { startProxyPoll } from './services/proxy.service'
 import { initTelegram } from './services/telegram.service'
 import { initFailsafe } from './services/failsafe.service'
+import { startScheduler } from './services/scheduler.service'
 import { initWebSocketServer, stopWebSocketServer } from './ws/broadcaster'
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10)
@@ -40,6 +42,7 @@ app.use('/api/vehicle', vehicleRoutes)
 app.use('/api/engine', engineRoutes)
 app.use('/api/sessions', sessionRoutes)
 app.use('/api/config', configRoutes)
+app.use('/api/schedule', scheduleRoutes)
 
 const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
 
@@ -58,6 +61,7 @@ initFailsafe()
 initTelegram()
 startHaPoll()
 startProxyPoll()
+startScheduler()
 
 server.listen(PORT, () => {
   logger.info(`evload backend listening on port ${PORT}`)

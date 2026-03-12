@@ -66,6 +66,12 @@ async function pollHaOnce(): Promise<void> {
   }
   pollLock = true
   try {
+    const cfg = getConfig()
+    if (cfg.demo) {
+      haState = { connected: true, powerW: 1800, gridW: 200, lastUpdated: new Date() }
+      haEvents.emit('state', haState)
+      return
+    }
     const tokenObj = await getHaTokenObj()
     const token = tokenObj?.access_token ?? (await getHaToken())
     if (!token) {
@@ -73,8 +79,7 @@ async function pollHaOnce(): Promise<void> {
       haEvents.emit('state', haState)
       return
     }
-    const cfg = getConfig()
-    const haUrl = process.env.HA_URL ?? 'http://homeassistant.local:8123'
+    const haUrl = cfg.homeAssistant.url
     const headers = { Authorization: `Bearer ${token}` }
 
     const [powerRes, gridRes] = await Promise.allSettled([
