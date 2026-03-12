@@ -11,6 +11,7 @@ import haRoutes from './routes/ha.routes'
 import vehicleRoutes from './routes/vehicle.routes'
 import engineRoutes from './routes/engine.routes'
 import sessionRoutes from './routes/sessions.routes'
+import configRoutes from './routes/config.routes'
 import { startHaPoll } from './services/ha.service'
 import { startProxyPoll } from './services/proxy.service'
 import { initTelegram } from './services/telegram.service'
@@ -38,6 +39,7 @@ app.use('/api/ha', haRoutes)
 app.use('/api/vehicle', vehicleRoutes)
 app.use('/api/engine', engineRoutes)
 app.use('/api/sessions', sessionRoutes)
+app.use('/api/config', configRoutes)
 
 const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
 

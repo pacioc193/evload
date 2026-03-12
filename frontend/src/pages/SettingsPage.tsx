@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import { getConfig, saveConfig, getHaAuthorizeUrl } from '../api/index'
 import { Settings, ExternalLink, Save, LogOut } from 'lucide-react'

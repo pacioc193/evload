@@ -27,7 +27,7 @@ export function useWebSocket() {
         try {
           const msg = JSON.parse(event.data as string) as { type: string }
           if (msg.type === 'state') {
-            setState(msg as Parameters<typeof setState>[0])
+            setState(msg as unknown as Parameters<typeof setState>[0])
           }
         } catch {
           // ignore parse errors

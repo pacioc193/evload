@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useWsStore } from '../store/wsStore'
 import { api } from '../api/index'
 import { Thermometer, Wind, Power } from 'lucide-react'

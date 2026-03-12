@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useWsStore } from '../store/wsStore'
 import { startCharging, stopCharging } from '../api/index'
-import { Battery, Zap, Thermometer, Activity } from 'lucide-react'
+import { Zap, Thermometer, Activity } from 'lucide-react'
 import { clsx } from 'clsx'
 
 function BatteryBar({ soc, charging }: { soc: number; charging: boolean }) {
