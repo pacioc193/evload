@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "orta.vscode-jest",
+    "redhat.vscode-yaml",
+    "bradlc.vscode-tailwindcss",
+    "ms-azuretools.vscode-docker",
+    "christian-kohler.path-intellisense",
+    "formulahendry.auto-rename-tag"
+  ]
+}

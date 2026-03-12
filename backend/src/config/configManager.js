@@ -4,7 +4,7 @@ const yaml = require('js-yaml');
 const logger = require('../logger');
 const defaultConfig = require('./defaultConfig');
 
-const CONFIG_PATH = '/data/config.yml';
+const CONFIG_PATH = path.join(process.env.DATA_DIR || '/data', 'config.yml');
 
 function deepMerge(target, source) {
   const result = { ...target };

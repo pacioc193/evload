@@ -2,4 +2,8 @@ node_modules/
 dist/
 .env
 *.log
-logs/
+
+# Keep directory stubs but ignore generated content
+data/config.yml
+/logs/*
+!/logs/.gitkeep

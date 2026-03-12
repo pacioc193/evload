@@ -1,0 +1,52 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Backend",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/src/server.js",
+      "cwd": "${workspaceFolder}/backend",
+      "env": {
+        "NODE_ENV": "development",
+        "DATA_DIR": "${workspaceFolder}/data",
+        "LOG_DIR": "${workspaceFolder}/logs",
+        "LOG_LEVEL": "debug"
+      },
+      "preLaunchTask": "install:backend",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"],
+      "restart": true
+    },
+    {
+      "name": "Debug Backend Tests",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/node_modules/.bin/jest",
+      "args": ["--runInBand", "--no-coverage", "--verbose"],
+      "cwd": "${workspaceFolder}/backend",
+      "env": {
+        "NODE_ENV": "test"
+      },
+      "preLaunchTask": "install:backend",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"],
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "Open Frontend (Dev)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/frontend/src",
+      "preLaunchTask": "dev:frontend"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack (Backend + Frontend)",
+      "configurations": ["Debug Backend", "Open Frontend (Dev)"],
+      "stopAll": true
+    }
+  ]
+}
