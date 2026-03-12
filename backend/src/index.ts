@@ -47,8 +47,9 @@ app.use('/api/schedule', scheduleRoutes)
 const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
 
 if (process.env.NODE_ENV === 'production') {
+  const staticLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500 })
   app.use(express.static(FRONTEND_DIST))
-  app.get('*', (_req, res) => {
+  app.get('*', staticLimiter, (_req, res) => {
     res.sendFile(path.join(FRONTEND_DIST, 'index.html'))
   })
 }
