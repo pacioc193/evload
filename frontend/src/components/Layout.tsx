@@ -11,6 +11,8 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const wsConnected = useWsStore((s) => s.connected)
   const failsafe = useWsStore((s) => s.failsafe)
+  const vehicle = useWsStore((s) => s.vehicle)
+  const isDemo = vehicle?.vin === 'DEMO000000000001'
 
   return (
     <div className="min-h-screen bg-evload-bg text-evload-text flex flex-col">
@@ -23,6 +25,11 @@ export default function Layout({ children }: LayoutProps) {
         <div className="flex items-center gap-2">
           <Zap className="text-evload-accent" size={24} />
           <span className="text-xl font-bold">evload</span>
+          {isDemo && (
+            <span className="ml-2 px-2 py-0.5 text-xs font-bold bg-evload-warning/20 text-evload-warning border border-evload-warning rounded">
+              DEMO
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2 text-sm">
           {wsConnected ? (

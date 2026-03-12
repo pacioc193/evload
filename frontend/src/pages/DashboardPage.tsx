@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useWsStore } from '../store/wsStore'
 import { startCharging, stopCharging } from '../api/index'
-import { Zap, Thermometer, Activity } from 'lucide-react'
+import { Zap, Thermometer, Activity, WifiOff } from 'lucide-react'
 import { clsx } from 'clsx'
 
 function BatteryBar({ soc, charging }: { soc: number; charging: boolean }) {
@@ -44,6 +44,7 @@ export default function DashboardPage() {
   const engine = useWsStore((s) => s.engine)
   const ha = useWsStore((s) => s.ha)
   const failsafe = useWsStore((s) => s.failsafe)
+  const wsConnected = useWsStore((s) => s.connected)
   const isDemo = vehicle?.vin === 'DEMO000000000001'
   const [targetSoc, setTargetSoc] = useState(80)
   const [targetAmps, setTargetAmps] = useState(16)
@@ -70,13 +71,44 @@ export default function DashboardPage() {
 
       {isDemo && (
         <div className="bg-evload-warning/10 border border-evload-warning text-evload-warning rounded-xl px-4 py-2 text-sm font-medium">
-          🎮 Demo mode — no real vehicle connected
+          🎮 Demo mode active — simulated data, no real vehicle
         </div>
       )}
 
-      {!vehicle?.connected && (
+      {/* WS not connected yet */}
+      {!wsConnected && !vehicle && (
+        <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center space-y-2">
+          <div className="flex items-center justify-center gap-2 text-evload-muted">
+            <WifiOff size={20} />
+            <span>Connecting to backend…</span>
+          </div>
+          <p className="text-xs text-evload-muted">Make sure the backend server is running.</p>
+        </div>
+      )}
+
+      {/* WS connected but no vehicle data yet (first tick pending) */}
+      {wsConnected && !vehicle && (
         <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center text-evload-muted">
-          Vehicle not connected
+          <div className="animate-pulse">Waiting for vehicle data…</div>
+          <p className="text-xs mt-2">
+            If Demo Mode is enabled, data arrives within ~2 seconds.
+            <br />If not, configure your Proxy URL and Vehicle ID in{' '}
+            <a href="/settings" className="text-evload-accent underline">Settings</a>.
+          </p>
+        </div>
+      )}
+
+      {/* Vehicle data received but not connected */}
+      {vehicle && !vehicle.connected && (
+        <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center space-y-2">
+          <p className="text-evload-muted">Vehicle not connected</p>
+          {!isDemo && (
+            <p className="text-xs text-evload-muted">
+              Check Proxy URL / Vehicle ID in{' '}
+              <a href="/settings" className="text-evload-accent underline">Settings</a>, or enable{' '}
+              <a href="/settings" className="text-evload-accent underline">Demo Mode</a> to test the UI.
+            </p>
+          )}
         </div>
       )}
 
@@ -87,6 +119,7 @@ export default function DashboardPage() {
             <BatteryBar soc={vehicle.stateOfCharge ?? 0} charging={vehicle.charging} />
             <div className="flex items-center gap-4 text-sm text-evload-muted">
               <span>State: <strong className="text-evload-text">{vehicle.chargingState ?? 'Unknown'}</strong></span>
+              <span>Plug: <strong className="text-evload-text">{vehicle.pluggedIn ? 'Plugged in' : 'Unplugged'}</strong></span>
               {vehicle.timeToFullChargeH != null && vehicle.timeToFullChargeH > 0 && (
                 <span>Full in: <strong className="text-evload-text">{vehicle.timeToFullChargeH.toFixed(1)}h</strong></span>
               )}
@@ -111,6 +144,11 @@ export default function DashboardPage() {
 
           <div className="bg-evload-surface border border-evload-border rounded-xl p-6 space-y-4">
             <h2 className="font-semibold text-lg">Charging Control</h2>
+            {engine?.haThrottled && (
+              <div className="bg-evload-warning/10 border border-evload-warning text-evload-warning rounded-lg px-3 py-2 text-sm">
+                ⚡ HA throttling active — home power limit reached
+              </div>
+            )}
             {engine?.running ? (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
@@ -139,12 +177,12 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <button onClick={handleStart}
-                  disabled={loading || !!failsafe?.active || (!vehicle.charging && !isDemo)}
+                  disabled={loading || !!failsafe?.active || (!vehicle.pluggedIn && !isDemo)}
                   className="px-6 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50">
                   Start Charging Control
                 </button>
-                {!vehicle.charging && !isDemo && (
-                  <p className="text-sm text-evload-muted">Vehicle must be plugged in and charging to start control</p>
+                {!vehicle.pluggedIn && !isDemo && (
+                  <p className="text-sm text-evload-muted">Vehicle must be plugged in to start charging control</p>
                 )}
               </div>
             )}
