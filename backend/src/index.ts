@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import http from 'http'
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
@@ -14,6 +15,7 @@ import { startHaPoll } from './services/ha.service'
 import { startProxyPoll } from './services/proxy.service'
 import { initTelegram } from './services/telegram.service'
 import { initFailsafe } from './services/failsafe.service'
+import { initWebSocketServer, stopWebSocketServer } from './ws/broadcaster'
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10)
 
@@ -41,22 +43,27 @@ const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(FRONTEND_DIST))
-  app.get('*', apiLimiter, (_req, res) => {
+  app.get('*', (_req, res) => {
     res.sendFile(path.join(FRONTEND_DIST, 'index.html'))
   })
 }
+
+const server = http.createServer(app)
+
+initWebSocketServer(server)
 
 initFailsafe()
 initTelegram()
 startHaPoll()
 startProxyPoll()
 
-const server = app.listen(PORT, () => {
+server.listen(PORT, () => {
   logger.info(`evload backend listening on port ${PORT}`)
 })
 
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received, shutting down')
+  stopWebSocketServer()
   server.close(() => process.exit(0))
 })
 
