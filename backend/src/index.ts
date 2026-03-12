@@ -6,6 +6,12 @@ import rateLimit from 'express-rate-limit'
 import { logger } from './logger'
 import { loadConfig } from './config'
 import authRoutes from './routes/auth.routes'
+import haRoutes from './routes/ha.routes'
+import vehicleRoutes from './routes/vehicle.routes'
+import { startHaPoll } from './services/ha.service'
+import { startProxyPoll } from './services/proxy.service'
+import { initTelegram } from './services/telegram.service'
+import { initFailsafe } from './services/failsafe.service'
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10)
 
@@ -14,32 +20,44 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
-loadConfig()
+const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 })
+app.use('/api/', apiLimiter)
 
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-})
+loadConfig()
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
 app.use('/api/auth', authRoutes)
+app.use('/api/ha', haRoutes)
+app.use('/api/vehicle', vehicleRoutes)
 
 const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(FRONTEND_DIST))
-  app.get('*', generalLimiter, (_req, res) => {
+  app.get('*', apiLimiter, (_req, res) => {
     res.sendFile(path.join(FRONTEND_DIST, 'index.html'))
   })
 }
 
-app.listen(PORT, () => {
+initFailsafe()
+initTelegram()
+startHaPoll()
+startProxyPoll()
+
+const server = app.listen(PORT, () => {
   logger.info(`evload backend listening on port ${PORT}`)
 })
 
-export { app }
+process.on('SIGTERM', () => {
+  logger.info('SIGTERM received, shutting down')
+  server.close(() => process.exit(0))
+})
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled Promise rejection', { reason })
+})
+
+export { app, server }
