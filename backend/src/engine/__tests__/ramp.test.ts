@@ -3,6 +3,7 @@ import type { EngineStatus } from '../../engine/charging.engine'
 const mockSendProxyCommand = jest.fn().mockResolvedValue({})
 let mockHaConnected = true
 let mockHaPowerW: number = 8450
+let mockHaGridW: number | null = null
 
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn().mockImplementation(() => ({
@@ -55,7 +56,7 @@ jest.mock('../../services/ha.service', () => ({
   getHaState: () => ({
     connected: mockHaConnected,
     powerW: mockHaPowerW,
-    gridW: null,
+    gridW: mockHaGridW,
     lastUpdated: new Date(),
   }),
   haEvents: { on: jest.fn(), emit: jest.fn() },
@@ -80,12 +81,13 @@ jest.mock('../../services/telegram.service', () => ({
   sendTelegramNotification: jest.fn().mockResolvedValue({}),
 }), { virtual: true })
 
-describe('Ramp-up: +1A every 10 seconds', () => {
+describe('F-22 Smart Current Algorithm', () => {
   beforeEach(() => {
     jest.useFakeTimers()
     mockSendProxyCommand.mockClear()
     mockHaConnected = true
     mockHaPowerW = 8450
+    mockHaGridW = null
   })
 
   afterEach(async () => {
@@ -95,58 +97,39 @@ describe('Ramp-up: +1A every 10 seconds', () => {
     jest.resetModules()
     mockHaConnected = true
     mockHaPowerW = 8450
+    mockHaGridW = null
   })
 
-  test('setpointAmps increases by exactly 1A every 10 seconds during ramp-up', async () => {
+  test('formula: gridPowerW=1150 chargerPowerW=0 vehicleVoltageV=230 actualAmps=5 → setpoint=10', async () => {
     const { startEngine, getEngineStatus } = await import('../charging.engine')
 
     await startEngine(80, 16)
-
     await jest.advanceTimersByTimeAsync(1_100)
-    const afterThrottle = getEngineStatus().setpointAmps
-    expect(afterThrottle).toBeLessThanOrEqual(5)
+    expect(getEngineStatus().setpointAmps).toBe(5)
 
-    mockHaConnected = false
+    mockHaPowerW = 1000
+    mockHaGridW = 1150
 
-    const snapshots: number[] = [getEngineStatus().setpointAmps]
-
-    for (let step = 0; step < 5; step++) {
-      await jest.advanceTimersByTimeAsync(10_100)
-      snapshots.push(getEngineStatus().setpointAmps)
-    }
-
-    for (let i = 1; i < snapshots.length; i++) {
-      expect(snapshots[i]).toBe(snapshots[i - 1] + 1)
-    }
+    await jest.advanceTimersByTimeAsync(10_100)
+    expect(getEngineStatus().setpointAmps).toBe(10)
   })
 
-  test('setpointAmps drops immediately on HA throttle without waiting 10s', async () => {
+  test('maintains setpoint when gridW is null: F-19 C3, F-22 C5', async () => {
     const { startEngine, getEngineStatus } = await import('../charging.engine')
 
     await startEngine(80, 16)
-
     await jest.advanceTimersByTimeAsync(1_100)
-
     const throttled = getEngineStatus().setpointAmps
     expect(throttled).toBeLessThanOrEqual(5)
-    expect(throttled).toBeLessThan(16)
-  })
-})
 
-describe('Throttle: immediate reduction on decrease', () => {
-  beforeAll(() => {
-    jest.useFakeTimers()
-    mockHaConnected = true
-    mockHaPowerW = 8450
+    mockHaConnected = false
+    mockHaGridW = null
+
+    await jest.advanceTimersByTimeAsync(10_100)
+    expect(getEngineStatus().setpointAmps).toBe(throttled)
   })
 
-  afterAll(async () => {
-    const { stopEngine } = await import('../charging.engine')
-    await stopEngine()
-    jest.useRealTimers()
-  })
-
-  test('setpointAmps clamps to maxPossible immediately without ramp delay', async () => {
+  test('applies immediate throttle on power reduction without ramp delay: F-19 C1', async () => {
     const { startEngine, getEngineStatus } = await import('../charging.engine')
 
     await startEngine(80, 16)
@@ -157,4 +140,3 @@ describe('Throttle: immediate reduction on decrease', () => {
     expect(status.setpointAmps).toBeLessThan(16)
   })
 })
-
