@@ -71,7 +71,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
       template: string
       condition?: {
         field: string
-        operator: 'exists' | 'equals' | 'not_equals' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains'
+        operator: 'exists' | 'equals' | 'not_equals' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'changed' | 'increased_by' | 'decreased_by' | 'mod_step'
         value?: string | number | boolean
       }
     }>

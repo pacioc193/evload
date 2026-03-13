@@ -13,7 +13,20 @@ const NotificationRuleSchema = z.object({
   condition: z
     .object({
       field: z.string().min(1),
-      operator: z.enum(['exists', 'equals', 'not_equals', 'gt', 'gte', 'lt', 'lte', 'contains']),
+      operator: z.enum([
+        'exists',
+        'equals',
+        'not_equals',
+        'gt',
+        'gte',
+        'lt',
+        'lte',
+        'contains',
+        'changed',
+        'increased_by',
+        'decreased_by',
+        'mod_step',
+      ]),
       value: z.union([z.string(), z.number(), z.boolean()]).optional(),
     })
     .optional(),
