@@ -10,11 +10,30 @@ import ClimatePage from './pages/ClimatePage'
 import StatisticsPage from './pages/StatisticsPage'
 import SettingsPage from './pages/SettingsPage'
 import SchedulePage from './pages/SchedulePage'
+import NotificationsPage from './pages/NotificationsPage'
 import Layout from './components/Layout'
+
+const THEME_STORAGE_KEY = 'evload.theme'
 
 function AppContent() {
   useWebSocket()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY)
+    return (saved as 'light' | 'dark') || 'dark'
+  })
+
+  useEffect(() => {
+    const root = window.document.documentElement
+    if (theme === 'dark') {
+      root.classList.add('dark')
+    } else {
+      root.classList.remove('dark')
+    }
+    localStorage.setItem(THEME_STORAGE_KEY, theme)
+  }, [theme])
+
+  const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
 
   return (
     <Routes>
@@ -22,11 +41,12 @@ function AppContent() {
       <Route path="/login" element={<LoginPage />} />
       {isAuthenticated() ? (
         <>
-          <Route path="/dashboard" element={<Layout><DashboardPage /></Layout>} />
-          <Route path="/climate" element={<Layout><ClimatePage /></Layout>} />
-          <Route path="/statistics" element={<Layout><StatisticsPage /></Layout>} />
-          <Route path="/schedule" element={<Layout><SchedulePage /></Layout>} />
-          <Route path="/settings" element={<Layout><SettingsPage /></Layout>} />
+          <Route path="/dashboard" element={<Layout theme={theme} onToggleTheme={toggleTheme}><DashboardPage /></Layout>} />
+          <Route path="/climate" element={<Layout theme={theme} onToggleTheme={toggleTheme}><ClimatePage /></Layout>} />
+          <Route path="/statistics" element={<Layout theme={theme} onToggleTheme={toggleTheme}><StatisticsPage /></Layout>} />
+          <Route path="/schedule" element={<Layout theme={theme} onToggleTheme={toggleTheme}><SchedulePage /></Layout>} />
+          <Route path="/notifications" element={<Layout theme={theme} onToggleTheme={toggleTheme}><NotificationsPage /></Layout>} />
+          <Route path="/settings" element={<Layout theme={theme} onToggleTheme={toggleTheme}><SettingsPage /></Layout>} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </>
       ) : (

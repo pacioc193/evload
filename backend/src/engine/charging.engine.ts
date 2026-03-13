@@ -5,7 +5,7 @@ import { getConfig } from '../config'
 import { getVehicleState, sendProxyCommand } from '../services/proxy.service'
 import { getHaState } from '../services/ha.service'
 import { isFailsafeActive } from '../services/failsafe.service'
-import { sendTelegramNotification } from '../services/telegram.service'
+import { notificationEvents, dispatchTelegramNotificationEvent } from '../services/notification-rules.service'
 import { computeBalancingAction, shouldAdjustAmps, clampAmps } from './balancing'
 
 const prisma = new PrismaClient()
@@ -14,6 +14,7 @@ export const engineEvents = new EventEmitter()
 
 export interface EngineStatus {
   running: boolean
+  mode: 'off' | 'plan' | 'on'
   sessionId: number | null
   targetSoc: number
   targetAmps: number
@@ -29,6 +30,7 @@ export interface EngineStatus {
 
 let status: EngineStatus = {
   running: false,
+  mode: 'off',
   sessionId: null,
   targetSoc: 80,
   targetAmps: 16,
@@ -47,6 +49,7 @@ let engineLock = false
 let haStoppedForLimit = false
 let haResumeAfterMs: number | null = null
 let lastChargeStartAttemptMs = 0
+let lastRampUpMs = 0
 
 const CHARGE_START_RETRY_MS = 10000
 
@@ -65,6 +68,19 @@ export function getEngineStatus(): EngineStatus {
   return { ...status }
 }
 
+export function setPlanMode(targetSoc: number): void {
+  status = {
+    ...status,
+    running: false,
+    mode: 'plan',
+    targetSoc,
+    phase: 'idle',
+    message: 'Charge planned — waiting for scheduled start',
+    debugLog: [],
+  }
+  engineEvents.emit('mode_changed', status)
+}
+
 export async function startEngine(targetSoc: number, targetAmps?: number): Promise<void> {
   const cfg = getConfig()
   if (status.running) {
@@ -79,6 +95,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
   status = {
     ...status,
     running: true,
+    mode: 'on',
     targetSoc,
     targetAmps: requestedAmps,
     setpointAmps: requestedAmps,
@@ -89,6 +106,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
   haStoppedForLimit = false
   haResumeAfterMs = null
   lastChargeStartAttemptMs = 0
+  lastRampUpMs = Date.now()
 
   const session = await prisma.chargingSession.create({
     data: {
@@ -101,8 +119,15 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
   logger.info(`Charging session started`, { sessionId: session.id, targetSoc, targetAmps: requestedAmps })
   pushEngineLog(`session ${session.id} started: targetSoc=${targetSoc}% targetAmps=${requestedAmps}A`)
   engineEvents.emit('started', status)
-  sendTelegramNotification(
-    `⚡ Charging started\nTarget: ${targetSoc}%\nAmps: ${requestedAmps}A`
+  dispatchTelegramNotificationEvent('start_charging', { reason: 'user_or_scheduler' }).catch(() => {})
+  dispatchTelegramNotificationEvent(
+    'engine_started',
+    {
+      targetSoc,
+      targetAmps: requestedAmps,
+      vehicleId: cfg.proxy.vehicleId,
+      sessionId: session.id,
+    }
   ).catch(() => {})
 
   engineTimer = setInterval(() => {
@@ -125,11 +150,13 @@ export async function stopEngine(): Promise<void> {
     })
     logger.info(`Charging session ended`, { sessionId: status.sessionId })
     pushEngineLog(`session ${status.sessionId} ended`)
-    sendTelegramNotification(`🛑 Charging stopped`).catch(() => {})
+    dispatchTelegramNotificationEvent('stop_charging', { reason: 'user_or_scheduler' }).catch(() => {})
+    dispatchTelegramNotificationEvent('engine_stopped', { sessionId: status.sessionId }).catch(() => {})
   }
   status = {
     ...status,
     running: false,
+    mode: 'off',
     sessionId: null,
     phase: 'idle',
     message: 'Engine stopped',
@@ -141,6 +168,7 @@ export async function stopEngine(): Promise<void> {
   haStoppedForLimit = false
   haResumeAfterMs = null
   lastChargeStartAttemptMs = 0
+  lastRampUpMs = 0
   engineEvents.emit('stopped', status)
 }
 
@@ -225,6 +253,11 @@ async function runEngineStep(): Promise<void> {
       haResumeAfterMs = null
       status.haThrottled = false
       status.message = 'Charging resumed after HA cooldown'
+      dispatchTelegramNotificationEvent('home_power_limit_restored', {
+        homePowerW: getHaState().powerW ?? 0,
+        limitW: cfg.homeAssistant.maxHomePowerW,
+      }).catch(() => {})
+      dispatchTelegramNotificationEvent('charging_resumed', { reason: 'ha_cooldown_passed' }).catch(() => {})
     }
 
     if (haThrottleAmps !== null) {
@@ -242,9 +275,19 @@ async function runEngineStep(): Promise<void> {
           status.haThrottled = true
           const haS = getHaState()
           logger.warn(`HA pause: home power ${haS.powerW}W exceeds limit ${cfg.homeAssistant.maxHomePowerW}W`)
-          pushEngineLog(`HA pause: home=${haS.powerW ?? 0}W limit=${cfg.homeAssistant.maxHomePowerW}W`) 
-          sendTelegramNotification(
-            `⏸️ Charging paused: home power ${haS.powerW?.toFixed(0)}W exceeds limit ${cfg.homeAssistant.maxHomePowerW}W. Overriding schedule.`
+          pushEngineLog(`HA pause: home=${haS.powerW ?? 0}W limit=${cfg.homeAssistant.maxHomePowerW}W`)
+          dispatchTelegramNotificationEvent('home_power_limit_exceeded', {
+            homePowerW: haS.powerW ?? 0,
+            limitW: cfg.homeAssistant.maxHomePowerW,
+          }).catch(() => {})
+          dispatchTelegramNotificationEvent('charging_paused', { reason: 'ha_power_limit' }).catch(() => {})
+          dispatchTelegramNotificationEvent(
+            'ha_paused',
+            {
+              homePowerW: haS.powerW ?? 0,
+              maxHomePowerW: cfg.homeAssistant.maxHomePowerW,
+              retrySec: cfg.homeAssistant.resumeDelaySec,
+            }
           ).catch(() => {})
         }
         status.phase = 'paused'
@@ -266,8 +309,13 @@ async function runEngineStep(): Promise<void> {
             pushEngineLog(`HA throttle setpoint=${throttled}A (actual=${actualAmps}A)`) 
             if (!status.haThrottled) {
               status.haThrottled = true
-              sendTelegramNotification(
-                `⚡ Charging throttled to ${throttled}A: home power ${getHaState().powerW?.toFixed(0)}W exceeds limit.`
+              dispatchTelegramNotificationEvent(
+                'ha_throttled',
+                {
+                  throttledAmps: throttled,
+                  homePowerW: getHaState().powerW ?? 0,
+                  maxHomePowerW: cfg.homeAssistant.maxHomePowerW,
+                }
               ).catch(() => {})
             }
           }
@@ -332,7 +380,7 @@ async function runEngineStep(): Promise<void> {
         status.message = 'Cell balancing in progress (100% hold)'
         logger.info('Cell balancing phase started - holding at 100%')
         pushEngineLog('balancing started')
-        sendTelegramNotification('🔋 Cell balancing in progress').catch(() => {})
+        dispatchTelegramNotificationEvent('balancing_started', { targetSoc: status.targetSoc }).catch(() => {})
         break
 
       case 'balancing_in_progress':
@@ -344,7 +392,7 @@ async function runEngineStep(): Promise<void> {
         logger.info(action.reason)
         pushEngineLog(`stop requested: ${action.reason}`)
         if (action.reason.includes('balancing complete')) {
-          sendTelegramNotification('✅ Cell balancing complete').catch(() => {})
+          dispatchTelegramNotificationEvent('balancing_complete', { reason: action.reason }).catch(() => {})
         }
         await stopEngine()
         return
@@ -375,10 +423,35 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
   if (!vid) return
   const vState = getVehicleState()
   const haAllowed = computeHaAllowedAmps(cfg, vState)
-  const maxAllowed = haAllowed !== null ? Math.min(status.targetAmps, haAllowed, cfg.charging.maxAmps) : Math.min(status.targetAmps, cfg.charging.maxAmps)
-  const desired = clampAmps(maxAllowed, cfg.charging.minAmps, cfg.charging.maxAmps)
+  
+  // F-19 & F-22: Ramp Up Logic (configurable interval)
+  const now = Date.now()
+  const rampIntervalMs = (cfg.charging.rampIntervalSec ?? 10) * 1000
+  const maxPossible = haAllowed !== null ? Math.min(status.targetAmps, haAllowed, cfg.charging.maxAmps) : Math.min(status.targetAmps, cfg.charging.maxAmps)
+  
+  let desired = status.setpointAmps
+
+  if (desired > maxPossible) {
+    // Immediate throttle (safety first)
+    desired = maxPossible
+    lastRampUpMs = now // Reset ramp timer on throttle
+  } else if (desired < maxPossible) {
+    // Try to ramp up
+    if (now - lastRampUpMs >= rampIntervalMs) {
+      desired = Math.min(desired + 1, maxPossible)
+      lastRampUpMs = now
+      if (desired < maxPossible) {
+        pushEngineLog(`ramping up: ${desired}A (target ${maxPossible}A)`)
+      }
+    }
+  } else {
+    lastRampUpMs = now // Stable, keep timer fresh
+  }
+
+  desired = clampAmps(desired, cfg.charging.minAmps, cfg.charging.maxAmps)
   status.setpointAmps = desired
   const actual = vState.chargerActualCurrent ?? 0
+  
   if (shouldAdjustAmps(desired, actual, 1)) {
     try {
       await sendProxyCommand(vid, 'set_charging_amps', { charging_amps: desired })

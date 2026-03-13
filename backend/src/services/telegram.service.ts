@@ -7,40 +7,59 @@ let bot: TelegramBot | null = null
 type CommandHandler = (chatId: string, args: string[]) => Promise<string>
 const commandHandlers = new Map<string, CommandHandler>()
 
+export interface TelegramPrerequisiteStatus {
+  ok: boolean
+  missing: string[]
+}
+
 export function registerTelegramCommand(command: string, handler: CommandHandler): void {
   commandHandlers.set(command, handler)
 }
 
+function getBotToken(): string | undefined {
+  return process.env.TELEGRAM_BOT_TOKEN
+}
+
 export function initTelegram(): void {
-  const token = process.env.TELEGRAM_BOT_TOKEN
+  const token = getBotToken()
   const cfg = getConfig()
   if (!token || !cfg.telegram.enabled) {
     logger.info('Telegram bot disabled or no token configured')
     return
   }
-  bot = new TelegramBot(token, { polling: true })
-  logger.info('Telegram bot started')
 
-  bot.on('message', (msg) => {
-    const chatId = String(msg.chat.id)
-    const allowed = cfg.telegram.allowedChatIds
-    if (allowed.length > 0 && !allowed.includes(chatId)) {
-      logger.warn(`Telegram message from unauthorized chat ${chatId}`)
-      bot?.sendMessage(chatId, 'Unauthorized').catch(() => {})
-      return
-    }
-    const text = msg.text ?? ''
-    logger.info(`Telegram command: ${text}`, { chatId })
-    handleCommand(chatId, text).catch((err) => logger.error('Telegram command error', { err }))
-  })
+  if (bot && (bot as any).token !== token) {
+    logger.info('Telegram bot token changed, re-initializing...')
+    bot.stopPolling().catch(() => {})
+    bot = null
+  }
 
-  bot.on('error', (err) => {
-    logger.error('Telegram bot error', { err })
-  })
+  if (!bot) {
+    bot = new TelegramBot(token, { polling: true })
+    logger.info('Telegram bot started')
 
-  bot.on('polling_error', (err) => {
-    logger.error('Telegram polling error', { err })
-  })
+    bot.on('message', (msg) => {
+      const chatId = String(msg.chat.id)
+      const currentCfg = getConfig()
+      const allowed = currentCfg.telegram.allowedChatIds
+      if (allowed.length > 0 && !allowed.includes(chatId)) {
+        logger.warn(`Telegram message from unauthorized chat ${chatId}`)
+        bot?.sendMessage(chatId, 'Unauthorized').catch(() => {})
+        return
+      }
+      const text = msg.text ?? ''
+      logger.info(`Telegram command: ${text}`, { chatId })
+      handleCommand(chatId, text).catch((err) => logger.error('Telegram command error', { err }))
+    })
+
+    bot.on('error', (err) => {
+      logger.error('Telegram bot error', { err })
+    })
+
+    bot.on('polling_error', (err) => {
+      logger.error('Telegram polling error', { err })
+    })
+  }
 }
 
 async function handleCommand(chatId: string, text: string): Promise<void> {
@@ -73,19 +92,43 @@ async function handleCommand(chatId: string, text: string): Promise<void> {
   }
 }
 
-export async function sendTelegramNotification(message: string): Promise<void> {
-  const chatId = process.env.TELEGRAM_CHAT_ID
+export async function sendTelegramNotification(message: string): Promise<boolean> {
+  const token = getBotToken()
   const cfg = getConfig()
+  const chatId = process.env.TELEGRAM_CHAT_ID
+
+  if (!bot && token && cfg.telegram.enabled) {
+    initTelegram()
+  }
+
   if (!bot || !chatId || !cfg.telegram.enabled) {
     logger.debug('Telegram notification skipped - bot not running, no chat ID, or telegram disabled')
-    return
+    return false
   }
   try {
     await bot.sendMessage(chatId, message)
     logger.info(`Telegram notification sent: ${message}`)
+    return true
   } catch (err) {
     logger.error('Failed to send Telegram notification', { err })
+    return false
   }
+}
+
+export function isTelegramReady(): boolean {
+  const cfg = getConfig()
+  return Boolean(bot && process.env.TELEGRAM_CHAT_ID && cfg.telegram.enabled)
+}
+
+export function getTelegramPrerequisiteStatus(): TelegramPrerequisiteStatus {
+  const cfg = getConfig()
+  const missing: string[] = []
+  if (!cfg.telegram.enabled) missing.push('telegram_disabled')
+  if (!getBotToken()) missing.push('bot_token_missing')
+  if (!process.env.TELEGRAM_CHAT_ID && (!cfg.telegram.allowedChatIds || cfg.telegram.allowedChatIds.length === 0)) {
+    missing.push('chat_id_missing')
+  }
+  return { ok: missing.length === 0, missing }
 }
 
 export function stopTelegram(): void {

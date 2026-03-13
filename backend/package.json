@@ -8,6 +8,7 @@
     "dev": "npm run prisma:generate && prisma db push && ts-node-dev --respawn --transpile-only src/index.ts",
     "start": "node dist/index.js",
     "test": "jest",
+    "test:fleet-contract": "jest src/testing/__tests__/fleet-contract.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },

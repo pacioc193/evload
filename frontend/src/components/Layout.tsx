@@ -1,18 +1,142 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Zap, Car, Thermometer, BarChart2, Settings, Wifi, WifiOff, Calendar } from 'lucide-react'
+import { Zap, Car, Thermometer, BarChart2, Settings, Wifi, WifiOff, Calendar, Bell, Moon, Sun } from 'lucide-react'
 import { useWsStore } from '../store/wsStore'
 import { clsx } from 'clsx'
+import { sendVehicleCommand, updateVehicleDataRequest } from '../api/index'
 
 interface LayoutProps {
   children: React.ReactNode
+  theme: 'light' | 'dark'
+  onToggleTheme: () => void
 }
 
-export default function Layout({ children }: LayoutProps) {
+export default function Layout({ children, theme, onToggleTheme }: LayoutProps) {
   const wsConnected = useWsStore((s) => s.connected)
+  const demoMode = useWsStore((s) => s.demo)
   const failsafe = useWsStore((s) => s.failsafe)
   const vehicle = useWsStore((s) => s.vehicle)
-  const isDemo = vehicle?.vin === 'DEMO000000000001'
+  const simulator = useWsStore((s) => s.simulator)
+  const isDemo = demoMode
+  const [selectedEndpoint, setSelectedEndpoint] = React.useState('vehicle.summary')
+  const [statusMessage, setStatusMessage] = React.useState('')
+  const [busy, setBusy] = React.useState(false)
+  const [socInput, setSocInput] = React.useState('45')
+  const [actualAmpsInput, setActualAmpsInput] = React.useState('0')
+  const [pilotAmpsInput, setPilotAmpsInput] = React.useState('16')
+  const [phasesInput, setPhasesInput] = React.useState('1')
+  const [chargingStateInput, setChargingStateInput] = React.useState('Connected')
+  const [voltageInput, setVoltageInput] = React.useState('230')
+  const [insideTempInput, setInsideTempInput] = React.useState('18')
+  const [outsideTempInput, setOutsideTempInput] = React.useState('12')
+  const [climateOn, setClimateOn] = React.useState(false)
+  const [pluggedIn, setPluggedIn] = React.useState(true)
+
+  const sortedResponses = React.useMemo(() => {
+    const entries = simulator?.lastResponses ?? []
+    return [...entries].sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+  }, [simulator])
+
+  const endpointOptions = React.useMemo(() => {
+    const defaults = [
+      'vehicle.summary',
+      'vehicle.charge_state',
+      'vehicle.climate_state',
+      'command.charge_start',
+      'command.charge_stop',
+      'command.set_charging_amps',
+      'command.set_temps',
+      'command.wake_up',
+      'command.sleep',
+    ]
+    const fromResponses = sortedResponses.map((entry) => entry.endpointKey)
+    const merged = new Set([...defaults, ...fromResponses])
+    return Array.from(merged)
+  }, [sortedResponses])
+
+  const selectedRecord = React.useMemo(
+    () => sortedResponses.find((entry) => entry.endpointKey === selectedEndpoint),
+    [sortedResponses, selectedEndpoint]
+  )
+
+  React.useEffect(() => {
+    if (!endpointOptions.includes(selectedEndpoint) && endpointOptions.length > 0) {
+      setSelectedEndpoint(endpointOptions[0] ?? 'vehicle.summary')
+    }
+  }, [endpointOptions, selectedEndpoint])
+
+  React.useEffect(() => {
+    if (!vehicle) return
+    setSocInput(String(vehicle.stateOfCharge ?? 45))
+    setActualAmpsInput(String(vehicle.chargerActualCurrent ?? 0))
+    setPilotAmpsInput(String(vehicle.chargerPilotCurrent ?? 16))
+    setPhasesInput(String(vehicle.chargerPhases ?? 1))
+    setChargingStateInput(String(vehicle.chargingState ?? 'Connected'))
+    setVoltageInput(String(vehicle.chargerVoltage ?? 230))
+    setInsideTempInput(String(vehicle.insideTempC ?? 18))
+    setOutsideTempInput(String(vehicle.outsideTempC ?? 12))
+    setClimateOn(Boolean(vehicle.climateOn))
+    setPluggedIn(Boolean(vehicle.pluggedIn))
+  }, [
+    vehicle?.stateOfCharge,
+    vehicle?.chargerActualCurrent,
+    vehicle?.chargerPilotCurrent,
+    vehicle?.chargerPhases,
+    vehicle?.chargingState,
+    vehicle?.chargerVoltage,
+    vehicle?.insideTempC,
+    vehicle?.outsideTempC,
+    vehicle?.climateOn,
+    vehicle?.pluggedIn,
+  ])
+
+  const applyManualState = async () => {
+    setBusy(true)
+    setStatusMessage('')
+    try {
+      await updateVehicleDataRequest('charge_state', {
+        battery_level: Number(socInput),
+        charging_state: chargingStateInput,
+        charger_voltage: Number(voltageInput),
+        charger_actual_current: Number(actualAmpsInput),
+        charger_pilot_current: Number(pilotAmpsInput),
+        charger_phases: Number(phasesInput),
+        plugged_in: pluggedIn,
+      })
+      await updateVehicleDataRequest('climate_state', {
+        inside_temp: Number(insideTempInput),
+        outside_temp: Number(outsideTempInput),
+        is_climate_on: climateOn,
+      })
+      setStatusMessage('Manual state applied to simulator responses')
+    } catch {
+      setStatusMessage('Failed to apply manual state')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const runCommand = async (cmd: string, body?: Record<string, unknown>) => {
+    setStatusMessage('')
+    setBusy(true)
+    try {
+      await sendVehicleCommand(cmd, body)
+      setStatusMessage(`Command ${cmd} applied`)
+    } catch {
+      setStatusMessage(`Command ${cmd} failed`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const selectedJson = React.useMemo(() => {
+    if (!selectedRecord) return '{\n  "note": "No payload yet"\n}'
+    try {
+      return JSON.stringify(selectedRecord.payload, null, 2)
+    } catch {
+      return '{\n  "note": "Payload not serializable"\n}'
+    }
+  }, [selectedRecord])
 
   return (
     <div className="min-h-screen bg-evload-bg text-evload-text flex flex-col">
@@ -37,15 +161,23 @@ export default function Layout({ children }: LayoutProps) {
           ) : (
             <><WifiOff size={16} className="text-evload-error" /><span className="text-evload-error">Offline</span></>
           )}
+          <button
+            onClick={onToggleTheme}
+            className="p-2 ml-4 rounded-lg bg-evload-bg border border-evload-border hover:bg-evload-border transition-colors text-evload-text"
+            title={theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
+          >
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
         </div>
       </header>
-      <div className="flex flex-1">
+      <div className="flex flex-1 min-h-0">
         <nav className="w-16 lg:w-56 border-r border-evload-border bg-evload-surface flex flex-col py-4 gap-1">
           {[
             { to: '/dashboard', icon: Car, label: 'Dashboard' },
             { to: '/climate', icon: Thermometer, label: 'Climate' },
             { to: '/statistics', icon: BarChart2, label: 'Statistics' },
             { to: '/schedule', icon: Calendar, label: 'Schedule' },
+            { to: '/notifications', icon: Bell, label: 'Notifications' },
             { to: '/settings', icon: Settings, label: 'Settings' },
           ].map(({ to, icon: Icon, label }) => (
             <NavLink
@@ -66,6 +198,118 @@ export default function Layout({ children }: LayoutProps) {
           ))}
         </nav>
         <main className="flex-1 p-6 overflow-auto">{children}</main>
+        {isDemo && (
+          <aside className="w-[380px] border-l border-evload-border bg-evload-surface p-4 space-y-4 overflow-auto shrink-0">
+            <div>
+              <h2 className="text-sm font-semibold">Simulator Endpoints</h2>
+              <p className="text-xs text-evload-muted">Latest JSON served to backend per endpoint.</p>
+            </div>
+
+            <div className="space-y-2 max-h-48 overflow-auto pr-1">
+              {sortedResponses.length === 0 && (
+                <div className="text-xs text-evload-muted bg-evload-bg border border-evload-border rounded p-2">
+                  No endpoint payload yet.
+                </div>
+              )}
+              {sortedResponses.map((entry) => (
+                <button
+                  key={`${entry.endpointKey}-${entry.timestamp}`}
+                  onClick={() => setSelectedEndpoint(entry.endpointKey)}
+                  className={clsx(
+                    'w-full text-left px-2 py-2 rounded border text-xs',
+                    selectedEndpoint === entry.endpointKey
+                      ? 'border-evload-accent bg-evload-bg'
+                      : 'border-evload-border hover:border-evload-accent/60'
+                  )}
+                >
+                  <div className="font-medium truncate">{entry.endpointKey}</div>
+                  <div className="text-evload-muted">{new Date(entry.timestamp).toLocaleTimeString()} • {entry.source}</div>
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs text-evload-muted">Selected endpoint</label>
+              <select
+                value={selectedEndpoint}
+                onChange={(e) => setSelectedEndpoint(e.target.value)}
+                className="w-full bg-evload-bg border border-evload-border rounded px-2 py-2 text-sm"
+              >
+                {endpointOptions.map((key) => (
+                  <option key={key} value={key}>{key}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs text-evload-muted">Last response JSON</label>
+              <textarea
+                readOnly
+                value={selectedJson}
+                className="w-full h-40 bg-evload-bg border border-evload-border rounded p-2 text-xs font-mono"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs text-evload-muted">Vehicle Controls (demo)</label>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <label className="space-y-1">
+                  <span className="text-evload-muted">State of Charge (%)</span>
+                  <input value={socInput} onChange={(e) => setSocInput(e.target.value)} className="w-full bg-evload-bg border border-evload-border rounded px-2 py-2" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-evload-muted">Charging State</span>
+                  <input value={chargingStateInput} onChange={(e) => setChargingStateInput(e.target.value)} className="w-full bg-evload-bg border border-evload-border rounded px-2 py-2" />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-evload-muted">Actual Current (A)</span>
+                  <input value={actualAmpsInput} onChange={(e) => setActualAmpsInput(e.target.value)} className="w-full bg-evload-bg border border-evload-border rounded px-2 py-2" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-evload-muted">Pilot Current (A)</span>
+                  <input value={pilotAmpsInput} onChange={(e) => setPilotAmpsInput(e.target.value)} className="w-full bg-evload-bg border border-evload-border rounded px-2 py-2" />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-evload-muted">Charger Voltage (V)</span>
+                  <input value={voltageInput} onChange={(e) => setVoltageInput(e.target.value)} className="w-full bg-evload-bg border border-evload-border rounded px-2 py-2" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-evload-muted">Charger Phases</span>
+                  <input value={phasesInput} onChange={(e) => setPhasesInput(e.target.value)} className="w-full bg-evload-bg border border-evload-border rounded px-2 py-2" />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-evload-muted">Inside Temperature (C)</span>
+                  <input value={insideTempInput} onChange={(e) => setInsideTempInput(e.target.value)} className="w-full bg-evload-bg border border-evload-border rounded px-2 py-2" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-evload-muted">Outside Temperature (C)</span>
+                  <input value={outsideTempInput} onChange={(e) => setOutsideTempInput(e.target.value)} className="w-full bg-evload-bg border border-evload-border rounded px-2 py-2" />
+                </label>
+              </div>
+              <div className="flex gap-2 text-xs">
+                <button onClick={() => setPluggedIn((v) => !v)} disabled={busy} className="flex-1 px-2 py-2 bg-evload-border rounded">
+                  Plugged: {pluggedIn ? 'Yes' : 'No'}
+                </button>
+                <button onClick={() => setClimateOn((v) => !v)} disabled={busy} className="flex-1 px-2 py-2 bg-evload-border rounded">
+                  Climate: {climateOn ? 'On' : 'Off'}
+                </button>
+              </div>
+              <button onClick={applyManualState} disabled={busy} className="w-full px-3 py-2 bg-evload-accent hover:bg-red-700 text-white rounded text-sm disabled:opacity-50">
+                Apply Manual State
+              </button>
+              <div className="flex gap-2 text-xs">
+                <button onClick={() => runCommand('charge_start')} disabled={busy} className="flex-1 px-2 py-2 bg-evload-accent text-white rounded">Start</button>
+                <button onClick={() => runCommand('charge_stop')} disabled={busy} className="flex-1 px-2 py-2 bg-evload-border rounded">Stop</button>
+                <button onClick={() => runCommand('sleep')} disabled={busy} className="flex-1 px-2 py-2 bg-evload-border rounded">Sleep</button>
+                <button onClick={() => runCommand('wake_up')} disabled={busy} className="flex-1 px-2 py-2 bg-evload-border rounded">Wake</button>
+              </div>
+              {statusMessage && <div className="text-xs text-evload-muted">{statusMessage}</div>}
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   )

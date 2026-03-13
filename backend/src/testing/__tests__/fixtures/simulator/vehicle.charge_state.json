@@ -1,0 +1,13 @@
+{
+  "response": {
+    "charging_state": "Connected",
+    "battery_level": 45,
+    "battery_range": 202,
+    "charger_voltage": 230,
+    "charger_actual_current": 0,
+    "charger_pilot_current": 16,
+    "charger_phases": 1,
+    "charge_rate": 0,
+    "time_to_full_charge": 4.5
+  }
+}

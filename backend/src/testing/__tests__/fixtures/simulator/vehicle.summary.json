@@ -1,0 +1,8 @@
+{
+  "response": {
+    "vin": "DEMO000000000001",
+    "display_name": "Demo Vehicle",
+    "state": "online",
+    "odometer": 25241
+  }
+}

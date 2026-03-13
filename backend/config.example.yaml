@@ -7,6 +7,7 @@ charging:
   minAmps: 5
   balancingHoldMinutes: 10
   batteryCapacityKwh: 75
+  rampIntervalSec: 10
 
 climate:
   defaultTempC: 21
@@ -21,6 +22,8 @@ homeAssistant:
 telegram:
   enabled: false
   allowedChatIds: []
+  notifications:
+    rules: []
 
 proxy:
   url: "http://localhost:8080"

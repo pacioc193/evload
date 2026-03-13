@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events'
 import { logger } from '../logger'
-import { sendTelegramNotification } from './telegram.service'
+import { dispatchTelegramNotificationEvent } from './notification-rules.service'
 import { haEvents } from './ha.service'
 import { vehicleEvents } from './proxy.service'
 import { getConfig } from '../config'
@@ -28,8 +28,9 @@ async function activateFailsafe(reason: string): Promise<void> {
   failsafeReason = reason
   logger.error(`FAILSAFE ACTIVATED: ${reason}`)
   failsafeEvents.emit('activated', { reason })
-  await sendTelegramNotification(
-    `🚨 evload FAILSAFE ACTIVATED\nReason: ${reason}\nAll automated control halted. Use Tesla app manually.`
+  await dispatchTelegramNotificationEvent(
+    'failsafe_activated',
+    { reason }
   ).catch((err) => logger.error('Failsafe notification failed', { err }))
 }
 
@@ -38,6 +39,7 @@ export async function resetFailsafe(): Promise<void> {
   failsafeReason = ''
   logger.info('Failsafe reset')
   failsafeEvents.emit('reset')
+  dispatchTelegramNotificationEvent('failsafe_cleared', { reason: 'manual_reset' }).catch(() => {})
 }
 
 export function initFailsafe(): void {

@@ -33,6 +33,7 @@ export interface VehicleState {
 
 export interface EngineStatus {
   running: boolean
+  mode: 'off' | 'plan' | 'on'
   sessionId: number | null
   targetSoc: number
   targetAmps: number
@@ -51,30 +52,55 @@ export interface FailsafeState {
   reason: string
 }
 
+export interface SimulatorEndpointRecord {
+  endpointKey: string
+  timestamp: string
+  source: 'simulated' | 'override'
+  payload: unknown
+}
+
+export interface SimulatorDebugState {
+  lastResponses: SimulatorEndpointRecord[]
+}
+
 interface WsState {
   connected: boolean
+  demo: boolean
   ha: HaState | null
   vehicle: VehicleState | null
   engine: EngineStatus | null
   failsafe: FailsafeState | null
+  simulator: SimulatorDebugState | null
   lastUpdate: string | null
   setConnected: (connected: boolean) => void
-  setState: (state: { ha: HaState; vehicle: VehicleState; engine: EngineStatus; failsafe: FailsafeState; timestamp: string }) => void
+  setState: (state: {
+    demo?: boolean
+    ha: HaState
+    vehicle: VehicleState
+    engine: EngineStatus
+    failsafe: FailsafeState
+    simulator?: SimulatorDebugState
+    timestamp: string
+  }) => void
 }
 
 export const useWsStore = create<WsState>((set) => ({
   connected: false,
+  demo: false,
   ha: null,
   vehicle: null,
   engine: null,
   failsafe: null,
+  simulator: null,
   lastUpdate: null,
   setConnected: (connected) => set({ connected }),
   setState: (state) => set({
+    demo: state.demo ?? false,
     ha: state.ha,
     vehicle: state.vehicle,
     engine: state.engine,
     failsafe: state.failsafe,
+    simulator: state.simulator ?? null,
     lastUpdate: state.timestamp,
   }),
 }))

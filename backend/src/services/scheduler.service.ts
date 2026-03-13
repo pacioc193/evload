@@ -4,7 +4,7 @@ import { startEngine, getEngineStatus } from '../engine/charging.engine'
 import { sendProxyCommand, getVehicleState } from './proxy.service'
 import { getConfig } from '../config'
 import { isFailsafeActive } from './failsafe.service'
-import { sendTelegramNotification } from './telegram.service'
+import { dispatchTelegramNotificationEvent } from './notification-rules.service'
 
 const prisma = new PrismaClient()
 
@@ -24,11 +24,13 @@ async function runSchedulerTick(): Promise<void> {
     logger.info(`Executing start_at charge id=${sc.id} targetSoc=${sc.targetSoc}`)
     if (!isFailsafeActive() && !getEngineStatus().running) {
       try {
+        dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
         await startEngine(sc.targetSoc, sc.targetAmps ?? undefined)
       } catch (err) {
         logger.error(`Scheduled charge id=${sc.id} failed to start engine`, { err })
       }
     } else {
+      dispatchTelegramNotificationEvent('plan_skipped', { planId: sc.id, reason: 'failsafe_active_or_running' }).catch(() => {})
       logger.warn(`Scheduled charge id=${sc.id} skipped (failsafe or engine already running)`)
     }
   }
@@ -60,14 +62,13 @@ async function runSchedulerTick(): Promise<void> {
       logger.info(`Executing finish_by charge id=${sc.id} targetSoc=${sc.targetSoc} (must finish by ${sc.finishBy.toISOString()})`)
       if (!isFailsafeActive() && !getEngineStatus().running) {
         try {
+          dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
           await startEngine(sc.targetSoc, amps)
-          await sendTelegramNotification(
-            `⚡ Charging started for "finish by ${sc.finishBy.toLocaleTimeString()}" schedule → ${sc.targetSoc}%`
-          )
         } catch (err) {
           logger.error(`Finish-by charge id=${sc.id} failed to start engine`, { err })
         }
       } else {
+        dispatchTelegramNotificationEvent('plan_skipped', { planId: sc.id, reason: 'failsafe_active_or_running' }).catch(() => {})
         logger.warn(`Finish-by charge id=${sc.id} skipped (failsafe or engine already running)`)
       }
     }

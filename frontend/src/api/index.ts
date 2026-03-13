@@ -27,6 +27,11 @@ export async function startCharging(targetSoc: number, targetAmps?: number) {
   return res.data as { success: boolean }
 }
 
+export async function setPlanMode(targetSoc: number) {
+  const res = await api.post('/engine/mode', { mode: 'plan', targetSoc })
+  return res.data as { success: boolean }
+}
+
 export async function stopCharging() {
   const res = await api.post('/engine/stop')
   return res.data as { success: boolean }
@@ -40,6 +45,16 @@ export async function getSessions(page = 1, limit = 20) {
 export async function getSession(id: number) {
   const res = await api.get(`/sessions/${id}`)
   return res.data
+}
+
+export async function triggerTestEvent(event: string, payload: Record<string, unknown>) {
+  const res = await api.post('/engine/test-event', { event, payload })
+  return res.data as { success: boolean; delivered: number; matchedRules: string[]; messages: string[] }
+}
+
+export interface NotificationEventSchema {
+  required: string[]
+  fields: Record<string, 'string' | 'number' | 'boolean'>
 }
 
 export async function getHaAuthorizeUrl() {
@@ -71,6 +86,38 @@ export interface AppSettings {
   defaultAmps: number
   maxAmps: number
   minAmps: number
+  rampIntervalSec: number
+  telegramEnabled: boolean
+  telegramBotToken?: string
+  telegramAllowedChatIds: string[]
+  telegramRules: TelegramNotificationRule[]
+}
+
+export interface TelegramNotificationCondition {
+  field: string
+  operator:
+    | 'exists'
+    | 'equals'
+    | 'not_equals'
+    | 'gt'
+    | 'gte'
+    | 'lt'
+    | 'lte'
+    | 'contains'
+    | 'changed'
+    | 'increased_by'
+    | 'decreased_by'
+    | 'mod_step'
+  value?: string | number | boolean
+}
+
+export interface TelegramNotificationRule {
+  id: string
+  name: string
+  enabled: boolean
+  event: string
+  template: string
+  condition?: TelegramNotificationCondition
 }
 
 export async function getSettings() {
@@ -81,6 +128,32 @@ export async function getSettings() {
 export async function patchSettings(partial: Partial<AppSettings>) {
   const res = await api.patch('/settings', partial)
   return res.data as { success: boolean }
+}
+
+export async function sendTelegramTestNotification(input: {
+  event: string
+  template: string
+  payload?: Record<string, unknown>
+}) {
+  const res = await api.post('/settings/telegram/test', input)
+  return res.data as { success: boolean; rendered: string; delivered: boolean; missingPlaceholders?: string[] }
+}
+
+export interface TelegramPlaceholdersResponse {
+  messageSource?: 'user_rules_only' | string
+  events: string[]
+  placeholders: {
+    all: string[]
+    byEvent: Record<string, string[]>
+    descriptions: Record<string, string>
+    presets: Record<string, Record<string, unknown>>
+    schemas: Record<string, NotificationEventSchema>
+  }
+}
+
+export async function getTelegramPlaceholders() {
+  const res = await api.get('/settings/telegram/placeholders')
+  return res.data as TelegramPlaceholdersResponse
 }
 
 // ─── Scheduling ──────────────────────────────────────────────────────────────
@@ -138,4 +211,17 @@ export async function createScheduledClimate(scheduledAt: string, targetTempC: n
 export async function deleteScheduledClimate(id: number) {
   const res = await api.delete(`/schedule/climate/${id}`)
   return res.data as { success: boolean }
+}
+
+export async function sendVehicleCommand(cmd: string, body?: Record<string, unknown>) {
+  const res = await api.post(`/vehicle/command/${encodeURIComponent(cmd)}`, body ?? {})
+  return res.data as { success: boolean; result: unknown }
+}
+
+export async function updateVehicleDataRequest(
+  section: 'charge_state' | 'climate_state',
+  payload: Record<string, unknown>
+) {
+  const res = await api.put(`/vehicle/data-request/${section}`, payload)
+  return res.data as { success: boolean; result: unknown }
 }

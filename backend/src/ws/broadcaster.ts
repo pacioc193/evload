@@ -1,8 +1,9 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import { Server } from 'http'
 import { logger } from '../logger'
+import { getConfig } from '../config'
 import { getHaState } from '../services/ha.service'
-import { getVehicleState } from '../services/proxy.service'
+import { getVehicleState, getSimulatorDebugState } from '../services/proxy.service'
 import { getEngineStatus } from '../engine/charging.engine'
 import { isFailsafeActive, getFailsafeReason } from '../services/failsafe.service'
 
@@ -76,8 +77,10 @@ function getAppState() {
   return {
     type: 'state',
     timestamp: new Date().toISOString(),
+    demo: getConfig().demo,
     ha: getHaState(),
     vehicle: getVehicleState(),
+    simulator: getSimulatorDebugState(),
     engine: getEngineStatus(),
     failsafe: {
       active: isFailsafeActive(),

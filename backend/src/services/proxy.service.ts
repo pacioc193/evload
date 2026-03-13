@@ -1,7 +1,8 @@
 import axios from 'axios'
 import { EventEmitter } from 'events'
-import { logger } from '../logger'
+import { logger, sanitizeForLog } from '../logger'
 import { getConfig } from '../config'
+import { dispatchTelegramNotificationEvent } from './notification-rules.service'
 
 export interface VehicleState {
   connected: boolean
@@ -24,6 +25,28 @@ export interface VehicleState {
   vin: string | null
   displayName: string | null
   error?: string
+}
+
+export type SimulatorEndpointKey =
+  | 'vehicle.summary'
+  | 'vehicle.charge_state'
+  | 'vehicle.climate_state'
+  | 'command.charge_start'
+  | 'command.charge_stop'
+  | 'command.set_charging_amps'
+  | 'command.set_temps'
+  | 'command.wake_up'
+  | 'command.sleep'
+
+export interface SimulatorEndpointRecord {
+  endpointKey: SimulatorEndpointKey
+  timestamp: string
+  source: 'simulated'
+  payload: unknown
+}
+
+export interface SimulatorDebugState {
+  lastResponses: SimulatorEndpointRecord[]
 }
 
 export const vehicleEvents = new EventEmitter()
@@ -70,38 +93,113 @@ function computeChargeRateKw(currentA: number | null | undefined, voltageV: numb
   return null
 }
 
-// Demo mode state
-let demoSoc = 45
-let demoClimateOn = false
-let demoClimateTemp = 21
-let demoCommandedAmps = 16
-let demoChargingEnabled = false
+function debugEnabled(): boolean {
+  return (process.env.LOG_LEVEL ?? 'info').toLowerCase() === 'debug'
+}
 
-function getDemoVehicleState(): VehicleState {
-  const chargerVoltage = 230
-  const chargerActualCurrent = demoChargingEnabled ? demoCommandedAmps : 0
-  const socInt = Math.max(0, Math.min(100, Math.round(demoSoc)))
-  return {
-    connected: true,
-    pluggedIn: true,
-    charging: chargerActualCurrent > 0,
-    stateOfCharge: socInt,
-    batteryRange: Math.round(socInt * 4.5),
-    chargingState: chargerActualCurrent > 0 ? 'Charging' : 'Connected',
-    chargerVoltage,
-    chargerActualCurrent,
-    chargerPilotCurrent: 16,
-    chargerPhases: 1,
-    chargeRateKw: computeChargeRateKw(chargerActualCurrent, chargerVoltage),
-    timeToFullChargeH: parseFloat(((100 - socInt) / 100 * 8.5).toFixed(1)),
-    insideTempC: demoClimateOn ? demoClimateTemp : 18,
-    outsideTempC: 12,
-    climateOn: demoClimateOn,
-    locked: false,
-    odometer: 25241,
-    vin: 'DEMO000000000001',
-    displayName: 'Demo Vehicle',
+async function proxyGet<T>(url: string): Promise<T> {
+  if (debugEnabled()) {
+    logger.debug('Proxy outbound request', {
+      method: 'GET',
+      url,
+    })
   }
+  const res = await axios.get<T>(url, { timeout: 4000 })
+  const key = endpointKeyFromUrl(url)
+  if (key) {
+    recordSimulatorResponse(key, res.data, 'simulated')
+  }
+  if (debugEnabled()) {
+    logger.debug('Proxy outbound response', {
+      method: 'GET',
+      url,
+      statusCode: res.status,
+      body: sanitizeForLog(res.data),
+    })
+  }
+  return res.data
+}
+
+async function proxyPost<T>(url: string, body: Record<string, unknown>): Promise<T> {
+  if (debugEnabled()) {
+    logger.debug('Proxy outbound request', {
+      method: 'POST',
+      url,
+      body: sanitizeForLog(body),
+    })
+  }
+  const res = await axios.post<T>(url, body, { timeout: 10000 })
+  const key = endpointKeyFromUrl(url)
+  if (key) {
+    recordSimulatorResponse(key, res.data, 'simulated')
+  }
+  if (debugEnabled()) {
+    logger.debug('Proxy outbound response', {
+      method: 'POST',
+      url,
+      statusCode: res.status,
+      body: sanitizeForLog(res.data),
+    })
+  }
+  return res.data
+}
+
+const SIMULATOR_ENDPOINT_KEYS: SimulatorEndpointKey[] = [
+  'vehicle.summary',
+  'vehicle.charge_state',
+  'vehicle.climate_state',
+  'command.charge_start',
+  'command.charge_stop',
+  'command.set_charging_amps',
+  'command.set_temps',
+  'command.wake_up',
+  'command.sleep',
+]
+
+const simulatorLastResponses = new Map<SimulatorEndpointKey, SimulatorEndpointRecord>()
+
+function safeClone<T>(value: T): T {
+  try {
+    return JSON.parse(JSON.stringify(value)) as T
+  } catch {
+    return value
+  }
+}
+
+function isSimulatorEndpointKey(value: string): value is SimulatorEndpointKey {
+  return SIMULATOR_ENDPOINT_KEYS.includes(value as SimulatorEndpointKey)
+}
+
+function endpointKeyFromUrl(url: string): SimulatorEndpointKey | null {
+  try {
+    const pathname = new URL(url).pathname
+    if (/\/api\/1\/vehicles\/[^/]+$/.test(pathname)) return 'vehicle.summary'
+    if (/\/api\/1\/vehicles\/[^/]+\/data_request\/charge_state$/.test(pathname)) return 'vehicle.charge_state'
+    if (/\/api\/1\/vehicles\/[^/]+\/data_request\/climate_state$/.test(pathname)) return 'vehicle.climate_state'
+    const commandMatch = pathname.match(/\/api\/1\/vehicles\/[^/]+\/command\/([^/]+)$/)
+    if (!commandMatch) return null
+    const cmd = commandMatch[1]
+    const map: Record<string, SimulatorEndpointKey> = {
+      charge_start: 'command.charge_start',
+      charge_stop: 'command.charge_stop',
+      set_charging_amps: 'command.set_charging_amps',
+      set_temps: 'command.set_temps',
+      wake_up: 'command.wake_up',
+      sleep: 'command.sleep',
+    }
+    return map[cmd] ?? null
+  } catch {
+    return null
+  }
+}
+
+function recordSimulatorResponse(endpointKey: SimulatorEndpointKey, payload: unknown, source: 'simulated'): void {
+  simulatorLastResponses.set(endpointKey, {
+    endpointKey,
+    timestamp: new Date().toISOString(),
+    source,
+    payload: safeClone(payload),
+  })
 }
 
 async function pollProxyOnce(): Promise<void> {
@@ -111,17 +209,6 @@ async function pollProxyOnce(): Promise<void> {
   }
   pollLock = true
   try {
-    if (getConfig().demo) {
-      // Rough demo charging progression based on commanded current.
-      if (demoChargingEnabled) {
-        demoSoc = Math.min(demoSoc + (demoCommandedAmps / 16) * 0.005, 100)
-      }
-      const prev = vehicleState.connected
-      vehicleState = getDemoVehicleState()
-      if (!prev) vehicleEvents.emit('connected', vehicleState)
-      vehicleEvents.emit('state', vehicleState)
-      return
-    }
     const vid = vehicleId()
     if (!vid) {
       vehicleState = { ...vehicleState, connected: false, error: 'No vehicle ID configured' }
@@ -130,33 +217,59 @@ async function pollProxyOnce(): Promise<void> {
     }
 
     const [vehicleRes, chargeRes, climateRes] = await Promise.allSettled([
-      axios.get<{ response: { vin: string; display_name: string; state: string; odometer: number } }>(
-        `${proxyUrl()}/api/1/vehicles/${vid}`, { timeout: 4000 }
+      proxyGet<{ response: { vin: string; display_name: string; state: string; odometer: number } }>(
+        `${proxyUrl()}/api/1/vehicles/${vid}`
       ),
-      axios.get<{ response: { charging_state: string; battery_level: number; battery_range: number; charger_voltage: number; charger_actual_current: number; charger_pilot_current: number; charger_phases: number; charge_rate: number; time_to_full_charge: number } }>(
-        `${proxyUrl()}/api/1/vehicles/${vid}/data_request/charge_state`, { timeout: 4000 }
+      proxyGet<{ response: { charging_state: string; battery_level: number; battery_range: number; charger_voltage: number; charger_actual_current: number; charger_pilot_current: number; charger_phases: number; charge_rate: number; time_to_full_charge: number } }>(
+        `${proxyUrl()}/api/1/vehicles/${vid}/data_request/charge_state`
       ),
-      axios.get<{ response: { inside_temp: number; outside_temp: number; is_climate_on: boolean } }>(
-        `${proxyUrl()}/api/1/vehicles/${vid}/data_request/climate_state`, { timeout: 4000 }
+      proxyGet<{ response: { inside_temp: number; outside_temp: number; is_climate_on: boolean } }>(
+        `${proxyUrl()}/api/1/vehicles/${vid}/data_request/climate_state`
       ),
     ])
 
-    const prevConnected = vehicleState.connected
-    const vd = vehicleRes.status === 'fulfilled' ? vehicleRes.value.data.response : null
-    const cd = chargeRes.status === 'fulfilled' ? chargeRes.value.data.response : null
-    const cl = climateRes.status === 'fulfilled' ? climateRes.value.data.response : null
+    const vd = vehicleRes.status === 'fulfilled' ? vehicleRes.value.response : null
+    const cd = chargeRes.status === 'fulfilled' ? chargeRes.value.response : null
+    const cl = climateRes.status === 'fulfilled' ? climateRes.value.response : null
 
-    const chargingState = cd?.charging_state ?? null
-    const pluggedIn = chargingState !== null && chargingState !== 'Disconnected'
-    const charging = (chargingState?.toLowerCase().includes('charging') ?? false)
-      || ((cd?.charger_actual_current ?? 0) > 0)
-    const chargeRateKw = computeChargeRateKw(cd?.charger_actual_current, cd?.charger_voltage, cd?.charge_rate)
+    const prevConnected = vehicleState.connected
+    const VD_CONNECTED = vd !== null
+    if (!prevConnected && VD_CONNECTED) {
+      vehicleEvents.emit('connected', vehicleState)
+      dispatchTelegramNotificationEvent('vehicle_connected', { vehicleId: vid }).catch(() => {})
+    } else if (prevConnected && !VD_CONNECTED) {
+      vehicleEvents.emit('disconnected', vehicleState)
+      dispatchTelegramNotificationEvent('vehicle_disconnected', { vehicleId: vid }).catch(() => {})
+    }
+
+    const prevSoc = vehicleState.stateOfCharge
+    const nextSoc = cd?.battery_level != null ? Math.round(cd.battery_level) : null
+
+    if (prevSoc !== null && nextSoc !== null && nextSoc > prevSoc) {
+      dispatchTelegramNotificationEvent('soc_increased', {
+        soc: nextSoc,
+        deltaSoc: nextSoc - prevSoc,
+      }).catch(() => {})
+    }
+
+    const cfg = getConfig()
+    if (prevSoc !== null && nextSoc !== null && nextSoc >= cfg.charging.defaultTargetSoc && prevSoc < cfg.charging.defaultTargetSoc) {
+      dispatchTelegramNotificationEvent('target_soc_reached', {
+        soc: nextSoc,
+        targetSoc: cfg.charging.defaultTargetSoc,
+      }).catch(() => {})
+    }
+
+    const chargingState = cd?.charging_state || 'Disconnected'
+    const charging = chargingState === 'Charging'
+    const pluggedIn = ['Charging', 'Stopped', 'Complete'].includes(chargingState)
+    const chargeRateKw = cd?.charge_rate != null ? Math.round(cd.charge_rate * 10) / 10 : null
 
     vehicleState = {
-      connected: vd !== null,
+      connected: VD_CONNECTED,
       pluggedIn,
       charging,
-      stateOfCharge: cd?.battery_level != null ? Math.round(cd.battery_level) : null,
+      stateOfCharge: nextSoc,
       batteryRange: cd?.battery_range ?? null,
       chargingState,
       chargerVoltage: cd?.charger_voltage ?? null,
@@ -172,12 +285,6 @@ async function pollProxyOnce(): Promise<void> {
       odometer: vd?.odometer ?? null,
       vin: vd?.vin ?? null,
       displayName: vd?.display_name ?? null,
-    }
-
-    if (!prevConnected && vehicleState.connected) {
-      vehicleEvents.emit('connected', vehicleState)
-    } else if (prevConnected && !vehicleState.connected) {
-      vehicleEvents.emit('disconnected', vehicleState)
     }
 
     vehicleEvents.emit('state', vehicleState)
@@ -215,30 +322,43 @@ export function getVehicleState(): VehicleState {
 }
 
 export async function sendProxyCommand(vehicleId: string, command: string, body?: Record<string, unknown>): Promise<unknown> {
-  if (getConfig().demo) {
-    logger.debug(`[DEMO] sendProxyCommand ${command}`, { body })
-    if (command === 'charge_start') demoChargingEnabled = true
-    if (command === 'charge_stop') demoChargingEnabled = false
-    if (command === 'auto_conditioning_start') demoClimateOn = true
-    if (command === 'auto_conditioning_stop') demoClimateOn = false
-    if (command === 'set_charging_amps') {
-      const requested = Number(body?.['charging_amps'] ?? demoCommandedAmps)
-      if (Number.isFinite(requested)) {
-        demoCommandedAmps = Math.max(0, Math.round(requested))
-      }
-    }
-    if (command === 'set_temps' && body?.['driver_temp'] !== undefined) {
-      demoClimateTemp = Number(body['driver_temp'])
-    }
-    return {
-      result: true,
-      reason: 'demo',
-      command,
-      appliedAmps: demoCommandedAmps,
-      chargingEnabled: demoChargingEnabled,
-    }
-  }
   const url = `${proxyUrl()}/api/1/vehicles/${vehicleId}/command/${command}`
-  const res = await axios.post<unknown>(url, body ?? {}, { timeout: 10000 })
+  return proxyPost<unknown>(url, body ?? {})
+}
+
+export async function updateProxyDataRequest(
+  vehicleId: string,
+  section: 'charge_state' | 'climate_state',
+  body: Record<string, unknown>
+): Promise<unknown> {
+  const url = `${proxyUrl()}/api/1/vehicles/${vehicleId}/data_request/${section}`
+  if (debugEnabled()) {
+    logger.debug('Proxy outbound request', {
+      method: 'PUT',
+      url,
+      body: sanitizeForLog(body),
+    })
+  }
+  const res = await axios.put<unknown>(url, body, { timeout: 10000 })
+  const key = endpointKeyFromUrl(url)
+  if (key) {
+    recordSimulatorResponse(key, res.data, 'simulated')
+  }
+  if (debugEnabled()) {
+    logger.debug('Proxy outbound response', {
+      method: 'PUT',
+      url,
+      statusCode: res.status,
+      body: sanitizeForLog(res.data),
+    })
+  }
   return res.data
+}
+
+export function getSimulatorDebugState(): SimulatorDebugState {
+  return {
+    lastResponses: Array.from(simulatorLastResponses.values())
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .map((entry) => ({ ...entry, payload: safeClone(entry.payload) })),
+  }
 }
