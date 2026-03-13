@@ -107,8 +107,10 @@ describe('F-22 Smart Current Algorithm', () => {
     await jest.advanceTimersByTimeAsync(1_100)
     expect(getEngineStatus().setpointAmps).toBe(5)
 
-    mockHaPowerW = 1000
-    mockHaGridW = 1150
+    const chargerPowerW = 1000
+    const gridPowerW = 1150
+    mockHaPowerW = chargerPowerW
+    mockHaGridW = gridPowerW
 
     await jest.advanceTimersByTimeAsync(10_100)
     expect(getEngineStatus().setpointAmps).toBe(10)

@@ -427,9 +427,10 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
     ? Math.min(status.targetAmps, haAllowed, cfg.charging.maxAmps)
     : Math.min(status.targetAmps, cfg.charging.maxAmps)
 
+  const DEFAULT_VEHICLE_VOLTAGE_V = 230
   const gridPowerW = (haS.connected && haS.gridW !== null) ? haS.gridW : null
   const chargerPowerW = (vState.chargeRateKw ?? 0) * 1000
-  const vehicleVoltageV = vState.chargerVoltage ?? 230
+  const vehicleVoltageV = vState.chargerVoltage ?? DEFAULT_VEHICLE_VOLTAGE_V
 
   let desired = status.setpointAmps
 
