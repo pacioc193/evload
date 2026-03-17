@@ -24,6 +24,8 @@ model ChargingSession {
   locationName    String?
   targetSoc       Int?
   targetAmps      Int?
+  energyPriceEurPerKwh Float          @default(0)
+  totalCostEur    Float             @default(0)
   totalEnergyKwh  Float             @default(0)
   peakPowerW      Float             @default(0)
   averageAmps     Float             @default(0)
@@ -59,6 +61,7 @@ model ScheduledCharge {
   scheduleType String    @default("start_at")
   scheduledAt  DateTime?
   finishBy     DateTime?
+  startedAt    DateTime?
   targetSoc    Int
   targetAmps   Int?
   enabled      Boolean   @default(true)
@@ -69,7 +72,10 @@ model ScheduledCharge {
 model ScheduledClimate {
   id           Int       @id @default(autoincrement())
   vehicleId    String
-  scheduledAt  DateTime
+  scheduleType String    @default("start_at")
+  scheduledAt  DateTime?
+  finishBy     DateTime?
+  startedAt    DateTime?
   targetTempC  Float
   enabled      Boolean   @default(true)
   createdAt    DateTime  @default(now())

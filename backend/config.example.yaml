@@ -8,6 +8,7 @@ charging:
   balancingHoldMinutes: 10
   batteryCapacityKwh: 75
   rampIntervalSec: 10
+  energyPriceEurPerKwh: 0.30
 
 climate:
   defaultTempC: 21
@@ -15,7 +16,7 @@ climate:
 homeAssistant:
   url: "http://homeassistant.local:8123"
   powerEntityId: "sensor.home_power"
-  # gridEntityId: "sensor.grid_power"
+  chargerEntityId: "sensor.charger_power"
   maxHomePowerW: 7000
   resumeDelaySec: 30
 
@@ -28,4 +29,5 @@ telegram:
 proxy:
   url: "http://localhost:8080"
   vehicleId: ""
+  vehicleName: ""
   pollIntervalMs: 1000

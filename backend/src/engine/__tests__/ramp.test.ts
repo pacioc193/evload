@@ -3,7 +3,7 @@ import type { EngineStatus } from '../../engine/charging.engine'
 const mockSendProxyCommand = jest.fn().mockResolvedValue({})
 let mockHaConnected = true
 let mockHaPowerW: number = 8450
-let mockHaGridW: number | null = null
+let mockHaChargerW: number | null = null
 
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn().mockImplementation(() => ({
@@ -56,7 +56,7 @@ jest.mock('../../services/ha.service', () => ({
   getHaState: () => ({
     connected: mockHaConnected,
     powerW: mockHaPowerW,
-    gridW: mockHaGridW,
+    chargerW: mockHaChargerW,
     lastUpdated: new Date(),
   }),
   haEvents: { on: jest.fn(), emit: jest.fn() },
@@ -87,7 +87,7 @@ describe('F-22 Smart Current Algorithm', () => {
     mockSendProxyCommand.mockClear()
     mockHaConnected = true
     mockHaPowerW = 8450
-    mockHaGridW = null
+    mockHaChargerW = null
   })
 
   afterEach(async () => {
@@ -97,10 +97,10 @@ describe('F-22 Smart Current Algorithm', () => {
     jest.resetModules()
     mockHaConnected = true
     mockHaPowerW = 8450
-    mockHaGridW = null
+    mockHaChargerW = null
   })
 
-  test('formula: gridPowerW=1150 chargerPowerW=0 vehicleVoltageV=230 actualAmps=5 → setpoint=10', async () => {
+  test('formula: homeTotalPowerW=1150 chargerPowerW=1000 vehicleVoltageV=230 actualAmps=5 → setpoint=6', async () => {
     const { startEngine, getEngineStatus } = await import('../charging.engine')
 
     await startEngine(80, 16)
@@ -108,15 +108,15 @@ describe('F-22 Smart Current Algorithm', () => {
     expect(getEngineStatus().setpointAmps).toBe(5)
 
     const chargerPowerW = 1000
-    const gridPowerW = 1150
-    mockHaPowerW = chargerPowerW
-    mockHaGridW = gridPowerW
+    const homeTotalPowerW = 1150
+    mockHaPowerW = homeTotalPowerW
+    mockHaChargerW = chargerPowerW
 
     await jest.advanceTimersByTimeAsync(10_100)
-    expect(getEngineStatus().setpointAmps).toBe(10)
+    expect(getEngineStatus().setpointAmps).toBe(6)
   })
 
-  test('maintains setpoint when gridW is null: F-19 C3, F-22 C5', async () => {
+  test('maintains setpoint when home total power is unavailable: F-19 C3, F-22 C5', async () => {
     const { startEngine, getEngineStatus } = await import('../charging.engine')
 
     await startEngine(80, 16)
@@ -125,7 +125,7 @@ describe('F-22 Smart Current Algorithm', () => {
     expect(throttled).toBeLessThanOrEqual(5)
 
     mockHaConnected = false
-    mockHaGridW = null
+    mockHaChargerW = null
 
     await jest.advanceTimersByTimeAsync(10_100)
     expect(getEngineStatus().setpointAmps).toBe(throttled)

@@ -30,11 +30,14 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     demo: cfg.demo,
     haUrl: cfg.homeAssistant.url,
     haPowerEntityId: cfg.homeAssistant.powerEntityId,
-    haGridEntityId: cfg.homeAssistant.gridEntityId,
+    haChargerEntityId: cfg.homeAssistant.chargerEntityId,
     haMaxHomePowerW: cfg.homeAssistant.maxHomePowerW,
+    resumeDelaySec: cfg.homeAssistant.resumeDelaySec,
     proxyUrl: cfg.proxy.url,
     vehicleId: cfg.proxy.vehicleId,
+    vehicleName: cfg.proxy.vehicleName,
     batteryCapacityKwh: cfg.charging.batteryCapacityKwh,
+    energyPriceEurPerKwh: cfg.charging.energyPriceEurPerKwh,
     defaultAmps: cfg.charging.defaultAmps,
     maxAmps: cfg.charging.maxAmps,
     minAmps: cfg.charging.minAmps,
@@ -51,11 +54,14 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     demo: boolean
     haUrl: string
     haPowerEntityId: string
-    haGridEntityId: string
+    haChargerEntityId: string
     haMaxHomePowerW: number
+    resumeDelaySec: number
     proxyUrl: string
     vehicleId: string
+    vehicleName: string
     batteryCapacityKwh: number
+    energyPriceEurPerKwh: number
     defaultAmps: number
     maxAmps: number
     minAmps: number
@@ -96,31 +102,55 @@ router.patch('/', limiter, requireAuth, (req, res) => {
 
   if (incoming.demo !== undefined) parsed['demo'] = incoming.demo
 
+  const activeCfg = getConfig()
+
   const ha = (parsed['homeAssistant'] as Record<string, unknown>) ?? {}
   if (incoming.haUrl !== undefined) ha['url'] = incoming.haUrl
   if (incoming.haPowerEntityId !== undefined) ha['powerEntityId'] = incoming.haPowerEntityId
-  if (incoming.haGridEntityId !== undefined) ha['gridEntityId'] = incoming.haGridEntityId || undefined
+  if (incoming.haChargerEntityId !== undefined) ha['chargerEntityId'] = incoming.haChargerEntityId
   if (incoming.haMaxHomePowerW !== undefined) ha['maxHomePowerW'] = incoming.haMaxHomePowerW
+  if (incoming.resumeDelaySec !== undefined) ha['resumeDelaySec'] = incoming.resumeDelaySec
+
+  const nextHaUrl = String(ha['url'] ?? activeCfg.homeAssistant.url ?? '').trim()
+  const nextHaPowerEntityId = String(ha['powerEntityId'] ?? activeCfg.homeAssistant.powerEntityId ?? '').trim()
+  const nextHaChargerEntityId = String(ha['chargerEntityId'] ?? activeCfg.homeAssistant.chargerEntityId ?? '').trim()
+
+  if (!nextHaUrl || !nextHaPowerEntityId || !nextHaChargerEntityId) {
+    res.status(400).json({
+      error: 'Invalid Home Assistant configuration: haUrl, haPowerEntityId and haChargerEntityId are required',
+    })
+    return
+  }
+
+  ha['url'] = nextHaUrl
+  ha['powerEntityId'] = nextHaPowerEntityId
+  ha['chargerEntityId'] = nextHaChargerEntityId
   parsed['homeAssistant'] = ha
 
   const proxy = (parsed['proxy'] as Record<string, unknown>) ?? {}
   if (incoming.proxyUrl !== undefined) proxy['url'] = incoming.proxyUrl
   if (incoming.vehicleId !== undefined) proxy['vehicleId'] = incoming.vehicleId
+  if (incoming.vehicleName !== undefined) proxy['vehicleName'] = incoming.vehicleName
   parsed['proxy'] = proxy
 
   const charging = (parsed['charging'] as Record<string, unknown>) ?? {}
   if (incoming.batteryCapacityKwh !== undefined) charging['batteryCapacityKwh'] = incoming.batteryCapacityKwh
+  if (incoming.energyPriceEurPerKwh !== undefined) charging['energyPriceEurPerKwh'] = incoming.energyPriceEurPerKwh
   if (incoming.defaultAmps !== undefined) charging['defaultAmps'] = incoming.defaultAmps
   if (incoming.maxAmps !== undefined) charging['maxAmps'] = incoming.maxAmps
   if (incoming.minAmps !== undefined) charging['minAmps'] = incoming.minAmps
   if (incoming.rampIntervalSec !== undefined) charging['rampIntervalSec'] = incoming.rampIntervalSec
 
-  const activeCfg = getConfig()
   const nextDefaultAmps = Number(charging['defaultAmps'] ?? activeCfg.charging.defaultAmps)
   const nextMaxAmps = Number(charging['maxAmps'] ?? activeCfg.charging.maxAmps)
   const nextMinAmps = Number(charging['minAmps'] ?? activeCfg.charging.minAmps)
+  const nextEnergyPrice = Number(charging['energyPriceEurPerKwh'] ?? activeCfg.charging.energyPriceEurPerKwh)
   if (!(nextMinAmps <= nextDefaultAmps && nextDefaultAmps <= nextMaxAmps)) {
     res.status(400).json({ error: 'Invalid charging amperage configuration: expected minAmps <= defaultAmps <= maxAmps' })
+    return
+  }
+  if (!Number.isFinite(nextEnergyPrice) || nextEnergyPrice < 0) {
+    res.status(400).json({ error: 'Invalid energy price configuration: energyPriceEurPerKwh must be >= 0' })
     return
   }
 

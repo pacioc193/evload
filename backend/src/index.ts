@@ -136,6 +136,10 @@ startFleetSimulator()
 startProxyPoll()
 startScheduler()
 
+stopEngine().catch((err) => {
+  logger.error('Startup OFF enforcement failed', { err })
+})
+
 server.listen(PORT, () => {
   logger.info(`evload backend listening on port ${PORT}`)
 })

@@ -11,6 +11,8 @@ interface Session {
   startedAt: string
   endedAt: string | null
   totalEnergyKwh: number
+  totalCostEur: number
+  energyPriceEurPerKwh: number
   _count?: { telemetry: number }
 }
 
@@ -27,6 +29,8 @@ interface SessionDetail {
   startedAt: string
   endedAt: string | null
   totalEnergyKwh: number
+  totalCostEur: number
+  energyPriceEurPerKwh: number
   telemetry: TelemetryPoint[]
 }
 
@@ -70,6 +74,8 @@ export default function StatisticsPage() {
 
   const totalEnergy = sessions.reduce((sum, s) => sum + s.totalEnergyKwh, 0)
   const avgEnergy = sessions.length ? totalEnergy / sessions.length : 0
+  const totalCost = sessions.reduce((sum, s) => sum + (s.totalCostEur ?? 0), 0)
+  const avgCost = sessions.length ? totalCost / sessions.length : 0
 
   return (
     <div className="space-y-6">
@@ -78,7 +84,9 @@ export default function StatisticsPage() {
         {[
           { label: 'Sessions', value: sessions.length, unit: '', icon: BarChart2 },
           { label: 'Total Energy', value: totalEnergy.toFixed(1), unit: 'kWh', icon: Zap },
-          { label: 'Avg Energy', value: avgEnergy.toFixed(1), unit: 'kWh', icon: Battery },
+          { label: 'Total Cost', value: totalCost.toFixed(2), unit: 'EUR', icon: Battery },
+          { label: 'Avg Session Cost', value: avgCost.toFixed(2), unit: 'EUR', icon: Clock },
+          { label: 'Avg Energy', value: avgEnergy.toFixed(1), unit: 'kWh', icon: Zap },
           { label: 'Last Session', value: sessions[0] ? new Date(sessions[0].startedAt).toLocaleDateString() : '—', unit: '', icon: Clock },
         ].map(({ label, value, unit, icon: Icon }) => (
           <div key={label} className="bg-evload-surface border border-evload-border rounded-xl p-4">
@@ -100,6 +108,8 @@ export default function StatisticsPage() {
                     <div className="text-sm font-medium">{new Date(s.startedAt).toLocaleString()}</div>
                     <div className="text-xs text-evload-muted mt-1 flex gap-3">
                       <span>{s.totalEnergyKwh.toFixed(2)} kWh</span>
+                      <span>{(s.totalCostEur ?? 0).toFixed(2)} EUR</span>
+                      <span>@ {(s.energyPriceEurPerKwh ?? 0).toFixed(3)} EUR/kWh</span>
                       <span>{formatDuration(s.startedAt, s.endedAt)}</span>
                       {s._count && <span>{s._count.telemetry} pts</span>}
                     </div>
@@ -113,6 +123,20 @@ export default function StatisticsPage() {
           {sessionLoading && <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center text-evload-muted">Loading...</div>}
           {selectedSession && !sessionLoading && telemetryData.length > 0 && (
             <>
+              <div className="bg-evload-surface border border-evload-border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                <div>
+                  <div className="text-evload-muted uppercase tracking-wide text-xs">Session Energy</div>
+                  <div className="text-xl font-semibold">{selectedSession.totalEnergyKwh.toFixed(2)} kWh</div>
+                </div>
+                <div>
+                  <div className="text-evload-muted uppercase tracking-wide text-xs">Session Cost</div>
+                  <div className="text-xl font-semibold">{(selectedSession.totalCostEur ?? 0).toFixed(2)} EUR</div>
+                </div>
+                <div>
+                  <div className="text-evload-muted uppercase tracking-wide text-xs">Applied Tariff</div>
+                  <div className="text-xl font-semibold">{(selectedSession.energyPriceEurPerKwh ?? 0).toFixed(3)} EUR/kWh</div>
+                </div>
+              </div>
               <div className="bg-evload-surface border border-evload-border rounded-xl p-4">
                 <h3 className="font-medium mb-3 text-sm text-evload-muted">State of Charge (%)</h3>
                 <ResponsiveContainer width="100%" height={180}>

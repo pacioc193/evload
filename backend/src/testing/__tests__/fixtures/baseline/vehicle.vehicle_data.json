@@ -1,0 +1,31 @@
+{
+  "response": {
+    "result": true,
+    "reason": "The request was successfully processed.",
+    "vin": "5YJ3E1EA7KF000001",
+    "command": "vehicle_data",
+    "response": {
+      "charge_state": {
+        "charging_state": "Charging",
+        "battery_level": 36,
+        "battery_range": 169,
+        "charger_voltage": 230,
+        "charger_actual_current": 16,
+        "charger_pilot_current": 16,
+        "charger_phases": 1,
+        "charger_power": 3.68,
+        "charge_rate": 3.68,
+        "minutes_to_full_charge": 252
+      },
+      "climate_state": {
+        "inside_temp": 21,
+        "outside_temp": 12,
+        "is_climate_on": false
+      },
+      "vehicle_state": {
+        "odometer": 25341,
+        "locked": true
+      }
+    }
+  }
+}

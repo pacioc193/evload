@@ -42,6 +42,7 @@ const ConfigSchema = z.object({
     rampIntervalSec: z.number().min(1).default(10),
     balancingHoldMinutes: z.number().default(10),
     batteryCapacityKwh: z.number().min(1).default(75),
+    energyPriceEurPerKwh: z.number().min(0).default(0.3),
   }).default({}),
   climate: z.object({
     defaultTempC: z.number().default(21),
@@ -49,7 +50,7 @@ const ConfigSchema = z.object({
   homeAssistant: z.object({
     url: z.string().default('http://homeassistant.local:8123'),
     powerEntityId: z.string().default('sensor.home_power'),
-    gridEntityId: z.string().default(''),
+    chargerEntityId: z.string().default('sensor.charger_power'),
     maxHomePowerW: z.number().default(7000),
     resumeDelaySec: z.number().min(0).default(30),
   }).default({}),
@@ -66,6 +67,7 @@ const ConfigSchema = z.object({
   proxy: z.object({
     url: z.string().default('http://localhost:8080'),
     vehicleId: z.string().default(''),
+    vehicleName: z.string().default(''),
     pollIntervalMs: z.number().default(1000),
   }).default({}),
 })

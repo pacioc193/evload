@@ -50,6 +50,7 @@ let haStoppedForLimit = false
 let haResumeAfterMs: number | null = null
 let lastChargeStartAttemptMs = 0
 let lastRampUpMs = 0
+let sessionEnergyPriceEurPerKwh = 0
 
 const CHARGE_START_RETRY_MS = 10000
 
@@ -102,6 +103,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     message: 'Engine started',
     debugLog: [],
   }
+  sessionEnergyPriceEurPerKwh = cfg.charging.energyPriceEurPerKwh
   haStoppedForLimit = false
   haResumeAfterMs = null
   lastChargeStartAttemptMs = 0
@@ -112,6 +114,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
       vehicleId: cfg.proxy.vehicleId,
       targetSoc,
       targetAmps: requestedAmps,
+      energyPriceEurPerKwh: cfg.charging.energyPriceEurPerKwh,
     },
   })
   status.sessionId = session.id
@@ -135,16 +138,28 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
 }
 
 export async function stopEngine(): Promise<void> {
+  const cfg = getConfig()
+  const vid = getCommandVehicleId(cfg)
+  if (vid) {
+    await sendProxyCommand(vid, 'charge_stop', {}).catch((err) =>
+      logger.error('charge_stop failed during stopEngine', { err })
+    )
+    pushEngineLog('charge_stop sent by stopEngine')
+  }
+
   if (engineTimer) {
     clearInterval(engineTimer)
     engineTimer = null
   }
   if (status.sessionId) {
+    const totalEnergyKwh = await getTotalEnergy(status.sessionId)
+    const totalCostEur = Number((totalEnergyKwh * sessionEnergyPriceEurPerKwh).toFixed(4))
     await prisma.chargingSession.update({
       where: { id: status.sessionId },
       data: {
         endedAt: new Date(),
-        totalEnergyKwh: await getTotalEnergy(status.sessionId),
+        totalEnergyKwh,
+        totalCostEur,
       },
     })
     logger.info(`Charging session ended`, { sessionId: status.sessionId })
@@ -168,6 +183,7 @@ export async function stopEngine(): Promise<void> {
   haResumeAfterMs = null
   lastChargeStartAttemptMs = 0
   lastRampUpMs = 0
+  sessionEnergyPriceEurPerKwh = 0
   engineEvents.emit('stopped', status)
 }
 
@@ -407,11 +423,11 @@ function computeHaAllowedAmps(
 ): number | null {
   const haS = getHaState()
   if (!haS.connected || haS.powerW === null || cfg.homeAssistant.maxHomePowerW <= 0) return null
-  const carChargeW = (vState.chargeRateKw ?? 0) * 1000
-  const houseOnlyW = haS.powerW - carChargeW
+  const chargerPowerW = haS.chargerW ?? ((vState.chargeRateKw ?? 0) * 1000)
+  const houseOnlyW = haS.powerW - chargerPowerW
   const availableW = cfg.homeAssistant.maxHomePowerW - houseOnlyW
   const voltage = vState.chargerVoltage ?? 230
-  pushEngineLog(`HA window: home=${haS.powerW ?? 0}W houseOnly=${Math.round(houseOnlyW)}W available=${Math.round(availableW)}W voltage=${voltage}V`)
+  pushEngineLog(`HA window: homeTotal=${haS.powerW ?? 0}W charger=${Math.round(chargerPowerW)}W homeWithoutCharger=${Math.round(houseOnlyW)}W available=${Math.round(availableW)}W voltage=${voltage}V`)
   return Math.floor(availableW / voltage)
 }
 
@@ -428,8 +444,8 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
     : Math.min(status.targetAmps, cfg.charging.maxAmps)
 
   const DEFAULT_VEHICLE_VOLTAGE_V = 230
-  const gridPowerW = (haS.connected && haS.gridW !== null) ? haS.gridW : null
-  const chargerPowerW = (vState.chargeRateKw ?? 0) * 1000
+  const homeTotalPowerW = (haS.connected && haS.powerW !== null) ? haS.powerW : null
+  const chargerPowerW = haS.chargerW ?? ((vState.chargeRateKw ?? 0) * 1000)
   const vehicleVoltageV = vState.chargerVoltage ?? DEFAULT_VEHICLE_VOLTAGE_V
 
   let desired = status.setpointAmps
@@ -437,13 +453,13 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
   if (desired > maxPossible) {
     desired = maxPossible
     lastRampUpMs = now
-  } else if (gridPowerW !== null && now - lastRampUpMs >= rampIntervalMs) {
-    const residualPowerW = gridPowerW - chargerPowerW
+  } else if (homeTotalPowerW !== null && now - lastRampUpMs >= rampIntervalMs) {
+    const residualPowerW = homeTotalPowerW - chargerPowerW
     const deltaAmps = residualPowerW / vehicleVoltageV
     const actualAmps = vState.chargerActualCurrent ?? 0
     desired = Math.round(actualAmps + deltaAmps)
     lastRampUpMs = now
-    pushEngineLog(`ramp: gridPowerW=${gridPowerW}W chargerPowerW=${Math.round(chargerPowerW)}W residualPowerW=${Math.round(residualPowerW)}W deltaAmps=${deltaAmps.toFixed(2)} setpoint=${desired}A`)
+    pushEngineLog(`ramp: homeTotalPowerW=${homeTotalPowerW}W chargerPowerW=${Math.round(chargerPowerW)}W residualPowerW=${Math.round(residualPowerW)}W deltaAmps=${deltaAmps.toFixed(2)} setpoint=${desired}A`)
   }
 
   desired = clampAmps(desired, cfg.charging.minAmps, cfg.charging.maxAmps)

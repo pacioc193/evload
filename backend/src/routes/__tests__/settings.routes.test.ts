@@ -15,11 +15,12 @@ jest.mock('../../config', () => ({
     homeAssistant: {
       url: 'http://ha.local',
       powerEntityId: 'sensor.power',
-      gridEntityId: 'sensor.grid',
+      chargerEntityId: 'sensor.charger',
       maxHomePowerW: 4000,
+      resumeDelaySec: 30,
     },
-    proxy: { url: 'http://proxy.local', vehicleId: 'VIN1' },
-    charging: { batteryCapacityKwh: 75, defaultAmps: 16, maxAmps: 32, minAmps: 6 },
+    proxy: { url: 'http://proxy.local', vehicleId: 'VIN1', vehicleName: 'Model Test' },
+    charging: { batteryCapacityKwh: 75, energyPriceEurPerKwh: 0.3, defaultAmps: 16, maxAmps: 32, minAmps: 6, rampIntervalSec: 10 },
     telegram: {
       enabled: false,
       allowedChatIds: [],
@@ -207,5 +208,26 @@ describe('settings routes persistence', () => {
     expect(savedRules[1].condition.value).toBe(5)
     expect(savedRules[2].condition.operator).toBe('mod_step')
     expect(savedRules[2].condition.value).toBe(10)
+  })
+
+  test('rejects settings when one of the required HA entities is missing', async () => {
+    const app = await createApp()
+
+    await request(app)
+      .patch('/')
+      .send({ haChargerEntityId: '' })
+      .expect(400)
+  })
+
+  test('persists vehicleName in proxy settings', async () => {
+    const app = await createApp()
+
+    await request(app)
+      .patch('/')
+      .send({ vehicleName: 'My EV' })
+      .expect(200)
+
+    const saved = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, any>
+    expect(saved.proxy.vehicleName).toBe('My EV')
   })
 })

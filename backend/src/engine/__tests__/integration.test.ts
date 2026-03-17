@@ -81,7 +81,7 @@ jest.mock('../../../src/services/ha.service', () => ({
   getHaState: () => ({
     connected: true,
     powerW: mockPowerW,
-    gridW: null,
+    chargerW: null,
     lastUpdated: new Date(),
   }),
   haEvents: { on: jest.fn(), emit: jest.fn() },

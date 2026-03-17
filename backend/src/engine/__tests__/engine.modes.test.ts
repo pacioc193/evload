@@ -34,7 +34,7 @@ jest.mock('../../services/proxy.service', () => ({
 }), { virtual: true })
 
 jest.mock('../../services/ha.service', () => ({
-  getHaState: () => ({ connected: false, powerW: null, gridW: null, lastUpdated: new Date() }),
+  getHaState: () => ({ connected: false, powerW: null, chargerW: null, lastUpdated: new Date() }),
   haEvents: { on: jest.fn(), emit: jest.fn() },
 }), { virtual: true })
 

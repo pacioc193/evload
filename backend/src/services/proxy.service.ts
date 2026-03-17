@@ -7,8 +7,19 @@ import { dispatchTelegramNotificationEvent } from './notification-rules.service'
 export interface VehicleState {
   connected: boolean
   pluggedIn: boolean
+  cableType: string | null
+  chargePortLatch: string | null
+  chargePortDoorOpen: boolean | null
+  chargeCurrentRequest: number | null
+  chargeCurrentRequestMax: number | null
+  chargeLimitSocMin: number | null
+  chargeLimitSocMax: number | null
+  rawChargeState?: Record<string, unknown> | null
+  rawClimateState?: Record<string, unknown> | null
   charging: boolean
   stateOfCharge: number | null
+  usableBatteryLevel: number | null
+  chargeLimitSoc: number | null
   batteryRange: number | null
   chargingState: string | null
   chargerVoltage: number | null
@@ -28,7 +39,7 @@ export interface VehicleState {
 }
 
 export type SimulatorEndpointKey =
-  | 'vehicle.summary'
+  | 'vehicle.vehicle_data'
   | 'vehicle.charge_state'
   | 'vehicle.climate_state'
   | 'command.charge_start'
@@ -54,8 +65,19 @@ export const vehicleEvents = new EventEmitter()
 let vehicleState: VehicleState = {
   connected: false,
   pluggedIn: false,
+  cableType: null,
+  chargePortLatch: null,
+  chargePortDoorOpen: null,
+  chargeCurrentRequest: null,
+  chargeCurrentRequestMax: null,
+  chargeLimitSocMin: null,
+  chargeLimitSocMax: null,
+  rawChargeState: null,
+  rawClimateState: null,
   charging: false,
   stateOfCharge: null,
+  usableBatteryLevel: null,
+  chargeLimitSoc: null,
   batteryRange: null,
   chargingState: null,
   chargerVoltage: null,
@@ -90,6 +112,31 @@ function computeChargeRateKw(currentA: number | null | undefined, voltageV: numb
     if (Number.isFinite(kw)) return parseFloat(kw.toFixed(2))
   }
   if (fallbackKw != null && Number.isFinite(fallbackKw)) return fallbackKw
+  return null
+}
+
+function computeTimeToFullChargeH(
+  minutesToFull: number | null | undefined,
+  stateOfCharge: number | null,
+  chargeRateKw: number | null,
+  batteryCapacityKwh: number
+): number | null {
+  if (minutesToFull != null && Number.isFinite(minutesToFull) && minutesToFull > 0) {
+    return Number((minutesToFull / 60).toFixed(2))
+  }
+
+  if (
+    stateOfCharge != null
+    && chargeRateKw != null
+    && chargeRateKw > 0
+    && batteryCapacityKwh > 0
+    && stateOfCharge < 100
+  ) {
+    const remainingEnergyKwh = ((100 - stateOfCharge) / 100) * batteryCapacityKwh
+    return Number((remainingEnergyKwh / chargeRateKw).toFixed(2))
+  }
+
+  if (minutesToFull === 0) return 0
   return null
 }
 
@@ -145,7 +192,7 @@ async function proxyPost<T>(url: string, body: Record<string, unknown>): Promise
 }
 
 const SIMULATOR_ENDPOINT_KEYS: SimulatorEndpointKey[] = [
-  'vehicle.summary',
+  'vehicle.vehicle_data',
   'vehicle.charge_state',
   'vehicle.climate_state',
   'command.charge_start',
@@ -172,8 +219,14 @@ function isSimulatorEndpointKey(value: string): value is SimulatorEndpointKey {
 
 function endpointKeyFromUrl(url: string): SimulatorEndpointKey | null {
   try {
-    const pathname = new URL(url).pathname
-    if (/\/api\/1\/vehicles\/[^/]+$/.test(pathname)) return 'vehicle.summary'
+    const parsedUrl = new URL(url)
+    const pathname = parsedUrl.pathname
+    if (/\/api\/1\/vehicles\/[^/]+\/vehicle_data$/.test(pathname)) {
+      const endpoint = parsedUrl.searchParams.get('endpoints')
+      if (endpoint === 'charge_state') return 'vehicle.charge_state'
+      if (endpoint === 'climate_state') return 'vehicle.climate_state'
+      return 'vehicle.vehicle_data'
+    }
     if (/\/api\/1\/vehicles\/[^/]+\/data_request\/charge_state$/.test(pathname)) return 'vehicle.charge_state'
     if (/\/api\/1\/vehicles\/[^/]+\/data_request\/climate_state$/.test(pathname)) return 'vehicle.climate_state'
     const commandMatch = pathname.match(/\/api\/1\/vehicles\/[^/]+\/command\/([^/]+)$/)
@@ -190,6 +243,61 @@ function endpointKeyFromUrl(url: string): SimulatorEndpointKey | null {
     return map[cmd] ?? null
   } catch {
     return null
+  }
+}
+
+interface TeslaVehicleDataChargeState {
+  charging_state?: string
+  charge_limit_soc?: number
+  charge_limit_soc_min?: number
+  charge_limit_soc_max?: number
+  battery_level?: number
+  usable_battery_level?: number
+  battery_range?: number
+  charger_voltage?: number
+  charger_actual_current?: number
+  charger_pilot_current?: number
+  charger_phases?: number
+  charger_power?: number
+  charge_rate?: number
+  charge_current_request?: number
+  charge_current_request_max?: number
+  charge_port_latch?: string
+  charge_port_door_open?: boolean
+  conn_charge_cable?: string
+  minutes_to_full_charge?: number
+}
+
+function normalizeTeslaNilLike(value: string | null | undefined): string | null {
+  if (value == null) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (trimmed === '<nil>' || trimmed === '<invalid>' || trimmed.toLowerCase() === 'nil') return null
+  return trimmed
+}
+
+interface TeslaVehicleDataClimateState {
+  inside_temp?: number
+  outside_temp?: number
+  is_climate_on?: boolean
+}
+
+interface TeslaVehicleDataBody {
+  charge_state?: TeslaVehicleDataChargeState
+  climate_state?: TeslaVehicleDataClimateState
+  vehicle_state?: {
+    odometer?: number
+    locked?: boolean
+  }
+}
+
+interface TeslaVehicleDataEnvelope {
+  response?: {
+    result?: boolean
+    reason?: string
+    vin?: string
+    command?: string
+    response?: TeslaVehicleDataBody
   }
 }
 
@@ -216,24 +324,30 @@ async function pollProxyOnce(): Promise<void> {
       return
     }
 
-    const [vehicleRes, chargeRes, climateRes] = await Promise.allSettled([
-      proxyGet<{ response: { vin: string; display_name: string; state: string; odometer: number } }>(
-        `${proxyUrl()}/api/1/vehicles/${vid}`
-      ),
-      proxyGet<{ response: { charging_state: string; battery_level: number; battery_range: number; charger_voltage: number; charger_actual_current: number; charger_pilot_current: number; charger_phases: number; charge_rate: number; time_to_full_charge: number } }>(
-        `${proxyUrl()}/api/1/vehicles/${vid}/data_request/charge_state`
-      ),
-      proxyGet<{ response: { inside_temp: number; outside_temp: number; is_climate_on: boolean } }>(
-        `${proxyUrl()}/api/1/vehicles/${vid}/data_request/climate_state`
-      ),
-    ])
+    const vehicleDataRes = await proxyGet<TeslaVehicleDataEnvelope>(`${proxyUrl()}/api/1/vehicles/${vid}/vehicle_data`)
 
-    const vd = vehicleRes.status === 'fulfilled' ? vehicleRes.value.response : null
-    const cd = chargeRes.status === 'fulfilled' ? chargeRes.value.response : null
-    const cl = climateRes.status === 'fulfilled' ? climateRes.value.response : null
+    const fullResponse = vehicleDataRes.response
+    const fullBody = fullResponse?.response
+    let cd = fullBody?.charge_state ?? null
+    let fallbackBody: TeslaVehicleDataBody | undefined
+
+    if (!cd && fullResponse?.result !== false) {
+      try {
+        const chargeOnlyResponse = await proxyGet<TeslaVehicleDataEnvelope>(`${proxyUrl()}/api/1/vehicles/${vid}/vehicle_data?endpoints=charge_state`)
+        fallbackBody = chargeOnlyResponse.response?.response
+        cd = fallbackBody?.charge_state ?? null
+      } catch (fallbackErr) {
+        logger.warn('Proxy charge_state fallback request failed', { fallbackErr })
+      }
+    }
+
+    const cl = fullBody?.climate_state ?? null
+    const vd = fullBody?.vehicle_state ?? null
+    const backendReachable = Boolean(fullResponse)
+    const vehicleAsleep = fullResponse?.result === false && String(fullResponse.reason ?? '').toLowerCase().includes('sleep')
 
     const prevConnected = vehicleState.connected
-    const VD_CONNECTED = vd !== null
+    const VD_CONNECTED = backendReachable
     if (!prevConnected && VD_CONNECTED) {
       vehicleEvents.emit('connected', vehicleState)
       dispatchTelegramNotificationEvent('vehicle_connected', { vehicleId: vid }).catch(() => {})
@@ -260,16 +374,48 @@ async function pollProxyOnce(): Promise<void> {
       }).catch(() => {})
     }
 
-    const chargingState = cd?.charging_state || 'Disconnected'
+    const chargingState = cd?.charging_state || (vehicleAsleep ? 'Sleeping' : 'Disconnected')
     const charging = chargingState === 'Charging'
-    const pluggedIn = ['Charging', 'Stopped', 'Complete'].includes(chargingState)
-    const chargeRateKw = cd?.charge_rate != null ? Math.round(cd.charge_rate * 10) / 10 : null
+    const cableType = normalizeTeslaNilLike(cd?.conn_charge_cable ?? null)
+    const chargePortLatch = normalizeTeslaNilLike(cd?.charge_port_latch ?? null)
+    const chargePortDoorOpen = typeof cd?.charge_port_door_open === 'boolean' ? cd.charge_port_door_open : null
+    const pluggedIn = Boolean(
+      ['Charging', 'Stopped', 'Complete', 'Connected'].includes(chargingState)
+      || (chargePortLatch && chargePortLatch.toLowerCase() !== 'disengaged')
+      || cableType
+    )
+    const chargeLimitSoc = cd?.charge_limit_soc != null ? Math.round(cd.charge_limit_soc) : null
+    const chargeLimitSocMin = cd?.charge_limit_soc_min != null ? Math.round(cd.charge_limit_soc_min) : null
+    const chargeLimitSocMax = cd?.charge_limit_soc_max != null ? Math.round(cd.charge_limit_soc_max) : null
+    const usableBatteryLevel = cd?.usable_battery_level != null ? Math.round(cd.usable_battery_level) : null
+    const chargeRateKw = computeChargeRateKw(
+      cd?.charger_actual_current ?? null,
+      cd?.charger_voltage ?? null,
+      cd?.charger_power ?? null
+    )
+    const timeToFullChargeH = computeTimeToFullChargeH(
+      cd?.minutes_to_full_charge ?? null,
+      nextSoc,
+      chargeRateKw,
+      cfg.charging.batteryCapacityKwh
+    )
 
     vehicleState = {
       connected: VD_CONNECTED,
       pluggedIn,
+      cableType,
+      chargePortLatch,
+      chargePortDoorOpen,
+      chargeCurrentRequest: cd?.charge_current_request ?? null,
+      chargeCurrentRequestMax: cd?.charge_current_request_max ?? null,
+      chargeLimitSocMin,
+      chargeLimitSocMax,
+      rawChargeState: cd ? safeClone(cd as Record<string, unknown>) : null,
+      rawClimateState: cl ? safeClone(cl as Record<string, unknown>) : null,
       charging,
       stateOfCharge: nextSoc,
+      usableBatteryLevel,
+      chargeLimitSoc,
       batteryRange: cd?.battery_range ?? null,
       chargingState,
       chargerVoltage: cd?.charger_voltage ?? null,
@@ -277,14 +423,15 @@ async function pollProxyOnce(): Promise<void> {
       chargerPilotCurrent: cd?.charger_pilot_current ?? null,
       chargerPhases: cd?.charger_phases ?? null,
       chargeRateKw,
-      timeToFullChargeH: cd?.time_to_full_charge ?? null,
+      timeToFullChargeH,
       insideTempC: cl?.inside_temp ?? null,
       outsideTempC: cl?.outside_temp ?? null,
       climateOn: cl?.is_climate_on ?? false,
-      locked: true,
+      locked: vd?.locked ?? true,
       odometer: vd?.odometer ?? null,
-      vin: vd?.vin ?? null,
-      displayName: vd?.display_name ?? null,
+      vin: fullResponse?.vin ?? vehicleState.vin ?? vid,
+      displayName: cfg.proxy.vehicleName || vehicleState.displayName || 'Vehicle',
+      error: fullResponse?.result === false ? String(fullResponse.reason ?? 'Vehicle unavailable') : undefined,
     }
 
     vehicleEvents.emit('state', vehicleState)

@@ -74,10 +74,15 @@ export function initWebSocketServer(server: Server): void {
 }
 
 function getAppState() {
+  const cfg = getConfig()
   return {
     type: 'state',
     timestamp: new Date().toISOString(),
-    demo: getConfig().demo,
+    demo: cfg.demo,
+    charging: {
+      energyPriceEurPerKwh: cfg.charging.energyPriceEurPerKwh,
+      batteryCapacityKwh: cfg.charging.batteryCapacityKwh,
+    },
     ha: getHaState(),
     vehicle: getVehicleState(),
     simulator: getSimulatorDebugState(),

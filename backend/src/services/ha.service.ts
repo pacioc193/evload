@@ -10,7 +10,7 @@ const prisma = new PrismaClient()
 export interface HaState {
   connected: boolean
   powerW: number | null
-  gridW: number | null
+  chargerW: number | null
   lastUpdated: Date | null
   error?: string
 }
@@ -20,7 +20,7 @@ export const haEvents = new EventEmitter()
 let haState: HaState = {
   connected: false,
   powerW: null,
-  gridW: null,
+  chargerW: null,
   lastUpdated: null,
 }
 
@@ -73,12 +73,10 @@ async function pollHaOnce(): Promise<void> {
       const carW = Math.max(0, ((v.chargerActualCurrent ?? 0) * (v.chargerVoltage ?? 0)))
       const baseHomeW = 900 + Math.round((Date.now() / 1000) % 120)
       const homePowerW = baseHomeW + carW
-      const rawGridW = Math.round(homePowerW * 0.35)
-      const gridPowerW = Math.max(0, Math.min(rawGridW, Math.max(0, homePowerW - 100)))
       haState = {
         connected: true,
         powerW: homePowerW,
-        gridW: gridPowerW,
+        chargerW: carW,
         lastUpdated: new Date(),
       }
       haEvents.emit('state', haState)
@@ -87,17 +85,17 @@ async function pollHaOnce(): Promise<void> {
     const tokenObj = await getHaTokenObj()
     const token = tokenObj?.access_token ?? (await getHaToken())
     if (!token) {
-      haState = { connected: false, powerW: null, gridW: null, lastUpdated: new Date(), error: 'No HA token' }
+      haState = { connected: false, powerW: null, chargerW: null, lastUpdated: new Date(), error: 'No HA token' }
       haEvents.emit('state', haState)
       return
     }
     const haUrl = cfg.homeAssistant.url
     const headers = { Authorization: `Bearer ${token}` }
 
-    const [powerRes, gridRes] = await Promise.allSettled([
+    const [powerRes, chargerRes] = await Promise.allSettled([
       axios.get<{ state: string }>(`${haUrl}/api/states/${cfg.homeAssistant.powerEntityId}`, { headers, timeout: 5000 }),
-      cfg.homeAssistant.gridEntityId
-        ? axios.get<{ state: string }>(`${haUrl}/api/states/${cfg.homeAssistant.gridEntityId}`, { headers, timeout: 5000 })
+      cfg.homeAssistant.chargerEntityId
+        ? axios.get<{ state: string }>(`${haUrl}/api/states/${cfg.homeAssistant.chargerEntityId}`, { headers, timeout: 5000 })
         : Promise.resolve(null),
     ])
 
@@ -105,16 +103,16 @@ async function pollHaOnce(): Promise<void> {
       ? parseFloat(powerRes.value.data.state) || null
       : null
 
-    const gridW = gridRes.status === 'fulfilled' && gridRes.value
-      ? parseFloat((gridRes.value as { data: { state: string } }).data.state) || null
+    const chargerW = chargerRes.status === 'fulfilled' && chargerRes.value
+      ? parseFloat((chargerRes.value as { data: { state: string } }).data.state) || null
       : null
 
-    haState = { connected: true, powerW, gridW, lastUpdated: new Date() }
+    haState = { connected: true, powerW, chargerW, lastUpdated: new Date() }
     haEvents.emit('state', haState)
   } catch (err) {
     logger.error('HA poll error', { err })
     const prevConnected = haState.connected
-    haState = { connected: false, powerW: null, gridW: null, lastUpdated: new Date(), error: String(err) }
+    haState = { connected: false, powerW: null, chargerW: null, lastUpdated: new Date(), error: String(err) }
     if (prevConnected) {
       haEvents.emit('disconnected', haState)
     }

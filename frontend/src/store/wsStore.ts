@@ -3,7 +3,7 @@ import { create } from 'zustand'
 export interface HaState {
   connected: boolean
   powerW: number | null
-  gridW: number | null
+  chargerW: number | null
   lastUpdated: string | null
   error?: string
 }
@@ -11,8 +11,19 @@ export interface HaState {
 export interface VehicleState {
   connected: boolean
   pluggedIn: boolean
+  cableType: string | null
+  chargePortLatch: string | null
+  chargePortDoorOpen: boolean | null
+  chargeCurrentRequest: number | null
+  chargeCurrentRequestMax: number | null
   charging: boolean
+  rawChargeState?: Record<string, unknown> | null
+  rawClimateState?: Record<string, unknown> | null
   stateOfCharge: number | null
+  usableBatteryLevel: number | null
+  chargeLimitSoc: number | null
+  chargeLimitSocMin?: number | null
+  chargeLimitSocMax?: number | null
   batteryRange: number | null
   chargingState: string | null
   chargerVoltage: number | null
@@ -63,9 +74,15 @@ export interface SimulatorDebugState {
   lastResponses: SimulatorEndpointRecord[]
 }
 
+export interface WsChargingSettings {
+  energyPriceEurPerKwh: number
+  batteryCapacityKwh: number
+}
+
 interface WsState {
   connected: boolean
   demo: boolean
+  charging: WsChargingSettings | null
   ha: HaState | null
   vehicle: VehicleState | null
   engine: EngineStatus | null
@@ -75,6 +92,7 @@ interface WsState {
   setConnected: (connected: boolean) => void
   setState: (state: {
     demo?: boolean
+    charging?: WsChargingSettings
     ha: HaState
     vehicle: VehicleState
     engine: EngineStatus
@@ -87,6 +105,7 @@ interface WsState {
 export const useWsStore = create<WsState>((set) => ({
   connected: false,
   demo: false,
+  charging: null,
   ha: null,
   vehicle: null,
   engine: null,
@@ -96,6 +115,7 @@ export const useWsStore = create<WsState>((set) => ({
   setConnected: (connected) => set({ connected }),
   setState: (state) => set({
     demo: state.demo ?? false,
+    charging: state.charging ?? null,
     ha: state.ha,
     vehicle: state.vehicle,
     engine: state.engine,

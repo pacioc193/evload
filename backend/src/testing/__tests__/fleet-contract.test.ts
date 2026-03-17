@@ -11,7 +11,7 @@ describe('Fleet contract baseline comparison', () => {
   const baselineRoot = path.join(fixtureRoot, 'baseline')
   const simulatorRoot = path.join(fixtureRoot, 'simulator')
 
-  const endpoints = ['vehicle.summary', 'vehicle.charge_state', 'vehicle.climate_state']
+  const endpoints = ['vehicle.vehicle_data', 'vehicle.charge_state', 'vehicle.climate_state']
 
   test.each(endpoints)('matches baseline schema for %s', (endpointKey) => {
     const baseline = readJson(path.join(baselineRoot, `${endpointKey}.json`))

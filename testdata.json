@@ -1,4 +1,4 @@
-http://192.168.1.111:8080/api/1/vehicles/LRWYGCFS9PC771409/vehicle_data
+api/1/vehicles/{VIN}/vehicle_data
 
 {
   "response": {
@@ -115,9 +115,7 @@ http://192.168.1.111:8080/api/1/vehicles/LRWYGCFS9PC771409/vehicle_data
       }
     }
   }
-}
-
-http://192.168.1.111:8080/api/1/vehicles/LRWYGCFS9PC771409/vehicle_data?endpoints=charge_state
+/api/1/vehicles/{VIN}/vehicle_data?endpoints=charge_state
 
 {
   "response": {

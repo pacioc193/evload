@@ -78,11 +78,14 @@ export interface AppSettings {
   demo: boolean
   haUrl: string
   haPowerEntityId: string
-  haGridEntityId: string
+  haChargerEntityId: string
   haMaxHomePowerW: number
+  resumeDelaySec: number
   proxyUrl: string
   vehicleId: string
+  vehicleName: string
   batteryCapacityKwh: number
+  energyPriceEurPerKwh: number
   defaultAmps: number
   maxAmps: number
   minAmps: number
@@ -164,6 +167,7 @@ export interface ScheduledCharge {
   scheduleType: string
   scheduledAt: string | null
   finishBy: string | null
+  startedAt?: string | null
   targetSoc: number
   targetAmps: number | null
   enabled: boolean
@@ -173,10 +177,27 @@ export interface ScheduledCharge {
 export interface ScheduledClimate {
   id: number
   vehicleId: string
-  scheduledAt: string
+  scheduleType: string
+  scheduledAt: string | null
+  finishBy: string | null
+  startedAt?: string | null
   targetTempC: number
   enabled: boolean
   createdAt: string
+}
+
+export interface NextPlannedCharge {
+  id: number
+  scheduleType: string
+  targetSoc: number
+  targetAmps: number | null
+  computedStartAt: string
+  finishBy: string | null
+}
+
+export async function getNextPlannedCharge() {
+  const res = await api.get('/schedule/next-charge')
+  return res.data as NextPlannedCharge | null
 }
 
 export async function getScheduledCharges() {
@@ -188,6 +209,8 @@ export async function createScheduledCharge(
   options:
     | { scheduleType: 'start_at'; scheduledAt: string; targetSoc: number; targetAmps?: number }
     | { scheduleType: 'finish_by'; finishBy: string; targetSoc: number; targetAmps?: number }
+    | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetSoc: number; targetAmps?: number }
+    | { scheduleType: 'weekly'; scheduledAt: string; targetSoc: number; targetAmps?: number }
 ) {
   const res = await api.post('/schedule/charges', options)
   return res.data as ScheduledCharge
@@ -203,8 +226,13 @@ export async function getScheduledClimates() {
   return res.data as ScheduledClimate[]
 }
 
-export async function createScheduledClimate(scheduledAt: string, targetTempC: number) {
-  const res = await api.post('/schedule/climate', { scheduledAt, targetTempC })
+export async function createScheduledClimate(
+  options:
+    | { scheduleType: 'start_at'; scheduledAt: string; targetTempC: number }
+    | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetTempC: number }
+    | { scheduleType: 'weekly'; scheduledAt: string; targetTempC: number }
+) {
+  const res = await api.post('/schedule/climate', options)
   return res.data as ScheduledClimate
 }
 

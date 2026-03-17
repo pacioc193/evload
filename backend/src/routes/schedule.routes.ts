@@ -4,10 +4,21 @@ import { PrismaClient } from '@prisma/client'
 import { requireAuth } from '../middleware/auth.middleware'
 import { getConfig } from '../config'
 import { logger } from '../logger'
+import { resolveNextPlannedCharge } from '../services/scheduler.service'
 
 const prisma = new PrismaClient()
 const router = Router()
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 })
+
+router.get('/next-charge', limiter, requireAuth, async (_req, res) => {
+  try {
+    const next = await resolveNextPlannedCharge()
+    res.json(next ?? null)
+  } catch (err) {
+    logger.error('Failed to resolve next planned charge', { err })
+    res.status(500).json({ error: 'Failed to resolve next planned charge' })
+  }
+})
 
 // ─── Scheduled Charges ───────────────────────────────────────────────────────
 
@@ -30,16 +41,20 @@ router.post('/charges', limiter, requireAuth, async (req, res) => {
     targetAmps?: number
   }
   const type = scheduleType ?? 'start_at'
-  if (type !== 'start_at' && type !== 'finish_by') {
-    res.status(400).json({ error: 'scheduleType must be start_at or finish_by' })
+  if (type !== 'start_at' && type !== 'finish_by' && type !== 'start_end' && type !== 'weekly') {
+    res.status(400).json({ error: 'scheduleType must be start_at, finish_by, start_end or weekly' })
     return
   }
-  if (type === 'start_at' && !scheduledAt) {
-    res.status(400).json({ error: 'scheduledAt is required for start_at schedules' })
+  if ((type === 'start_at' || type === 'weekly') && !scheduledAt) {
+    res.status(400).json({ error: 'scheduledAt is required for start_at/weekly schedules' })
     return
   }
   if (type === 'finish_by' && !finishBy) {
     res.status(400).json({ error: 'finishBy is required for finish_by schedules' })
+    return
+  }
+  if (type === 'start_end' && (!scheduledAt || !finishBy)) {
+    res.status(400).json({ error: 'scheduledAt and finishBy are required for start_end schedules' })
     return
   }
   if (targetSoc == null) {
@@ -59,6 +74,10 @@ router.post('/charges', limiter, requireAuth, async (req, res) => {
   const finishByDate = finishBy ? new Date(finishBy) : undefined
   if (finishByDate && isNaN(finishByDate.getTime())) {
     res.status(400).json({ error: 'Invalid finishBy date' })
+    return
+  }
+  if (type === 'start_end' && scheduledAtDate && finishByDate && finishByDate.getTime() <= scheduledAtDate.getTime()) {
+    res.status(400).json({ error: 'finishBy must be after scheduledAt for start_end schedules' })
     return
   }
   try {
@@ -99,7 +118,7 @@ router.delete('/charges/:id', limiter, requireAuth, async (req, res) => {
 
 router.get('/climate', limiter, requireAuth, async (_req, res) => {
   try {
-    const items = await prisma.scheduledClimate.findMany({ orderBy: { scheduledAt: 'asc' } })
+    const items = await prisma.scheduledClimate.findMany({ orderBy: { createdAt: 'asc' } })
     res.json(items)
   } catch (err) {
     logger.error('Failed to list scheduled climate', { err })
@@ -108,12 +127,23 @@ router.get('/climate', limiter, requireAuth, async (_req, res) => {
 })
 
 router.post('/climate', limiter, requireAuth, async (req, res) => {
-  const { scheduledAt, targetTempC } = req.body as {
+  const { scheduleType, scheduledAt, finishBy, targetTempC } = req.body as {
+    scheduleType?: string
     scheduledAt?: string
+    finishBy?: string
     targetTempC?: number
+  }
+  const type = scheduleType ?? 'start_at'
+  if (type !== 'start_at' && type !== 'start_end' && type !== 'weekly') {
+    res.status(400).json({ error: 'scheduleType must be start_at, start_end or weekly' })
+    return
   }
   if (!scheduledAt || targetTempC == null) {
     res.status(400).json({ error: 'scheduledAt and targetTempC are required' })
+    return
+  }
+  if (type === 'start_end' && !finishBy) {
+    res.status(400).json({ error: 'finishBy is required for start_end climate schedules' })
     return
   }
   const temp = Number(targetTempC)
@@ -126,12 +156,23 @@ router.post('/climate', limiter, requireAuth, async (req, res) => {
     res.status(400).json({ error: 'Invalid scheduledAt date' })
     return
   }
+  const finishByDate = finishBy ? new Date(finishBy) : undefined
+  if (finishByDate && isNaN(finishByDate.getTime())) {
+    res.status(400).json({ error: 'Invalid finishBy date' })
+    return
+  }
+  if (type === 'start_end' && finishByDate && finishByDate.getTime() <= date.getTime()) {
+    res.status(400).json({ error: 'finishBy must be after scheduledAt for start_end climate schedules' })
+    return
+  }
   try {
     const cfg = getConfig()
     const item = await prisma.scheduledClimate.create({
       data: {
         vehicleId: cfg.proxy.vehicleId,
+        scheduleType: type,
         scheduledAt: date,
+        finishBy: finishByDate ?? null,
         targetTempC: temp,
       },
     })
