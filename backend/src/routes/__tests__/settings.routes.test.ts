@@ -164,4 +164,48 @@ describe('settings routes persistence', () => {
       .send({ minAmps: 6, defaultAmps: 20, maxAmps: 16 })
       .expect(400)
   })
+
+  test('persists advanced condition operators (changed, increased_by, decreased_by, mod_step)', async () => {
+    const app = await createApp()
+
+    const rules = [
+      {
+        id: 'adv-1',
+        name: 'SoC changed',
+        enabled: true,
+        event: 'soc_increased',
+        template: 'Changed to {{soc}}',
+        condition: { field: 'soc', operator: 'changed' },
+      },
+      {
+        id: 'adv-2',
+        name: 'SoC increased by 5',
+        enabled: true,
+        event: 'soc_increased',
+        template: 'Increased {{soc}}',
+        condition: { field: 'soc', operator: 'increased_by', value: 5 },
+      },
+      {
+        id: 'adv-3',
+        name: 'SoC modulo 10',
+        enabled: true,
+        event: 'soc_increased',
+        template: 'Step {{soc}}',
+        condition: { field: 'soc', operator: 'mod_step', value: 10 },
+      },
+    ]
+
+    await request(app)
+      .patch('/')
+      .send({ telegramRules: rules })
+      .expect(200)
+
+    const saved = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, any>
+    const savedRules = saved.telegram.notifications.rules
+    expect(savedRules[0].condition.operator).toBe('changed')
+    expect(savedRules[1].condition.operator).toBe('increased_by')
+    expect(savedRules[1].condition.value).toBe(5)
+    expect(savedRules[2].condition.operator).toBe('mod_step')
+    expect(savedRules[2].condition.value).toBe(10)
+  })
 })

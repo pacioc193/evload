@@ -92,6 +92,7 @@ export default function DashboardPage() {
   const ha = useWsStore((s) => s.ha)
   const failsafe = useWsStore((s) => s.failsafe)
   const wsConnected = useWsStore((s) => s.connected)
+  const demo = useWsStore((s) => s.demo)
   const [targetSoc, setTargetSoc] = useState(80)
   const [chargeMode, setChargeMode] = useState<ChargeMode>(
     () => (useWsStore.getState().engine?.mode as ChargeMode | undefined) ?? 'off'
@@ -178,6 +179,11 @@ export default function DashboardPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-4 pb-8">
+      {demo && (
+        <div className="bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 text-xs font-bold uppercase tracking-widest rounded-lg px-3 py-2 text-center">
+          Demo Mode Active — Simulated Data
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-evload-surface border border-evload-border rounded-2xl p-4 flex flex-col items-center justify-center">
           <div className="text-[10px] uppercase tracking-wider text-evload-muted font-bold flex items-center gap-1.5 mb-1">

@@ -89,7 +89,6 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     return
   }
 
-  // If no explicit target is provided, use max amps and let HA/failsafe/balancing shape runtime setpoint.
   const requestedAmps = targetAmps ?? cfg.charging.maxAmps
 
   status = {
@@ -212,10 +211,8 @@ async function runEngineStep(): Promise<void> {
     status.currentAmps = actualAmps
     pushEngineLog(`tick: soc=${soc}% actual=${actualAmps}A state=${vState.chargingState ?? 'unknown'} home=${getHaState().powerW ?? 0}W`)
 
-    // HA LIMITS ALWAYS WIN
     const haThrottleAmps = computeHaAllowedAmps(cfg, vState)
 
-    // If previously stopped by HA limit, wait X seconds then auto-resume when margin is available.
     if (haStoppedForLimit) {
       const nowMs = Date.now()
       const resumeDelayMs = Math.max(0, cfg.homeAssistant.resumeDelaySec) * 1000
@@ -422,47 +419,48 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
   const vid = getCommandVehicleId(cfg)
   if (!vid) return
   const vState = getVehicleState()
-  const haAllowed = computeHaAllowedAmps(cfg, vState)
-  
-  // F-19 & F-22: Ramp Up Logic (configurable interval)
+  const haS = getHaState()
   const now = Date.now()
   const rampIntervalMs = (cfg.charging.rampIntervalSec ?? 10) * 1000
-  const maxPossible = haAllowed !== null ? Math.min(status.targetAmps, haAllowed, cfg.charging.maxAmps) : Math.min(status.targetAmps, cfg.charging.maxAmps)
-  
+  const haAllowed = computeHaAllowedAmps(cfg, vState)
+  const maxPossible = haAllowed !== null
+    ? Math.min(status.targetAmps, haAllowed, cfg.charging.maxAmps)
+    : Math.min(status.targetAmps, cfg.charging.maxAmps)
+
+  const DEFAULT_VEHICLE_VOLTAGE_V = 230
+  const gridPowerW = (haS.connected && haS.gridW !== null) ? haS.gridW : null
+  const chargerPowerW = (vState.chargeRateKw ?? 0) * 1000
+  const vehicleVoltageV = vState.chargerVoltage ?? DEFAULT_VEHICLE_VOLTAGE_V
+
   let desired = status.setpointAmps
 
   if (desired > maxPossible) {
-    // Immediate throttle (safety first)
     desired = maxPossible
-    lastRampUpMs = now // Reset ramp timer on throttle
-  } else if (desired < maxPossible) {
-    // Try to ramp up
-    if (now - lastRampUpMs >= rampIntervalMs) {
-      desired = Math.min(desired + 1, maxPossible)
-      lastRampUpMs = now
-      if (desired < maxPossible) {
-        pushEngineLog(`ramping up: ${desired}A (target ${maxPossible}A)`)
-      }
-    }
-  } else {
-    lastRampUpMs = now // Stable, keep timer fresh
+    lastRampUpMs = now
+  } else if (gridPowerW !== null && now - lastRampUpMs >= rampIntervalMs) {
+    const residualPowerW = gridPowerW - chargerPowerW
+    const deltaAmps = residualPowerW / vehicleVoltageV
+    const actualAmps = vState.chargerActualCurrent ?? 0
+    desired = Math.round(actualAmps + deltaAmps)
+    lastRampUpMs = now
+    pushEngineLog(`ramp: gridPowerW=${gridPowerW}W chargerPowerW=${Math.round(chargerPowerW)}W residualPowerW=${Math.round(residualPowerW)}W deltaAmps=${deltaAmps.toFixed(2)} setpoint=${desired}A`)
   }
 
   desired = clampAmps(desired, cfg.charging.minAmps, cfg.charging.maxAmps)
   status.setpointAmps = desired
   const actual = vState.chargerActualCurrent ?? 0
-  
+
   if (shouldAdjustAmps(desired, actual, 1)) {
     try {
       await sendProxyCommand(vid, 'set_charging_amps', { charging_amps: desired })
       logger.debug(`Adjusted charging amps to ${desired}A`)
-      pushEngineLog(`setpoint changed: ${actual}A -> ${desired}A`) 
+      pushEngineLog(`setpoint changed: ${actual}A -> ${desired}A`)
     } catch (err) {
       logger.error('Failed to adjust charging amps', { err })
-      pushEngineLog(`setpoint command failed: desired=${desired}A`) 
+      pushEngineLog(`setpoint command failed: desired=${desired}A`)
     }
   } else {
-    pushEngineLog(`setpoint unchanged: desired=${desired}A actual=${actual}A`) 
+    pushEngineLog(`setpoint unchanged: desired=${desired}A actual=${actual}A`)
   }
 }
 
