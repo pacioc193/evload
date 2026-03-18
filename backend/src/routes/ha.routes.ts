@@ -60,7 +60,40 @@ function buildFrontendRedirect(pathAndQuery: string): string {
   return `${frontendUrl}${pathAndQuery}`
 }
 
-router.get('/authorize', limiter, requireAuth, (_req, res) => {
+function encodeOauthState(returnTo?: string): string {
+  const payload = {
+    returnTo: returnTo ?? null,
+    issuedAt: Date.now(),
+  }
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+}
+
+function decodeReturnToFromState(stateRaw?: string): string | null {
+  if (!stateRaw) return null
+  try {
+    const parsed = JSON.parse(Buffer.from(stateRaw, 'base64url').toString('utf8')) as { returnTo?: unknown }
+    const candidate = typeof parsed.returnTo === 'string' ? parsed.returnTo.trim() : ''
+    if (!candidate) return null
+    const url = new URL(candidate)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+function appendHaStatus(targetUrl: string, status: 'connected' | 'error'): string {
+  try {
+    const parsed = new URL(targetUrl)
+    parsed.searchParams.set('ha', status)
+    return parsed.toString()
+  } catch {
+    const sep = targetUrl.includes('?') ? '&' : '?'
+    return `${targetUrl}${sep}ha=${status}`
+  }
+}
+
+router.get('/authorize', limiter, requireAuth, (req, res) => {
   requestHaReconnectAttempt()
 
   const configError = getOauthConfigurationError()
@@ -71,10 +104,13 @@ router.get('/authorize', limiter, requireAuth, (_req, res) => {
 
   const clientId = getOauthClientId()
   const redirectUri = REDIRECT_URI()
+  const returnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo.trim() : ''
+  const oauthState = encodeOauthState(returnTo || undefined)
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
+    state: oauthState,
   })
   const authUrl = `${HA_URL()}/auth/authorize?${params.toString()}`
   
@@ -89,7 +125,7 @@ router.get('/authorize', limiter, requireAuth, (_req, res) => {
 })
 
 router.get('/callback', limiter, async (req, res) => {
-  const { code } = req.query as { code?: string }
+  const { code, state } = req.query as { code?: string; state?: string }
   if (!code) {
     logger.warn('HA OAuth callback received without code', { query: req.query })
     res.status(400).send('Missing authorization code')
@@ -131,10 +167,18 @@ router.get('/callback', limiter, async (req, res) => {
     await saveHaTokenObj(tokenRes.data)
     requestHaReconnectAttempt()
     logger.info('HA OAuth token saved successfully')
-    res.redirect(buildFrontendRedirect('/settings?ha=connected'))
+    const stateReturnTo = decodeReturnToFromState(state)
+    const successTarget = stateReturnTo
+      ? appendHaStatus(stateReturnTo, 'connected')
+      : buildFrontendRedirect('/settings?ha=connected')
+    res.redirect(successTarget)
   } catch (err) {
     logger.error('HA OAuth callback error', { err, code: code.substring(0, 10) + '...' })
-    res.redirect(buildFrontendRedirect('/settings?ha=error'))
+    const stateReturnTo = decodeReturnToFromState(state)
+    const errorTarget = stateReturnTo
+      ? appendHaStatus(stateReturnTo, 'error')
+      : buildFrontendRedirect('/settings?ha=error')
+    res.redirect(errorTarget)
   }
 })
 

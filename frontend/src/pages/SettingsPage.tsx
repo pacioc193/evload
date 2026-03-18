@@ -144,7 +144,8 @@ export default function SettingsPage() {
   const handleHaConnect = async () => {
     setHaAuthMessage('')
     try {
-      const { url } = await getHaAuthorizeUrl()
+      const returnTo = `${window.location.origin}/settings`
+      const { url } = await getHaAuthorizeUrl(returnTo)
       window.location.assign(url)
     } catch (err) {
       const backendMessage = axios.isAxiosError(err)

@@ -62,8 +62,10 @@ export interface NotificationEventSchema {
   fields: Record<string, 'string' | 'number' | 'boolean'>
 }
 
-export async function getHaAuthorizeUrl() {
-  const res = await api.get('/ha/authorize')
+export async function getHaAuthorizeUrl(returnTo?: string) {
+  const res = await api.get('/ha/authorize', {
+    params: returnTo ? { returnTo } : undefined,
+  })
   return res.data as { url: string }
 }
 
