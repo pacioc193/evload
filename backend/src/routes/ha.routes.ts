@@ -2,7 +2,7 @@ import { Router } from 'express'
 import axios from 'axios'
 import rateLimit from 'express-rate-limit'
 import { requireAuth } from '../middleware/auth.middleware'
-import { saveHaTokenObj, getHaState } from '../services/ha.service'
+import { saveHaTokenObj, getHaState, getHaTokenObj } from '../services/ha.service'
 import { getConfig } from '../config'
 import { logger } from '../logger'
 
@@ -110,6 +110,48 @@ router.get('/callback', limiter, async (req, res) => {
 
 router.get('/state', limiter, requireAuth, (_req, res) => {
   res.json(getHaState())
+})
+
+type HaEntityState = {
+  entity_id: string
+  state: string
+  attributes?: {
+    friendly_name?: string
+    unit_of_measurement?: string
+  }
+}
+
+router.get('/entities', limiter, requireAuth, async (req, res) => {
+  try {
+    const tokenObj = await getHaTokenObj()
+    const token = tokenObj?.access_token
+    if (!token) {
+      res.status(400).json({ error: 'Home Assistant is not connected yet' })
+      return
+    }
+
+    const domainRaw = typeof req.query.domain === 'string' ? req.query.domain.trim() : ''
+    const domain = (domainRaw || 'sensor').toLowerCase()
+
+    const statesRes = await axios.get<HaEntityState[]>(`${HA_URL()}/api/states`, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 8000,
+    })
+
+    const entities = (statesRes.data ?? [])
+      .filter((e) => typeof e.entity_id === 'string' && e.entity_id.startsWith(`${domain}.`))
+      .sort((a, b) => a.entity_id.localeCompare(b.entity_id))
+      .map((e) => ({
+        entityId: e.entity_id,
+        friendlyName: e.attributes?.friendly_name ?? e.entity_id,
+        unit: e.attributes?.unit_of_measurement ?? null,
+      }))
+
+    res.json({ domain, entities })
+  } catch (err) {
+    logger.error('Failed to fetch Home Assistant entities', { err })
+    res.status(502).json({ error: 'Unable to load Home Assistant entities' })
+  }
 })
 
 export default router

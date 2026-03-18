@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState, type ReactNode } from 'react'
 import axios from 'axios'
 import Editor from '@monaco-editor/react'
-import { getConfig, saveConfig, getHaAuthorizeUrl, getSettings, patchSettings, type AppSettings } from '../api/index'
+import { getConfig, saveConfig, getHaAuthorizeUrl, getHaEntities, getSettings, patchSettings, type AppSettings } from '../api/index'
 import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useNavigate } from 'react-router-dom'
@@ -55,9 +55,9 @@ function CollapsiblePanel({
 }
 
 function Field({
-  label, value, onChange, type = 'text', unit, placeholder, description,
+  label, value, onChange, type = 'text', unit, placeholder, description, listId,
 }: {
-  label: string; value: string | number; onChange: (v: string) => void; type?: string; unit?: string; placeholder?: string; description?: string
+  label: string; value: string | number; onChange: (v: string) => void; type?: string; unit?: string; placeholder?: string; description?: string; listId?: string
 }) {
   return (
     <div>
@@ -67,6 +67,7 @@ function Field({
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        list={listId}
         placeholder={placeholder}
         className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
       />
@@ -79,6 +80,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [configMessage, setConfigMessage] = useState('')
   const [haAuthMessage, setHaAuthMessage] = useState('')
+  const [haEntities, setHaEntities] = useState<string[]>([])
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [settingsMsg, setSettingsMsg] = useState('')
   const [expandedPanels, setExpandedPanels] = useState<Record<PanelKey, boolean>>({
@@ -96,6 +98,9 @@ export default function SettingsPage() {
   useEffect(() => {
     getConfig().then((d) => setConfigContent(d.content)).catch(console.error)
     getSettings().then(setSettings).catch(console.error)
+    getHaEntities('sensor')
+      .then((res) => setHaEntities(res.entities.map((entity) => entity.entityId)))
+      .catch(() => setHaEntities([]))
   }, [])
 
   const handleSave = async () => {
@@ -216,6 +221,7 @@ export default function SettingsPage() {
                     onChange={upd('haPowerEntityId')}
                     placeholder="sensor.home_power"
                     description="Total home power consumption entity in watts."
+                    listId="ha-sensor-entity-ids"
                   />
                   {haConnected && <span className="absolute right-3 top-9 text-[10px] text-evload-success font-mono">{(haPower / 1000).toFixed(2)}kW</span>}
                 </div>
@@ -226,10 +232,16 @@ export default function SettingsPage() {
                     onChange={upd('haChargerEntityId')}
                     placeholder="sensor.charger_power"
                     description="Charger power entity in watts for realtime verification in Settings."
+                    listId="ha-sensor-entity-ids"
                   />
                   {haConnected && settings.haChargerEntityId && <span className="absolute right-3 top-9 text-[10px] text-evload-success font-mono">{(haCharger / 1000).toFixed(2)}kW</span>}
                 </div>
               </div>
+              <datalist id="ha-sensor-entity-ids">
+                {haEntities.map((entityId) => (
+                  <option key={entityId} value={entityId} />
+                ))}
+              </datalist>
               <button onClick={handleHaConnect}
                 className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm">
                 <ExternalLink size={14} />Connect / Re-authorize

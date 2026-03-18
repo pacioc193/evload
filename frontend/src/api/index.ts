@@ -67,6 +67,17 @@ export async function getHaAuthorizeUrl() {
   return res.data as { url: string }
 }
 
+export interface HaEntityOption {
+  entityId: string
+  friendlyName: string
+  unit: string | null
+}
+
+export async function getHaEntities(domain = 'sensor') {
+  const res = await api.get('/ha/entities', { params: { domain } })
+  return res.data as { domain: string; entities: HaEntityOption[] }
+}
+
 export async function getConfig() {
   const res = await api.get('/config')
   return res.data as { content: string }
