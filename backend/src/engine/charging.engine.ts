@@ -229,6 +229,18 @@ async function runEngineStep(): Promise<void> {
 
     const haThrottleAmps = computeHaAllowedAmps(cfg, vState)
 
+    // If HA is offline, reset all HA throttle state and continue charging normally
+    if (haThrottleAmps === null) {
+      if (haStoppedForLimit || status.haThrottled) {
+        logger.info('HA offline detected: resuming charging (HA state reset)')
+        pushEngineLog('HA offline: throttle state cleared, charging resumes')
+      }
+      haStoppedForLimit = false
+      haResumeAfterMs = null
+      status.haThrottled = false
+      // Continue with normal charging logic below
+    }
+
     if (haStoppedForLimit) {
       const nowMs = Date.now()
       const resumeDelayMs = Math.max(0, cfg.homeAssistant.resumeDelaySec) * 1000
@@ -275,14 +287,17 @@ async function runEngineStep(): Promise<void> {
 
     if (haThrottleAmps !== null) {
       if (haThrottleAmps < cfg.charging.minAmps) {
-        const vid = getCommandVehicleId(cfg)
-        if (vid) {
-          await sendProxyCommand(vid, 'charge_stop', {}).catch((err) =>
-            logger.error('HA stop charge_stop failed', { err })
-          )
-          pushEngineLog('HA hard limit: charge_stop sent')
+        // SendProxyCommand only once when first hitting the hard limit
+        if (!haStoppedForLimit) {
+          const vid = getCommandVehicleId(cfg)
+          if (vid) {
+            await sendProxyCommand(vid, 'charge_stop', {}).catch((err) =>
+              logger.error('HA stop charge_stop failed', { err })
+            )
+            pushEngineLog('HA hard limit: charge_stop sent')
+          }
+          haStoppedForLimit = true
         }
-        haStoppedForLimit = true
         haResumeAfterMs = Date.now() + Math.max(0, cfg.homeAssistant.resumeDelaySec) * 1000
         if (!status.haThrottled) {
           status.haThrottled = true

@@ -19,7 +19,7 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
-- Sleep-aware proxy polling with separate `vehicle_data` refresh and `body_controller_state` heartbeat
+- Proxy status driven by `vehicle_data` polling with explicit proxy-vs-car state separation
 - Home Assistant-based dynamic current throttling
 - Manual, planned, and scheduled charging modes
 - Charging and climate scheduling, including weekly recurrence
@@ -77,40 +77,30 @@ evload/
 
 ## EVLoad <-> Proxy Communication
 
-The proxy integration is intentionally split into two concerns.
+Proxy runtime state is resolved through a single polling endpoint for status.
 
-### 1. Full state polling
+### State polling
 
 - Interval: `proxy.normalPollIntervalMs`
 - Endpoint: `GET /api/1/vehicles/:vehicleId/vehicle_data`
-- Purpose: charging state, SoC, voltage, current, range, climate, lock state, odometer, raw diagnostic payloads
-- Fallback: `GET /api/1/vehicles/:vehicleId/vehicle_data?endpoints=charge_state` only when the full payload does not contain a usable `charge_state`
+- Source of truth:
+  - `response.result === true` => car is reachable/in garage
+  - `response.result === false` => proxy is reachable but car is not reachable/in garage
+  - network/timeout error => proxy is not reachable
+- `response.reason` is always surfaced to UI for diagnostics
 
-### 2. Lightweight heartbeat
+### Runtime status contract
 
-- Interval: `proxy.reactivePollIntervalMs`
-- Endpoint: `GET /api/1/vehicles/:vehicleId/body_controller_state`
-- Purpose: keep proxy liveness updated and detect sleep / user presence without requiring full `vehicle_data`
-
-### Poll modes
-
-- `NORMAL`: full `vehicle_data` refresh is active
-- `REACTIVE`: EVLoad relies on heartbeat and avoids unnecessary wake-ups
-
-Switching rules:
-
-- after repeated sleep confirmation and no active charging, EVLoad moves from `NORMAL` to `REACTIVE`
-- if heartbeat detects user presence in the garage, EVLoad returns to `NORMAL`
-- if heartbeat reports the vehicle awake, EVLoad returns to `NORMAL`
-- `requestWakeMode(true)` forces `NORMAL`, restarts the timers, and sends `wake_up`
+- `proxy.connected`: indicates proxy HTTP reachability
+- `vehicle.connected`: indicates car reachability from `vehicle_data.response.result`
+- Dashboard remains visible while WebSocket is connected; center panel shows proxy state, car state, and reason text
 
 ### Live state exposed to UI
 
 Backend WebSocket state exposes these proxy-related fields separately:
 
-- `proxy`: live proxy health based on successful proxy calls, including `body_controller_state`
+- `proxy`: live proxy health based on successful proxy calls
 - `vehicle`: current interpreted vehicle state
-- `pollMode`: `NORMAL` or `REACTIVE`
 
 This means the proxy can be shown as LIVE even if the car is sleeping.
 
@@ -268,7 +258,6 @@ Relevant proxy fields:
 | `proxy.vehicleId` | Vehicle VIN/id used in proxy routes |
 | `proxy.vehicleName` | Friendly display name shown in UI |
 | `proxy.normalPollIntervalMs` | Full `vehicle_data` refresh interval |
-| `proxy.reactivePollIntervalMs` | `body_controller_state` heartbeat interval |
 | `proxy.scheduleLeadTimeSec` | Scheduler pre-wake lead time |
 | `proxy.rejectUnauthorized` | TLS certificate validation for proxy HTTPS |
 
@@ -287,10 +276,11 @@ The Proxy panel currently covers:
 - vehicle id
 - vehicle display name
 - normal poll interval
-- reactive / heartbeat interval
 - scheduler lead time
 - TLS certificate verification toggle
 - proxy LIVE/OFFLINE status
+- car reachability status (`in garage` vs `not in garage / unreachable`)
+- reason text always visible for proxy/car diagnostics
 - last successful proxy endpoint and timestamp
 
 ## Demo Mode And Simulator
@@ -300,8 +290,6 @@ When `demo: true`, EVLoad can operate against the built-in simulator instead of 
 The simulator supports:
 
 - `vehicle_data`
-- `vehicle_data?endpoints=charge_state`
-- `body_controller_state`
 - `wake_up`
 - `sleep`
 - `charge_start`

@@ -194,7 +194,7 @@ function VehicleRawProxyPanel({ rawChargeState }: { rawChargeState: Record<strin
 
 export default function DashboardPage() {
   const vehicle = useWsStore((s) => s.vehicle)
-  const pollMode = useWsStore((s) => s.pollMode)
+  const proxy = useWsStore((s) => s.proxy)
   const engine = useWsStore((s) => s.engine)
   const ha = useWsStore((s) => s.ha)
   const failsafe = useWsStore((s) => s.failsafe)
@@ -248,7 +248,13 @@ export default function DashboardPage() {
     : manualTargetSoc
 
   const chargePowerKw = Math.max(0, vehicle?.chargeRateKw ?? 0)
-  const chargerPowerW = Math.max(0, Math.round(chargePowerKw * 1000))
+  const vehicleChargerPowerW = Math.max(0, Math.round(chargePowerKw * 1000))
+  const haChargerPowerW = ha?.chargerW != null && Number.isFinite(ha.chargerW)
+    ? Math.max(0, Math.round(ha.chargerW))
+    : null
+  // EV power shown in dashboard should prefer HA Charger Power Entity, with vehicle telemetry as fallback.
+  const chargerPowerW = haChargerPowerW ?? vehicleChargerPowerW
+  const displayChargePowerKw = chargerPowerW / 1000
   const homeTotalPowerW = Math.max(0, ha?.powerW ?? 0)
   const homeNonChargingPowerW = Math.max(0, homeTotalPowerW - chargerPowerW)
   const refPowerW = Math.max(homeNonChargingPowerW + chargerPowerW, 1)
@@ -338,7 +344,11 @@ export default function DashboardPage() {
     }
   }
 
-  const canWakeVehicle = pollMode === 'REACTIVE' || vehicle?.chargingState === 'Sleeping'
+  const canWakeVehicle = vehicle?.chargingState === 'Sleeping'
+  const proxyConnected = proxy?.connected ?? false
+  const vehicleInGarage = vehicle?.connected ?? false
+  const statusReason = vehicle?.reason ?? proxy?.error ?? vehicle?.error ?? 'No reason available yet'
+  const controlsDisabled = loading || !!failsafe?.active || !proxyConnected || !vehicleInGarage
 
   const handleWakeVehicle = async () => {
     if (waking) return
@@ -361,10 +371,10 @@ export default function DashboardPage() {
     )
   }
 
-  if (!vehicle?.connected) {
+  if (!vehicle) {
     return (
       <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center text-evload-muted">
-        Vehicle not connected
+        Waiting for first vehicle state...
       </div>
     )
   }
@@ -386,7 +396,7 @@ export default function DashboardPage() {
           <div className="text-right">
             <div className="text-[11px] uppercase tracking-[0.18em] text-evload-muted">Grid Total</div>
             <div className="mt-1 text-2xl font-black text-evload-text">
-              {(homeTotalPowerW / 1000).toFixed(1)} <span className="text-xs font-medium text-evload-muted">kW</span>
+              {(homeTotalPowerW / 1000).toFixed(2)} <span className="text-xs font-medium text-evload-muted">kW</span>
             </div>
           </div>
         </div>
@@ -403,8 +413,8 @@ export default function DashboardPage() {
                 <div className="h-full bg-[#facc15] transition-all" style={{ width: `${chargerLoadSharePct}%` }} />
               </div>
               <div className="pointer-events-none absolute inset-0 flex items-center justify-between px-4 text-[13px] font-semibold text-black/70">
-                <span>{homeBaseLoadSharePct > 12 ? `${(homeNonChargingPowerW / 1000).toFixed(1)} kW` : ''}</span>
-                <span>{chargerLoadSharePct > 12 ? `${(chargerPowerW / 1000).toFixed(1)} kW` : ''}</span>
+                <span>{homeBaseLoadSharePct > 12 ? `${(homeNonChargingPowerW / 1000).toFixed(2)} kW` : ''}</span>
+                <span>{chargerLoadSharePct > 12 ? `${(chargerPowerW / 1000).toFixed(2)} kW` : ''}</span>
               </div>
             </div>
             <div className="text-center">
@@ -417,13 +427,13 @@ export default function DashboardPage() {
             <FlowStatRow
               icon={<Home size={14} className="text-emerald-100" />}
               label="Home Total"
-              value={`${(homeNonChargingPowerW / 1000).toFixed(1)} kW`}
+              value={`${(homeNonChargingPowerW / 1000).toFixed(2)} kW`}
               accentClass="bg-emerald-500/70 text-emerald-100"
             />
             <FlowStatRow
               icon={<ZapIcon size={14} className="text-yellow-950" />}
               label="EV"
-              value={`${(chargerPowerW / 1000).toFixed(1)} kW`}
+              value={`${(chargerPowerW / 1000).toFixed(2)} kW`}
               accentClass="bg-yellow-400/90 text-yellow-950"
             />
           </div>
@@ -432,16 +442,16 @@ export default function DashboardPage() {
 
       <div className="bg-evload-surface border border-evload-border rounded-3xl p-4 sm:p-5 text-evload-text">
         <div className="rounded-full border border-evload-border bg-evload-bg p-1 flex items-center justify-between">
-          <ModePill active={chargeMode === 'off'} label="Off" onClick={() => applyMode('off')} disabled={loading || !!failsafe?.active} />
-          <ModePill active={chargeMode === 'plan'} label="Plan" onClick={() => applyMode('plan')} disabled={loading || !!failsafe?.active} />
-          <ModePill active={chargeMode === 'on'} label="On" onClick={() => applyMode('on')} disabled={loading || !!failsafe?.active} />
+          <ModePill active={chargeMode === 'off'} label="Off" onClick={() => applyMode('off')} disabled={controlsDisabled} />
+          <ModePill active={chargeMode === 'plan'} label="Plan" onClick={() => applyMode('plan')} disabled={controlsDisabled} />
+          <ModePill active={chargeMode === 'on'} label="On" onClick={() => applyMode('on')} disabled={controlsDisabled} />
         </div>
 
         <div className="mt-4 grid grid-cols-3 gap-3 text-center">
           <div>
             <div className="text-[11px] uppercase tracking-wide text-evload-muted">Power</div>
             <div className="mt-1 text-2xl font-semibold">
-              {chargePowerKw.toFixed(1)} <span className="text-base text-evload-muted">kW</span>
+              {displayChargePowerKw.toFixed(2)} <span className="text-base text-evload-muted">kW</span>
             </div>
           </div>
           <div>
@@ -457,13 +467,8 @@ export default function DashboardPage() {
               )}
             </div>
             <div className="mt-2 flex items-center justify-center">
-              <span className={clsx(
-                'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide',
-                pollMode === 'REACTIVE'
-                  ? 'border-amber-400/50 bg-amber-500/15 text-amber-300'
-                  : 'border-emerald-400/40 bg-emerald-500/15 text-emerald-300'
-              )}>
-                {pollMode === 'REACTIVE' ? 'Garage Reactive' : 'Normal'}
+              <span className="inline-flex items-center rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-300">
+                Polling Active
               </span>
             </div>
           </div>
@@ -485,13 +490,13 @@ export default function DashboardPage() {
               <h2 className="text-2xl font-semibold flex items-center gap-2">
                 <Car size={18} /> {vehicle.displayName ?? 'Vehicle'}
               </h2>
-              <p className="text-sm text-evload-muted mt-1">
-                {vehicle.charging ? 'Charging...' : vehicle.pluggedIn ? 'Connected' : 'Disconnected'}
-              </p>
+              <p className="text-sm text-evload-muted mt-1">Proxy: {proxyConnected ? 'Online' : 'Offline'}</p>
+              <p className="text-sm text-evload-muted">Car: {vehicleInGarage ? 'In garage' : 'Not in garage / unreachable'}</p>
+              <p className="text-xs text-evload-muted mt-1">Reason: {statusReason}</p>
               {canWakeVehicle && (
                 <button
                   onClick={handleWakeVehicle}
-                  disabled={waking}
+                  disabled={waking || !proxyConnected}
                   className="mt-2 inline-flex items-center rounded-md border border-evload-border bg-evload-bg px-2.5 py-1 text-xs font-semibold text-evload-text transition-colors hover:bg-evload-border/50 disabled:opacity-60"
                 >
                   {waking ? 'Waking...' : 'Wake Vehicle'}

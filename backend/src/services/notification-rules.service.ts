@@ -97,6 +97,9 @@ const EVENT_PLACEHOLDER_CATALOG: Record<string, string[]> = {
   home_power_limit_restored: ['event', 'timestamp', 'homePowerW', 'limitW', 'reason'],
   vehicle_connected: ['event', 'timestamp', 'vehicleId', 'reason'],
   vehicle_disconnected: ['event', 'timestamp', 'vehicleId', 'reason'],
+  vehicle_in_garage: ['event', 'timestamp', 'vehicleId', 'reason'],
+  vehicle_not_in_garage: ['event', 'timestamp', 'vehicleId', 'reason'],
+  proxy_error: ['event', 'timestamp', 'vehicleId', 'reason'],
   failsafe_cleared: ['event', 'timestamp', 'reason'],
 }
 
@@ -122,6 +125,9 @@ const EVENT_PAYLOAD_PRESETS: Record<string, Record<string, unknown>> = {
   home_power_limit_restored: { homePowerW: 2000, limitW: 3000, reason: 'oven_off' },
   vehicle_connected: { vehicleId: 'VIN123456', reason: 'plugged_in' },
   vehicle_disconnected: { vehicleId: 'VIN123456', reason: 'unplugged' },
+  vehicle_in_garage: { vehicleId: 'VIN123456', reason: 'detected' },
+  vehicle_not_in_garage: { vehicleId: 'VIN123456', reason: 'detected_away' },
+  proxy_error: { vehicleId: 'VIN123456', reason: 'connection_timeout' },
   failsafe_cleared: { reason: 'reconnected' },
 }
 
@@ -210,6 +216,18 @@ const EVENT_PAYLOAD_SCHEMAS: Record<string, NotificationEventSchema> = {
     required: ['vehicleId'],
     fields: { vehicleId: 'string', reason: 'string' },
   },
+  vehicle_in_garage: {
+    required: ['vehicleId'],
+    fields: { vehicleId: 'string', reason: 'string' },
+  },
+  vehicle_not_in_garage: {
+    required: ['vehicleId'],
+    fields: { vehicleId: 'string', reason: 'string' },
+  },
+  proxy_error: {
+    required: ['vehicleId', 'reason'],
+    fields: { vehicleId: 'string', reason: 'string' },
+  },
   failsafe_cleared: {
     required: ['reason'],
     fields: { reason: 'string' },
@@ -232,6 +250,7 @@ const PLACEHOLDER_DESCRIPTIONS: Record<string, string> = {
   deltaSoc: 'Incremento SoC (%)',
   planId: 'ID del piano programmato',
   vehicleId: 'Identificativo del veicolo',
+  vehicleInGarage: 'Veicolo in garage?',
 }
 
 const lastEventPayloads: Record<string, Record<string, unknown>> = {}

@@ -1,12 +1,14 @@
 import { create } from 'zustand'
 
-export type PollMode = 'NORMAL' | 'REACTIVE'
-
 export interface HaState {
   connected: boolean
   powerW: number | null
   chargerW: number | null
   lastUpdated: string | null
+  failureCount: number
+  maxFailuresBeforeManualReconnect: number
+  requiresManualReconnect: boolean
+  lastError: string | null
   error?: string
 }
 
@@ -19,6 +21,7 @@ export interface ProxyHealthState {
 
 export interface VehicleState {
   connected: boolean
+  reason: string | null
   pluggedIn: boolean
   cableType: string | null
   chargePortLatch: string | null
@@ -97,7 +100,6 @@ interface WsState {
   ha: HaState | null
   proxy: ProxyHealthState | null
   vehicle: VehicleState | null
-  pollMode: PollMode
   engine: EngineStatus | null
   failsafe: FailsafeState | null
   simulator: SimulatorDebugState | null
@@ -109,7 +111,6 @@ interface WsState {
     ha: HaState
     proxy?: ProxyHealthState
     vehicle: VehicleState
-    pollMode?: PollMode
     engine: EngineStatus
     failsafe: FailsafeState
     simulator?: SimulatorDebugState
@@ -124,7 +125,6 @@ export const useWsStore = create<WsState>((set) => ({
   ha: null,
   proxy: null,
   vehicle: null,
-  pollMode: 'NORMAL',
   engine: null,
   failsafe: null,
   simulator: null,
@@ -136,7 +136,6 @@ export const useWsStore = create<WsState>((set) => ({
     ha: state.ha,
     proxy: state.proxy ?? null,
     vehicle: state.vehicle,
-    pollMode: state.pollMode ?? 'NORMAL',
     engine: state.engine,
     failsafe: state.failsafe,
     simulator: state.simulator ?? null,

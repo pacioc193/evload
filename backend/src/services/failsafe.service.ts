@@ -49,10 +49,22 @@ export function initFailsafe(): void {
     )
   })
 
+  haEvents.on('connected', () => {
+    if (failsafeActive && failsafeReason.includes('Home Assistant')) {
+      resetFailsafe().catch((err) => logger.error('Failsafe reset error', { err }))
+    }
+  })
+
   vehicleEvents.on('disconnected', () => {
     activateFailsafe('Vehicle proxy disconnected').catch((err) =>
       logger.error('Failsafe activation error', { err })
     )
+  })
+
+  vehicleEvents.on('connected', () => {
+    if (failsafeActive && failsafeReason.includes('Vehicle')) {
+      resetFailsafe().catch((err) => logger.error('Failsafe reset error', { err }))
+    }
   })
 
   logger.info('Failsafe service initialized')

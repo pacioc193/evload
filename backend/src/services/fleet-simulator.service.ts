@@ -206,7 +206,7 @@ function buildVehicleDataBody(): Record<string, unknown> {
   }
 }
 
-function vehicleDataResponseFor(endpointsParam: string | undefined): Record<string, unknown> {
+function vehicleDataResponseFor(): Record<string, unknown> {
   if (state.state === 'asleep') {
     return {
       result: false,
@@ -217,38 +217,13 @@ function vehicleDataResponseFor(endpointsParam: string | undefined): Record<stri
   }
 
   const body = buildVehicleDataBody()
-  let responseBody: Record<string, unknown> = body
-
-  if (endpointsParam === 'charge_state') {
-    responseBody = { charge_state: body.charge_state }
-  } else if (endpointsParam === 'climate_state') {
-    responseBody = { climate_state: body.climate_state }
-  }
 
   return {
     result: true,
     reason: 'The request was successfully processed.',
     vin: state.vin,
     command: 'vehicle_data',
-    response: responseBody,
-  }
-}
-
-function simulatorSleepStatus(): 'VEHICLE_SLEEP_STATUS_AWAKE' | 'VEHICLE_SLEEP_STATUS_ASLEEP' {
-  return state.state === 'online' ? 'VEHICLE_SLEEP_STATUS_AWAKE' : 'VEHICLE_SLEEP_STATUS_ASLEEP'
-}
-
-function simulatorUserPresence(): 'VEHICLE_USER_PRESENCE_PRESENT' | 'VEHICLE_USER_PRESENCE_NOT_PRESENT' {
-  return (state.pluggedIn || state.chargePortDoorOpen)
-    ? 'VEHICLE_USER_PRESENCE_PRESENT'
-    : 'VEHICLE_USER_PRESENCE_NOT_PRESENT'
-}
-
-function buildBodyControllerState(): Record<string, unknown> {
-  return {
-    vehicleSleepStatus: simulatorSleepStatus(),
-    vehicleLockState: state.locked ? 'VEHICLE_LOCK_STATE_LOCKED' : 'VEHICLE_LOCK_STATE_UNLOCKED',
-    userPresence: simulatorUserPresence(),
+    response: body,
   }
 }
 
@@ -335,13 +310,7 @@ export function startFleetSimulator(): void {
 
   app.get('/api/1/vehicles/:vehicleId/vehicle_data', (req, res) => {
     if (!ensureVehicle(req, res)) return
-    const endpointsParam = typeof req.query['endpoints'] === 'string' ? req.query['endpoints'] : undefined
-    jsonResult(res, vehicleDataResponseFor(endpointsParam))
-  })
-
-  app.get('/api/1/vehicles/:vehicleId/body_controller_state', (req, res) => {
-    if (!ensureVehicle(req, res)) return
-    res.json(buildBodyControllerState())
+    jsonResult(res, vehicleDataResponseFor())
   })
 
   app.get('/api/1/vehicles/:vehicleId/data_request/charge_state', (req, res) => {

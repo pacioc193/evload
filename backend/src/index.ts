@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import http from 'http'
+import os from 'os'
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
@@ -26,6 +27,58 @@ import { isFailsafeActive } from './services/failsafe.service'
 import { notificationEvents, dispatchTelegramNotificationEvent } from './services/notification-rules.service'
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10)
+
+// Detect machine's LAN IP address for HA OAuth callback routing
+function detectLanIp(): string | null {
+  const interfaces = os.networkInterfaces()
+  for (const [, addrs] of Object.entries(interfaces)) {
+    if (!addrs) continue
+    for (const addr of addrs) {
+      // Prefer IPv4, skip loopback and internal
+      if (addr.family === 'IPv4' && !addr.internal && !addr.address.startsWith('127')) {
+        return addr.address
+      }
+    }
+  }
+  return null
+}
+
+// Auto-configure APP_URL: prioritize LAN IP, use mDNS as fallback
+const configuredAppUrl = (process.env.APP_URL ?? '').trim()
+const isLocalhostUrl = configuredAppUrl.includes('localhost') || configuredAppUrl.includes('127.0.0.1')
+
+const appUrlToUse = (() => {
+  // If explicitly set to a non-localhost address, use it as-is
+  if (configuredAppUrl && !isLocalhostUrl) {
+    return configuredAppUrl
+  }
+
+  // Try to detect LAN IP
+  const lanIp = detectLanIp()
+  if (lanIp) {
+    const url = `http://${lanIp}:${PORT}`
+    logger.info(`Auto-detected LAN IP: ${lanIp}, APP_URL will be ${url}`)
+    return url
+  }
+
+  // Fall back to mDNS hostname if available
+  const hostname = os.hostname()
+  if (hostname && hostname !== 'localhost') {
+    const mdnsUrl = `http://${hostname}.local:${PORT}`
+    logger.info(`Using mDNS hostname: ${hostname}.local, APP_URL will be ${mdnsUrl}`)
+    return mdnsUrl
+  }
+
+  logger.warn('Could not auto-detect LAN IP or mDNS hostname; using localhost (HA OAuth may not reach this backend)')
+  return `http://localhost:${PORT}`
+})()
+
+// Update environment so ha.routes.ts picks up the potentially auto-detected URL
+if (!configuredAppUrl || isLocalhostUrl) {
+  process.env.APP_URL = appUrlToUse
+}
+
+logger.info(`HA OAuth will use APP_URL: ${process.env.APP_URL}`)
 
 const app = express()
 
@@ -88,6 +141,44 @@ app.use('/api/schedule', scheduleRoutes)
 app.use('/api/settings', settingsRoutes)
 
 const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
+
+// HA IndieAuth / OAuth client identity page.
+// HA fetches the client_id URL to validate the OAuth app and look for <link rel="redirect_uri">.
+// APP_URL must be reachable by the HA server — use the evload machine LAN IP, e.g. http://192.168.1.X:3001.
+app.get('/', (req, res) => {
+  const appUrl = (process.env.APP_URL ?? 'http://localhost:3001').replace(/\/+$/, '')
+  const redirectUri = `${appUrl}/api/ha/callback`
+  
+  logger.debug('GET / requested (likely HA OAuth validation)', {
+    userAgent: req.get('user-agent'),
+    remoteAddr: req.ip,
+    appUrl,
+    redirectUri,
+  })
+  
+  // Set HTTP Link header for IndieAuth (some clients check this first)
+  res.setHeader('Link', `<${redirectUri}>; rel="redirect_uri"`)
+  
+  // Also set the traditional Content-Type header
+  res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  
+  // Return HTML with both <link> tag variants for maximum compatibility
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>evload OAuth Client</title>
+<link rel="redirect_uri" href="${redirectUri}">
+</head>
+<body>
+<h1>evload</h1>
+<p>OAuth Provider: Home Assistant</p>
+<p>Redirect URI: ${redirectUri}</p>
+</body>
+</html>`
+
+  res.send(html)
+})
 
 if (process.env.NODE_ENV === 'production') {
   const staticLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500 })

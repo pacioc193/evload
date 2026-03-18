@@ -95,12 +95,34 @@ export default function SettingsPage() {
   const proxy = useWsStore((s) => s.proxy)
   const vehicle = useWsStore((s) => s.vehicle)
 
-  useEffect(() => {
-    getConfig().then((d) => setConfigContent(d.content)).catch(console.error)
-    getSettings().then(setSettings).catch(console.error)
+  const loadHaEntities = () => {
     getHaEntities('sensor')
       .then((res) => setHaEntities(res.entities.map((entity) => entity.entityId)))
       .catch(() => setHaEntities([]))
+  }
+
+  useEffect(() => {
+    getConfig().then((d) => setConfigContent(d.content)).catch(console.error)
+    getSettings().then(setSettings).catch(console.error)
+    loadHaEntities()
+  }, [])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const haStatus = params.get('ha')
+    if (!haStatus) return
+
+    if (haStatus === 'connected') {
+      setHaAuthMessage('Home Assistant connected. Sensor list refreshed.')
+      loadHaEntities()
+    } else if (haStatus === 'error') {
+      setHaAuthMessage('Home Assistant authorization failed.')
+    }
+
+    params.delete('ha')
+    const query = params.toString()
+    const cleanedUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`
+    window.history.replaceState({}, '', cleanedUrl)
   }, [])
 
   const handleSave = async () => {
@@ -123,7 +145,7 @@ export default function SettingsPage() {
     setHaAuthMessage('')
     try {
       const { url } = await getHaAuthorizeUrl()
-      window.open(url, '_blank', 'noopener,noreferrer')
+      window.location.assign(url)
     } catch (err) {
       const backendMessage = axios.isAxiosError(err)
         ? err.response?.data?.error
@@ -149,7 +171,7 @@ export default function SettingsPage() {
 
   const numberFields = new Set<keyof AppSettings>([
     'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'maxAmps', 'minAmps', 'rampIntervalSec',
-    'normalPollIntervalMs', 'reactivePollIntervalMs', 'scheduleLeadTimeSec',
+    'normalPollIntervalMs', 'scheduleLeadTimeSec',
   ])
 
   const upd = (key: keyof AppSettings) => (val: string) =>
@@ -162,8 +184,13 @@ export default function SettingsPage() {
   const haConnected = ha?.connected ?? false
   const haPower = ha?.powerW ?? 0
   const haCharger = ha?.chargerW ?? 0
+  const haFailureCount = ha?.failureCount ?? 0
+  const haMaxFailures = ha?.maxFailuresBeforeManualReconnect ?? 3
+  const haRequiresManualReconnect = ha?.requiresManualReconnect ?? false
+  const haLastError = ha?.lastError ?? null
   const proxyConnected = proxy?.connected ?? false
-  const proxyError = proxy?.error ?? vehicle?.error ?? ''
+  const vehicleInGarage = vehicle?.connected ?? false
+  const runtimeReason = vehicle?.reason ?? proxy?.error ?? vehicle?.error ?? 'No reason available yet'
   const proxyLastEndpoint = proxy?.lastEndpoint ?? null
   const proxyLastSuccessAt = proxy?.lastSuccessAt
     ? new Date(proxy.lastSuccessAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -206,6 +233,25 @@ export default function SettingsPage() {
             }
           >
             <div className="pt-5 space-y-4">
+              <div className={`rounded-lg border px-4 py-3 text-sm ${haConnected
+                ? 'border-evload-success/30 bg-evload-success/10 text-evload-text'
+                : 'border-evload-error/30 bg-evload-error/10 text-evload-text'}`}>
+                <div className="font-medium">
+                  {haConnected ? 'Home Assistant connected' : 'Home Assistant offline'}
+                </div>
+                <div className="mt-1 text-xs text-evload-muted">
+                  Attempts: {haFailureCount}/{haMaxFailures}
+                </div>
+                <div className="mt-1 text-xs text-evload-muted">
+                  Last error: {haLastError ?? 'None'}
+                </div>
+                {haRequiresManualReconnect && (
+                  <div className="mt-2 text-xs text-evload-error font-semibold">
+                    Retry stopped after {haMaxFailures} failures. Press Connect / Re-authorize to retry.
+                  </div>
+                )}
+              </div>
+
               <Field
                 label="HA URL"
                 value={settings.haUrl}
@@ -272,11 +318,11 @@ export default function SettingsPage() {
           >
             <div className="pt-5 space-y-4">
               <div className={`rounded-lg border px-4 py-3 text-sm ${proxyConnected ? 'border-evload-success/30 bg-evload-success/10 text-evload-text' : 'border-evload-error/30 bg-evload-error/10 text-evload-text'}`}>
-                <div className="font-medium">{proxyConnected ? 'Proxy responding correctly' : 'Proxy not responding'}</div>
+                <div className="font-medium">{proxyConnected ? 'Proxy connection is healthy' : 'Proxy connection is down'}</div>
+                <div className="mt-1 text-xs text-evload-muted">Vehicle: {vehicleInGarage ? 'In garage' : 'Not in garage / unreachable'}</div>
+                <div className="mt-1 text-xs text-evload-muted">Reason: {runtimeReason}</div>
                 <div className="mt-1 text-xs text-evload-muted">
-                  {proxyConnected
-                    ? `Last successful proxy call: ${proxyLastEndpoint ?? 'unknown'}${proxyLastSuccessAt ? ` at ${proxyLastSuccessAt}` : ''}.`
-                    : (proxyError || 'No valid response is currently arriving from the proxy.')}
+                  Last successful proxy call: {proxyLastEndpoint ?? 'unknown'}{proxyLastSuccessAt ? ` at ${proxyLastSuccessAt}` : ''}.
                 </div>
               </div>
 
@@ -311,14 +357,6 @@ export default function SettingsPage() {
                 type="number"
                 unit="ms"
                 description="Polling interval for full vehicle_data refresh while the car is awake."
-              />
-              <Field
-                label="Reactive / Heartbeat Interval"
-                value={settings.reactivePollIntervalMs}
-                onChange={upd('reactivePollIntervalMs')}
-                type="number"
-                unit="ms"
-                description="How often body_controller_state is used as a low-impact heartbeat and reactive sleep check."
               />
               <Field
                 label="Schedule Lead Time"

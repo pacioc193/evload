@@ -287,10 +287,10 @@ Accettazione letterale:
 ### F-17 Configurazione - Proxy
 Requisito: "URL proxy, vehicle Id, nome veicolo, parametri di polling e wake"
 Accettazione letterale:
-- C1: Sono configurabili almeno `proxyUrl`, `vehicleId`, `vehicleName`, `normalPollIntervalMs`, `reactivePollIntervalMs`, `scheduleLeadTimeSec`, `rejectUnauthorized`.
+- C1: Sono configurabili almeno `proxyUrl`, `vehicleId`, `vehicleName`, `normalPollIntervalMs`, `scheduleLeadTimeSec`, `rejectUnauthorized`.
 - C2: I campi proxy sono persistiti via `config.yaml` e via API strutturata `GET/PATCH /api/settings`.
 - C3: `proxyUrl` e `vehicleId` sono usati in tutte le chiamate proxy/emulatore.
-- C4: `normalPollIntervalMs` governa il refresh `vehicle_data`, `reactivePollIntervalMs` governa il heartbeat `body_controller_state`, `scheduleLeadTimeSec` governa il pre-wake scheduler, `rejectUnauthorized` governa il client HTTPS verso il proxy.
+- C4: `normalPollIntervalMs` governa il refresh `vehicle_data`, `scheduleLeadTimeSec` governa il pre-wake scheduler, `rejectUnauthorized` governa il client HTTPS verso il proxy.
 
 ### F-18 Modalità Del Motore Di Ricarica
 Requisito: "Off, Plan, On"
@@ -318,6 +318,19 @@ Accettazione letterale:
 - C4: API/UI leggono il catalogo eventi da backend dinamicamente, senza lista hardcoded fissa lato frontend.
 - C5: Aggiunta nuovo evento nel backend deve comparire in UI senza patch specifica di componenti evento.
 - C6: Test automatici coprono almeno: emissione evento, dispatch rule match/no-match, e assenza di fallback statico.
+
+### F-21 Stato Proxy E Auto Separato (Endpoint Unico)
+Requisito: "Usare solo vehicle_data per lo stato runtime; distinguere proxy connesso da auto in garage e mostrare sempre reason"
+Accettazione letterale:
+- C1: Il polling runtime stato usa solo `GET /api/1/vehicles/{VIN}/vehicle_data`.
+- C2: `vehicle_data.response.result === true` deve essere interpretato come auto in garage/raggiungibile.
+- C3: `vehicle_data.response.result === false` deve essere interpretato come proxy raggiungibile ma auto non in garage/non raggiungibile.
+- C4: Errori rete/timeout del polling devono indicare proxy non raggiungibile.
+- C5: Dashboard deve restare visibile con WS attivo anche quando auto non raggiungibile.
+- C6: Nel pannello centrale Dashboard devono essere mostrati separatamente stato proxy, stato auto e reason.
+- C7: In Settings (pannello Proxy) devono essere mostrati separatamente stato proxy, stato auto e reason.
+- C8: La reason deve essere sempre visibile in Dashboard e Settings (success/failure).
+- C9: Documentazione aggiornata in `README.md` coerente con C1-C8.
 
 ### F-21 Pannello Impostazioni Esteso
 Accettazione letterale:
@@ -450,6 +463,8 @@ Accettazione letterale:
 - C2: La richiesta `vehicle_data?endpoints=charge_state` viene eseguita solo come fallback quando il payload completo non contiene `charge_state` utile.
 
 ## Logica Di Comunicazione EVLoad <-> Proxy (Implementata)
+
+Hard-cleaning note (March 2026): runtime status logic uses a single polling endpoint `vehicle_data`; legacy heartbeat-based references below are superseded by F-21 and retained only as historical context.
 
 Questa sezione descrive il comportamento effettivamente implementato nel codice attuale tra EVLoad e proxy Tesla.
 

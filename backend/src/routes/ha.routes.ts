@@ -2,7 +2,7 @@ import { Router } from 'express'
 import axios from 'axios'
 import rateLimit from 'express-rate-limit'
 import { requireAuth } from '../middleware/auth.middleware'
-import { saveHaTokenObj, getHaState, getHaTokenObj } from '../services/ha.service'
+import { saveHaTokenObj, getHaState, getHaTokenObj, requestHaReconnectAttempt } from '../services/ha.service'
 import { getConfig } from '../config'
 import { logger } from '../logger'
 
@@ -54,31 +54,53 @@ function getOauthConfigurationError(): string | null {
   return null
 }
 
+function buildFrontendRedirect(pathAndQuery: string): string {
+  const frontendUrl = (process.env.FRONTEND_URL ?? '').replace(/\/+$/, '')
+  if (!frontendUrl) return pathAndQuery
+  return `${frontendUrl}${pathAndQuery}`
+}
+
 router.get('/authorize', limiter, requireAuth, (_req, res) => {
+  requestHaReconnectAttempt()
+
   const configError = getOauthConfigurationError()
   if (configError) {
     res.status(500).json({ error: configError })
     return
   }
 
+  const clientId = getOauthClientId()
+  const redirectUri = REDIRECT_URI()
   const params = new URLSearchParams({
-    client_id: getOauthClientId(),
-    redirect_uri: REDIRECT_URI(),
+    client_id: clientId,
+    redirect_uri: redirectUri,
     response_type: 'code',
   })
   const authUrl = `${HA_URL()}/auth/authorize?${params.toString()}`
+  
+  logger.info('HA OAuth /authorize requested', {
+    clientId,
+    redirectUri,
+    haUrl: HA_URL(),
+    authUrl,
+  })
+  
   res.json({ url: authUrl })
 })
 
 router.get('/callback', limiter, async (req, res) => {
   const { code } = req.query as { code?: string }
   if (!code) {
+    logger.warn('HA OAuth callback received without code', { query: req.query })
     res.status(400).send('Missing authorization code')
     return
   }
 
+  logger.info('HA OAuth callback received with code', { code: code.substring(0, 10) + '...' })
+
   const configError = getOauthConfigurationError()
   if (configError) {
+    logger.error('HA OAuth callback: config error', { configError })
     res.status(500).send(configError)
     return
   }
@@ -95,16 +117,24 @@ router.get('/callback', limiter, async (req, res) => {
       tokenParams.set('client_secret', clientSecret)
     }
 
+    logger.debug('HA OAuth token exchange', {
+      clientId: getOauthClientId(),
+      redirectUri: REDIRECT_URI(),
+      hasSecret: !!clientSecret,
+    })
+
     const tokenRes = await axios.post<{ access_token: string; refresh_token: string; expires_in: number }>(
       `${HA_URL()}/auth/token`,
       tokenParams,
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     )
     await saveHaTokenObj(tokenRes.data)
-    res.redirect('/?ha=connected')
+    requestHaReconnectAttempt()
+    logger.info('HA OAuth token saved successfully')
+    res.redirect(buildFrontendRedirect('/settings?ha=connected'))
   } catch (err) {
-    logger.error('HA OAuth callback error', { err })
-    res.redirect('/?ha=error')
+    logger.error('HA OAuth callback error', { err, code: code.substring(0, 10) + '...' })
+    res.redirect(buildFrontendRedirect('/settings?ha=error'))
   }
 })
 
