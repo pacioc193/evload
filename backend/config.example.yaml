@@ -30,4 +30,16 @@ proxy:
   url: "http://localhost:8080"
   vehicleId: ""
   vehicleName: ""
-  pollIntervalMs: 1000
+  
+  # Polling intervals (ms) - Garage-Reactive Polling system
+  # NORMAL mode: fetches vehicle_data every 5s (active charging, schedule imminente, or user in garage)
+  normalPollIntervalMs: 5000
+  
+  # REACTIVE mode: fetches body_controller_state every 5s (sleeping vehicle, NO-WAKE guarantee)
+  reactivePollIntervalMs: 5000
+  
+  # Anticipatory wake lead time (sec) - wakes vehicle before scheduled charge execution
+  scheduleLeadTimeSec: 1800
+  
+  # TLS certificate validation for proxy HTTPS (set false only for self-signed certs in local dev)
+  rejectUnauthorized: true

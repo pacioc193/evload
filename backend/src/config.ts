@@ -68,7 +68,10 @@ const ConfigSchema = z.object({
     url: z.string().default('http://localhost:8080'),
     vehicleId: z.string().default(''),
     vehicleName: z.string().default(''),
-    pollIntervalMs: z.number().default(1000),
+    normalPollIntervalMs: z.number().min(1000).default(5000),
+    reactivePollIntervalMs: z.number().min(1000).default(5000),
+    scheduleLeadTimeSec: z.number().min(0).default(1800),
+    rejectUnauthorized: z.boolean().default(true),
   }).default({}),
 })
 

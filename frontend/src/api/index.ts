@@ -37,6 +37,11 @@ export async function stopCharging() {
   return res.data as { success: boolean }
 }
 
+export async function wakeVehicle() {
+  const res = await api.post('/engine/wake')
+  return res.data as { success: boolean }
+}
+
 export async function getSessions(page = 1, limit = 20) {
   const res = await api.get(`/sessions?page=${page}&limit=${limit}`)
   return res.data as { sessions: unknown[]; total: number; page: number; limit: number }
@@ -84,6 +89,10 @@ export interface AppSettings {
   proxyUrl: string
   vehicleId: string
   vehicleName: string
+  normalPollIntervalMs: number
+  reactivePollIntervalMs: number
+  scheduleLeadTimeSec: number
+  rejectUnauthorized: boolean
   batteryCapacityKwh: number
   energyPriceEurPerKwh: number
   defaultAmps: number

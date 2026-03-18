@@ -3,7 +3,7 @@ import { Server } from 'http'
 import { logger } from '../logger'
 import { getConfig } from '../config'
 import { getHaState } from '../services/ha.service'
-import { getVehicleState, getSimulatorDebugState } from '../services/proxy.service'
+import { getVehicleState, getSimulatorDebugState, getPollMode, getProxyHealthState } from '../services/proxy.service'
 import { getEngineStatus } from '../engine/charging.engine'
 import { isFailsafeActive, getFailsafeReason } from '../services/failsafe.service'
 
@@ -84,7 +84,9 @@ function getAppState() {
       batteryCapacityKwh: cfg.charging.batteryCapacityKwh,
     },
     ha: getHaState(),
+    proxy: getProxyHealthState(),
     vehicle: getVehicleState(),
+    pollMode: getPollMode(),
     simulator: getSimulatorDebugState(),
     engine: getEngineStatus(),
     failsafe: {

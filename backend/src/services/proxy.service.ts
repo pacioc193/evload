@@ -1,8 +1,21 @@
-import axios from 'axios'
+import axios, { type AxiosInstance } from 'axios'
+import https from 'node:https'
 import { EventEmitter } from 'events'
 import { logger, sanitizeForLog } from '../logger'
 import { getConfig } from '../config'
 import { dispatchTelegramNotificationEvent } from './notification-rules.service'
+
+export type PollMode = 'NORMAL' | 'REACTIVE'
+
+export type VehicleSleepStatus = 'VEHICLE_SLEEP_STATUS_AWAKE' | 'VEHICLE_SLEEP_STATUS_ASLEEP' | 'VEHICLE_SLEEP_STATUS_UNKNOWN'
+
+export type UserPresence = 'VEHICLE_USER_PRESENCE_PRESENT' | 'VEHICLE_USER_PRESENCE_NOT_PRESENT' | 'VEHICLE_USER_PRESENCE_UNKNOWN'
+
+export interface TeslaBodyControllerStateResponse {
+  vehicleSleepStatus?: VehicleSleepStatus
+  vehicleLockState?: string
+  userPresence?: UserPresence
+}
 
 export interface VehicleState {
   connected: boolean
@@ -35,6 +48,8 @@ export interface VehicleState {
   odometer: number | null
   vin: string | null
   displayName: string | null
+  vehicleSleepStatus: VehicleSleepStatus | null
+  userPresence: UserPresence | null
   error?: string
 }
 
@@ -42,6 +57,7 @@ export type SimulatorEndpointKey =
   | 'vehicle.vehicle_data'
   | 'vehicle.charge_state'
   | 'vehicle.climate_state'
+  | 'vehicle.body_controller_state'
   | 'command.charge_start'
   | 'command.charge_stop'
   | 'command.set_charging_amps'
@@ -58,6 +74,13 @@ export interface SimulatorEndpointRecord {
 
 export interface SimulatorDebugState {
   lastResponses: SimulatorEndpointRecord[]
+}
+
+export interface ProxyHealthState {
+  connected: boolean
+  lastSuccessAt: string | null
+  lastEndpoint: SimulatorEndpointKey | null
+  error: string | null
 }
 
 export const vehicleEvents = new EventEmitter()
@@ -93,10 +116,24 @@ let vehicleState: VehicleState = {
   odometer: null,
   vin: null,
   displayName: null,
+  vehicleSleepStatus: null,
+  userPresence: null,
+}
+
+let proxyHealthState: ProxyHealthState = {
+  connected: false,
+  lastSuccessAt: null,
+  lastEndpoint: null,
+  error: null,
 }
 
 let pollLock = false
 let pollTimer: NodeJS.Timeout | null = null
+let heartbeatLock = false
+let heartbeatTimer: NodeJS.Timeout | null = null
+let currentPollMode: PollMode = 'NORMAL'
+let consecutiveSleepCount = 0
+let userPresenceChangedCallback: ((presence: UserPresence) => void) | null = null
 
 function proxyUrl(): string {
   return getConfig().proxy.url
@@ -104,6 +141,15 @@ function proxyUrl(): string {
 
 function vehicleId(): string {
   return getConfig().proxy.vehicleId
+}
+
+function getAxiosProxy(): AxiosInstance {
+  const cfg = getConfig()
+  return axios.create({
+    httpsAgent: new https.Agent({
+      rejectUnauthorized: cfg.proxy.rejectUnauthorized,
+    }),
+  })
 }
 
 function computeChargeRateKw(currentA: number | null | undefined, voltageV: number | null | undefined, fallbackKw?: number | null): number | null {
@@ -144,6 +190,26 @@ function debugEnabled(): boolean {
   return (process.env.LOG_LEVEL ?? 'info').toLowerCase() === 'debug'
 }
 
+function markProxySuccess(url: string): void {
+  const endpointKey = endpointKeyFromUrl(url)
+  proxyHealthState = {
+    connected: true,
+    lastSuccessAt: new Date().toISOString(),
+    lastEndpoint: endpointKey,
+    error: null,
+  }
+}
+
+function markProxyError(url: string, err: unknown): void {
+  const endpointKey = endpointKeyFromUrl(url)
+  proxyHealthState = {
+    ...proxyHealthState,
+    connected: false,
+    lastEndpoint: endpointKey ?? proxyHealthState.lastEndpoint,
+    error: String(err),
+  }
+}
+
 async function proxyGet<T>(url: string): Promise<T> {
   if (debugEnabled()) {
     logger.debug('Proxy outbound request', {
@@ -151,20 +217,27 @@ async function proxyGet<T>(url: string): Promise<T> {
       url,
     })
   }
-  const res = await axios.get<T>(url, { timeout: 4000 })
-  const key = endpointKeyFromUrl(url)
-  if (key) {
-    recordSimulatorResponse(key, res.data, 'simulated')
+  const axiosProxy = getAxiosProxy()
+  try {
+    const res = await axiosProxy.get<T>(url, { timeout: 4000 })
+    markProxySuccess(url)
+    const key = endpointKeyFromUrl(url)
+    if (key) {
+      recordSimulatorResponse(key, res.data, 'simulated')
+    }
+    if (debugEnabled()) {
+      logger.debug('Proxy outbound response', {
+        method: 'GET',
+        url,
+        statusCode: res.status,
+        body: sanitizeForLog(res.data),
+      })
+    }
+    return res.data
+  } catch (err) {
+    markProxyError(url, err)
+    throw err
   }
-  if (debugEnabled()) {
-    logger.debug('Proxy outbound response', {
-      method: 'GET',
-      url,
-      statusCode: res.status,
-      body: sanitizeForLog(res.data),
-    })
-  }
-  return res.data
 }
 
 async function proxyPost<T>(url: string, body: Record<string, unknown>): Promise<T> {
@@ -175,26 +248,34 @@ async function proxyPost<T>(url: string, body: Record<string, unknown>): Promise
       body: sanitizeForLog(body),
     })
   }
-  const res = await axios.post<T>(url, body, { timeout: 10000 })
-  const key = endpointKeyFromUrl(url)
-  if (key) {
-    recordSimulatorResponse(key, res.data, 'simulated')
+  const axiosProxy = getAxiosProxy()
+  try {
+    const res = await axiosProxy.post<T>(url, body, { timeout: 10000 })
+    markProxySuccess(url)
+    const key = endpointKeyFromUrl(url)
+    if (key) {
+      recordSimulatorResponse(key, res.data, 'simulated')
+    }
+    if (debugEnabled()) {
+      logger.debug('Proxy outbound response', {
+        method: 'POST',
+        url,
+        statusCode: res.status,
+        body: sanitizeForLog(res.data),
+      })
+    }
+    return res.data
+  } catch (err) {
+    markProxyError(url, err)
+    throw err
   }
-  if (debugEnabled()) {
-    logger.debug('Proxy outbound response', {
-      method: 'POST',
-      url,
-      statusCode: res.status,
-      body: sanitizeForLog(res.data),
-    })
-  }
-  return res.data
 }
 
 const SIMULATOR_ENDPOINT_KEYS: SimulatorEndpointKey[] = [
   'vehicle.vehicle_data',
   'vehicle.charge_state',
   'vehicle.climate_state',
+  'vehicle.body_controller_state',
   'command.charge_start',
   'command.charge_stop',
   'command.set_charging_amps',
@@ -227,6 +308,7 @@ function endpointKeyFromUrl(url: string): SimulatorEndpointKey | null {
       if (endpoint === 'climate_state') return 'vehicle.climate_state'
       return 'vehicle.vehicle_data'
     }
+    if (/\/api\/1\/vehicles\/[^/]+\/body_controller_state$/.test(pathname)) return 'vehicle.body_controller_state'
     if (/\/api\/1\/vehicles\/[^/]+\/data_request\/charge_state$/.test(pathname)) return 'vehicle.charge_state'
     if (/\/api\/1\/vehicles\/[^/]+\/data_request\/climate_state$/.test(pathname)) return 'vehicle.climate_state'
     const commandMatch = pathname.match(/\/api\/1\/vehicles\/[^/]+\/command\/([^/]+)$/)
@@ -346,6 +428,27 @@ async function pollProxyOnce(): Promise<void> {
     const backendReachable = Boolean(fullResponse)
     const vehicleAsleep = fullResponse?.result === false && String(fullResponse.reason ?? '').toLowerCase().includes('sleep')
 
+    if (vehicleAsleep) {
+      consecutiveSleepCount++
+      logger.debug('Vehicle sleep detected', { consecutiveSleepCount })
+      
+      if (consecutiveSleepCount >= 2 && !vehicleState.charging) {
+        logger.info('Sleep threshold reached and not charging → switching to REACTIVE mode')
+        currentPollMode = 'REACTIVE'
+        vehicleEvents.emit('poll_mode_changed', 'REACTIVE')
+      }
+    } else {
+      if (consecutiveSleepCount > 0) {
+        logger.debug('Vehicle awake, resetting sleep counter')
+        consecutiveSleepCount = 0
+      }
+      if (currentPollMode === 'REACTIVE') {
+        logger.info('Vehicle awake in REACTIVE mode → switching to NORMAL')
+        currentPollMode = 'NORMAL'
+        vehicleEvents.emit('poll_mode_changed', 'NORMAL')
+      }
+    }
+
     const prevConnected = vehicleState.connected
     const VD_CONNECTED = backendReachable
     if (!prevConnected && VD_CONNECTED) {
@@ -376,6 +479,10 @@ async function pollProxyOnce(): Promise<void> {
 
     const chargingState = cd?.charging_state || (vehicleAsleep ? 'Sleeping' : 'Disconnected')
     const charging = chargingState === 'Charging'
+    
+    const sleepStatus: VehicleSleepStatus = vehicleAsleep 
+      ? 'VEHICLE_SLEEP_STATUS_ASLEEP' 
+      : 'VEHICLE_SLEEP_STATUS_AWAKE'
     const cableType = normalizeTeslaNilLike(cd?.conn_charge_cable ?? null)
     const chargePortLatch = normalizeTeslaNilLike(cd?.charge_port_latch ?? null)
     const chargePortDoorOpen = typeof cd?.charge_port_door_open === 'boolean' ? cd.charge_port_door_open : null
@@ -431,6 +538,8 @@ async function pollProxyOnce(): Promise<void> {
       odometer: vd?.odometer ?? null,
       vin: fullResponse?.vin ?? vehicleState.vin ?? vid,
       displayName: cfg.proxy.vehicleName || vehicleState.displayName || 'Vehicle',
+      vehicleSleepStatus: sleepStatus,
+      userPresence: 'VEHICLE_USER_PRESENCE_UNKNOWN',
       error: fullResponse?.result === false ? String(fullResponse.reason ?? 'Vehicle unavailable') : undefined,
     }
 
@@ -449,23 +558,166 @@ async function pollProxyOnce(): Promise<void> {
 }
 
 export function startProxyPoll(): void {
-  if (pollTimer) return
-  logger.info('Starting proxy polling at 1Hz')
-  pollTimer = setInterval(() => {
-    pollProxyOnce().catch((err) => logger.error('Unhandled proxy poll rejection', { err }))
-  }, 1000)
+  if (pollTimer || heartbeatTimer) return
+  logger.info('Starting adaptive proxy polling with vehicle_data refresh and body_controller_state heartbeat')
+  scheduleNextPoll()
+  scheduleHeartbeatPoll()
 }
 
 export function stopProxyPoll(): void {
   if (pollTimer) {
-    clearInterval(pollTimer)
+    clearTimeout(pollTimer)
     pollTimer = null
-    logger.info('Proxy polling stopped')
+  }
+  if (heartbeatTimer) {
+    clearTimeout(heartbeatTimer)
+    heartbeatTimer = null
+  }
+  logger.info('Proxy polling stopped')
+}
+
+function scheduleNextPoll(): void {
+  if (pollTimer) clearTimeout(pollTimer)
+
+  const interval = getConfig().proxy.normalPollIntervalMs
+
+  pollTimer = setTimeout(async () => {
+    try {
+      if (currentPollMode === 'NORMAL') {
+        await pollProxyOnce()
+      }
+    } catch (err) {
+      logger.error('Unhandled poll rejection', { err, mode: currentPollMode })
+    }
+    scheduleNextPoll()
+  }, interval)
+}
+
+function scheduleHeartbeatPoll(): void {
+  if (heartbeatTimer) clearTimeout(heartbeatTimer)
+
+  const interval = getConfig().proxy.reactivePollIntervalMs
+
+  heartbeatTimer = setTimeout(async () => {
+    try {
+      await pollHeartbeatOnce()
+    } catch (err) {
+      logger.error('Unhandled heartbeat rejection', { err, mode: currentPollMode })
+    }
+    scheduleHeartbeatPoll()
+  }, interval)
+}
+
+async function pollHeartbeatOnce(): Promise<void> {
+  if (heartbeatLock) {
+    logger.debug('Heartbeat poll skipped - previous heartbeat still in progress')
+    return
+  }
+  heartbeatLock = true
+  try {
+    const vid = vehicleId()
+    if (!vid) {
+      vehicleState = { ...vehicleState, connected: false, error: 'No vehicle ID configured' }
+      vehicleEvents.emit('state', vehicleState)
+      return
+    }
+
+    const bodyStateRes = await proxyGet<TeslaBodyControllerStateResponse>(
+      `${proxyUrl()}/api/1/vehicles/${vid}/body_controller_state`
+    )
+
+    const sleepStatus = bodyStateRes.vehicleSleepStatus ?? 'VEHICLE_SLEEP_STATUS_UNKNOWN'
+    const presence = bodyStateRes.userPresence ?? 'VEHICLE_USER_PRESENCE_UNKNOWN'
+
+    const prevPresence = vehicleState.userPresence
+    const nextConnected = currentPollMode === 'REACTIVE' ? true : vehicleState.connected
+    vehicleState = { 
+      ...vehicleState, 
+      vehicleSleepStatus: sleepStatus,
+      userPresence: presence,
+      connected: nextConnected,
+      error: currentPollMode === 'REACTIVE' ? undefined : vehicleState.error,
+    }
+
+    if (prevPresence !== presence && presence === 'VEHICLE_USER_PRESENCE_PRESENT') {
+      if (currentPollMode === 'REACTIVE') {
+        logger.info('User presence detected in garage → switching to NORMAL mode')
+        currentPollMode = 'NORMAL'
+        consecutiveSleepCount = 0
+        vehicleEvents.emit('poll_mode_changed', 'NORMAL')
+      }
+      if (userPresenceChangedCallback) {
+        userPresenceChangedCallback(presence)
+      }
+    }
+
+    if (sleepStatus === 'VEHICLE_SLEEP_STATUS_AWAKE') {
+      consecutiveSleepCount = 0
+      if (currentPollMode === 'REACTIVE') {
+        logger.info('Vehicle awake in REACTIVE mode → switching to NORMAL')
+        currentPollMode = 'NORMAL'
+        vehicleEvents.emit('poll_mode_changed', 'NORMAL')
+      }
+    } else if (sleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' && currentPollMode === 'NORMAL' && !vehicleState.charging) {
+      consecutiveSleepCount++
+      if (consecutiveSleepCount >= 2) {
+        logger.info('Heartbeat confirms sleeping vehicle → switching to REACTIVE mode')
+        currentPollMode = 'REACTIVE'
+        vehicleEvents.emit('poll_mode_changed', 'REACTIVE')
+      }
+    }
+
+    if (sleepStatus !== 'VEHICLE_SLEEP_STATUS_ASLEEP' && currentPollMode === 'NORMAL') {
+      consecutiveSleepCount = 0
+    }
+
+    vehicleEvents.emit('state', vehicleState)
+  } catch (err) {
+    logger.error('Heartbeat poll error', { err })
+    vehicleState = { ...vehicleState, error: String(err) }
+    vehicleEvents.emit('state', vehicleState)
+  } finally {
+    heartbeatLock = false
   }
 }
 
 export function getVehicleState(): VehicleState {
   return vehicleState
+}
+
+export function getPollMode(): PollMode {
+  return currentPollMode
+}
+
+export function getProxyHealthState(): ProxyHealthState {
+  return proxyHealthState
+}
+
+export function onUserPresenceChange(callback: (presence: UserPresence) => void): void {
+  userPresenceChangedCallback = callback
+}
+
+export async function requestWakeMode(sendWakeCommand = false): Promise<void> {
+  consecutiveSleepCount = 0
+  currentPollMode = 'NORMAL'
+  vehicleEvents.emit('poll_mode_changed', 'NORMAL')
+  
+  if (sendWakeCommand) {
+    try {
+      const vid = vehicleId()
+      if (vid) {
+        logger.info('Sending wake_up command via proxy')
+        await sendProxyCommand(vid, 'wake_up')
+      }
+    } catch (err) {
+      logger.error('Failed to send wake_up command', { err })
+    }
+  }
+  
+  if (pollTimer) clearTimeout(pollTimer)
+  if (heartbeatTimer) clearTimeout(heartbeatTimer)
+  scheduleNextPoll()
+  scheduleHeartbeatPoll()
 }
 
 export async function sendProxyCommand(vehicleId: string, command: string, body?: Record<string, unknown>): Promise<unknown> {
@@ -486,20 +738,26 @@ export async function updateProxyDataRequest(
       body: sanitizeForLog(body),
     })
   }
-  const res = await axios.put<unknown>(url, body, { timeout: 10000 })
-  const key = endpointKeyFromUrl(url)
-  if (key) {
-    recordSimulatorResponse(key, res.data, 'simulated')
+  try {
+    const res = await getAxiosProxy().put<unknown>(url, body, { timeout: 10000 })
+    markProxySuccess(url)
+    const key = endpointKeyFromUrl(url)
+    if (key) {
+      recordSimulatorResponse(key, res.data, 'simulated')
+    }
+    if (debugEnabled()) {
+      logger.debug('Proxy outbound response', {
+        method: 'PUT',
+        url,
+        statusCode: res.status,
+        body: sanitizeForLog(res.data),
+      })
+    }
+    return res.data
+  } catch (err) {
+    markProxyError(url, err)
+    throw err
   }
-  if (debugEnabled()) {
-    logger.debug('Proxy outbound response', {
-      method: 'PUT',
-      url,
-      statusCode: res.status,
-      body: sanitizeForLog(res.data),
-    })
-  }
-  return res.data
 }
 
 export function getSimulatorDebugState(): SimulatorDebugState {

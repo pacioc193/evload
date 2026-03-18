@@ -154,31 +154,31 @@ Gap:
 
 ## Backlog Features (Con Criteri Letterali)
 
-### F-01 Notifications Widget (event-based)
+### F-01 Widget Notifiche (basato su eventi)
 Accettazione letterale:
 - C1: Pannello dedicato per regole di notifica (Template per eventi).
 - C2: Possibilità di definire template personalizzati per ogni evento del sistema.
 - C3: La UI deve permettere di attivare/disattivare singole regole.
 - C4: La lista iniziale deve essere vuota (punto 6 regole obbligatorie).
 
-### F-01B Notification Message Source Of Truth
+### F-01B Sorgente Unica Dei Messaggi Notifica
 Accettazione letterale:
 - C1: Eliminazione di qualsiasi fallback di testo statico nel backend per le notifiche (punto 10 regole obbligatorie).
 - C2: Nessun messaggio deve essere inviato se l'utente non ha definito una regola/template corrispondente.
-- C3: **Smart Rules Builder**: La creazione di regole avanzate deve supportare:
-	- C3.1: Selezione del campo (field) da una lista a discesa basata sui placeholder validi per l'evento.
-	- C3.2: **Delta Conditions**: Supporto per operatori `changed` (diverso dal precedente), `increased_by` (aumentato di X), `decreased_by` (diminuito di X).
-	- C3.3: **Modulo Conditions**: Operatore `mod_step` (triggera ogni volta che il valore attraversa un multiplo di X, es. ogni 10% di SoC).
+- C3: **Costruttore Regole Avanzate**: La creazione di regole avanzate deve supportare:
+	- C3.1: Selezione del campo da una lista a discesa basata sui placeholder validi per l'evento.
+	- C3.2: **Condizioni Delta**: Supporto per operatori `changed` (diverso dal precedente), `increased_by` (aumentato di X), `decreased_by` (diminuito di X).
+	- C3.3: **Condizioni Modulo**: Operatore `mod_step` (triggera ogni volta che il valore attraversa un multiplo di X, es. ogni 10% di SoC).
 - C4: Sotto l'etichetta del pannello (o specifica sezione) deve essere indicato chiaramente che i messaggi vengono inviati SOLO se esiste una regola configurata.
 
-### F-02 Show All Placeholders
+### F-02 Mostra Tutti I Placeholder
 Accettazione letterale:
 - C1: Lista placeholder visibile in UI tramite pulsante di Help o Finestra Popup (non staticamente sulla pagina).
 - C2: I placeholder devono essere consolidati in un unico punto dell'interfaccia (non ripetuti in più sezioni).
 - C3: Ogni placeholder deve avere una descrizione chiara del significato e del tipo di dato previsto.
 - C4: La lista deve filtrare o evidenziare quali placeholder sono disponibili per lo specifico evento selezionato.
 
-### F-03 Test Center & Event Schemas
+### F-03 Centro Test E Schemi Evento
 Accettazione letterale:
 - C1: Ogni evento nel catalogo deve definire uno schema di campi/payload obbligatori/previsti (es. engine_started deve richiedere sessionId, targetSoc).
 - C2: Il Test Center deve impedire l'invio di test con payload non congruenti con l'evento selezionato (validazione schema).
@@ -187,8 +187,8 @@ Accettazione letterale:
 - C5: Possibilità di generare un evento "reale" nel sistema (bus eventi) dal Test Center per verificare la reazione di tutte le regole collegate.
 - C6: Gestione esplicita degli errori di pre-requisito: il Test Center deve segnalare se l'invio non è possibile a causa di configurazioni mancanti (es: Bot Token mancante, Chat ID non impostati, Telegram disabilitato).
 
-### F-04 API Token Write-Only
-Requisito: "Allow to put the API token in write mode only"
+### F-04 Token API In Sola Scrittura
+Requisito: "Permettere di inserire il token API solo in modalità write-only"
 Accettazione letterale:
 - C1: Campo token configurabile in UI (Telegram Bot Token).
 - C2: Il token deve essere salvato esclusivamente nel file `.env` del backend per ragioni di sicurezza, MAI nel file `config.yaml`.
@@ -198,117 +198,119 @@ Accettazione letterale:
 - C6: Se il file `.env` non esiste, il backend deve crearlo o aggiornarlo dinamicamente al salvataggio del token.
 - C7: Il servizio Telegram deve ricaricare il token dal `.env` immediatamente dopo il salvataggio senza riavvio.
 
-### F-05 Allowed Chat IDs Full Management
-Requisito: "Allow to put all Allowed Chat IDs"
+### F-05 Gestione Completa Degli Allowed Chat IDs
+Requisito: "Permettere di inserire tutti gli Allowed Chat IDs"
 Accettazione letterale:
 - C1: Inserimento multiplo IDs.
 - C2: Persistenza corretta in config.
 - C3: Nessuna perdita di valori al reload.
 
-### F-06 Delete All Event Messages
-Requisito: "Allow to delete all event message"
+### F-06 Elimina Tutti I Messaggi Evento
+Requisito: "Permettere di eliminare tutti i messaggi evento"
 Accettazione letterale:
 - C1: Azione bulk "delete all" disponibile.
 - C2: Cancella tutti i template evento/regole evento.
 - C3: Stato persistito dopo save/reload.
 
-### F-07 Load Example Or Generate From Scratch
-Requisito: "Possibility to load an example or generate from scratch."
+### F-07 Carica Esempio O Genera Da Zero
+Requisito: "Possibilità di caricare un esempio o generare da zero."
 Accettazione letterale:
-- C1: Azione "Load example" presente.
-- C2: Azione "Generate from scratch" presente e produce set vuoto (nessuna regola).
+- C1: Azione "Carica esempio" presente.
+- C2: Azione "Genera da zero" presente e produce set vuoto (nessuna regola).
 - C3: Quando l'utente aggiunge una notifica, deve scegliere esplicitamente tra template o creazione da zero.
 - C4: Entrambe le azioni non devono corrompere regole salvate accidentalmente.
 
-### F-08 Dashboard Themes
-Requisito: "Different theme (dark, white)"
+### F-08 Temi Dashboard
+Requisito: "Tema differente (dark, white)"
 Accettazione letterale:
 - C1: Almeno 2 temi selezionabili in runtime (dark e white).
 - C2: Persistenza preferenza tema.
 - C3: Tema applicato a dashboard completa, non solo a singoli blocchi.
 
-### F-09 Dashboard All Information
-Requisito: "All information (actual current, desired current, voltage, phase, time to full read from message)"
+### F-09 Dashboard Tutte Le Informazioni
+Requisito: "Tutte le informazioni (corrente attuale, corrente desiderata, tensione, fase, time to full letto dal messaggio)"
 Accettazione letterale:
 - C1: Tutti i campi indicati sono visibili.
 - C2: "time to full" e campi marcati "read from message" derivano da messaggio corretto.
 - C3: Label e unita' coerenti.
 
-### F-10 Top Of Page Power Metrics
-Requisito: "On top of the page (Actual home total power consumption, power consumption of home without charger (home_total - charger))"
+### F-10 Metriche Potenza In Testa Pagina
+Requisito: "In cima alla pagina (consumo totale attuale casa, consumo casa senza charger (home_total - charger))"
 Accettazione letterale:
-- C1: Entrambe metriche sono in top section dashboard.
+- C1: Entrambe le metriche sono nella sezione superiore della dashboard.
 - C2: Formula home_without_charger = home_total - charger rispettata letteralmente.
 - C3: Aggiornamento live coerente con stream dati.
 
-### F-11 Next Charge Start Time (EVCC-like)
-Requisito: "Show start time of next charge like evcc"
+### F-11 Orario Prossimo Avvio Ricarica (stile EVCC)
+Requisito: "Mostrare l'orario di inizio della prossima ricarica come EVCC"
 Accettazione letterale:
 - C1: Orario prossimo avvio visibile in dashboard.
 - C2: Derivato da scheduler reale (non placeholder statico).
 - C3: Formato orario chiaro.
 
-### F-12 Engine Log
-Requisito: "Log of engine"
+### F-12 Log Motore
+Requisito: "Log del motore"
 Accettazione letterale:
 - C1: Sezione log dedicata in dashboard.
 - C2: Aggiornamento runtime.
 - C3: Contiene eventi rilevanti del motore.
 
-### F-13 Configuration - Demo Mode
-Requisito: "Demo Mode (toggle switch)"
+### F-13 Configurazione - Modalità Demo
+Requisito: "Modalità Demo (toggle switch)"
 Accettazione letterale:
 - C1: Toggle presente in configurazione.
 - C2: Persistenza + effetto runtime.
 - C3: Indicatore demo visibile nell'app.
 
-### F-14 Configuration - Home Assistant Panel
-Requisito: "url, home total power entity, charger entity, home assistant authorization with validity status and read of the entity"
+### F-14 Configurazione - Pannello Home Assistant
+Requisito: "url, entità potenza totale casa, entità charger, autorizzazione Home Assistant con stato di validità e lettura dell'entità"
 Accettazione letterale:
 - C1: Campi URL, home total power entity, charger entity presenti.
 - C2: Flusso autorizzazione presente.
-- C3: Validity status visibile.
+- C3: Stato di validità visibile.
 - C4: Lettura entita' configurate verificabile.
 
-### F-15 Configuration - Power Load
-Requisito: "max power consumption allowed"
+### F-15 Configurazione - Carico Di Potenza
+Requisito: "massimo consumo di potenza consentito"
 Accettazione letterale:
 - C1: Campo configurabile presente.
 - C2: Usato realmente nel throttle/pausa.
 - C3: Verifica runtime con superamento soglia.
 
-### F-16 Configuration - Charging
-Requisito: "battery size, min A, max A, starting A, Loop rate(s)"
+### F-16 Configurazione - Ricarica
+Requisito: "capacità batteria, A min, A max, A iniziali, frequenza loop"
 Accettazione letterale:
 - C1: Tutti i campi presenti e persistenti.
 - C2: Il motore li usa realmente.
 - C3: Validazioni min/max coerenti.
 
-### F-17 Configuration - Proxy
-Requisito: "Proxy id, vehicle Id"
+### F-17 Configurazione - Proxy
+Requisito: "URL proxy, vehicle Id, nome veicolo, parametri di polling e wake"
 Accettazione letterale:
-- C1: Entrambi i campi configurabili.
-- C2: Usati nelle chiamate proxy/emulatore.
+- C1: Sono configurabili almeno `proxyUrl`, `vehicleId`, `vehicleName`, `normalPollIntervalMs`, `reactivePollIntervalMs`, `scheduleLeadTimeSec`, `rejectUnauthorized`.
+- C2: I campi proxy sono persistiti via `config.yaml` e via API strutturata `GET/PATCH /api/settings`.
+- C3: `proxyUrl` e `vehicleId` sono usati in tutte le chiamate proxy/emulatore.
+- C4: `normalPollIntervalMs` governa il refresh `vehicle_data`, `reactivePollIntervalMs` governa il heartbeat `body_controller_state`, `scheduleLeadTimeSec` governa il pre-wake scheduler, `rejectUnauthorized` governa il client HTTPS verso il proxy.
 
-### F-18 Recharge Engine Modes
+### F-18 Modalità Del Motore Di Ricarica
 Requisito: "Off, Plan, On"
 Accettazione letterale:
 - C1: Tre modalita' distinte selezionabili.
 - C2: Ogni modalita' ha comportamento diverso verificabile.
 - C3: Stato modalita' visibile in UI.
 
-### F-19 Recharge Engine Ramp
-Requisito: "Throttle reducing A immediately; ramp up at configurable interval using Home Total Power formula (see F-22)"
+### F-19 Ramp Del Motore Di Ricarica
+Requisito: "Riduzione immediata degli ampere in throttle; ramp up a intervallo configurabile usando la formula Home Total Power (vedi F-22)"
 Accettazione letterale:
 - C1: In riduzione: throttle immediato al valore massimo consentito dalla griglia.
 - C2: In ripresa: il setpoint viene ricalcolato ad ogni intervallo (Ramp Up Interval) usando la formula definita in F-22.
-- C3: Se Home Total Power non disponibile (HA disconnesso o valore null): nessun ramp, mantieni setpoint corrente.
-- C4: L'intervallo di aggiornamento (Ramp Up Interval) è il campo `rampIntervalSec` configurabile in settings.
+- C3: Se Home Total Power non disponibile (HA disconnesso o valore nullo): nessun ramp, mantieni il setpoint corrente.
+- C4: L'intervallo di aggiornamento è il campo `rampIntervalSec` configurabile nelle impostazioni.
 - C5: Verifica con test automatici: throttle immediato su riduzione + aggiornamento corretto ad ogni step.
-- C6: Chiarezza UI: Il campo in Settings deve essere esplicitamente etichettato come "Ramp Up Interval (sec)" o "Loop Refresh Rate".
+- C6: Chiarezza UI: il campo nelle impostazioni deve essere etichettato in modo esplicito come intervallo di ramp up o refresh del loop.
 
-### F-20 Dynamic Notification Event Bus
-Requisito: "Events are dynamic and can be generated by other parts of the code; notification engine reacts to emitted events."
+### F-20 Event Bus Dinamico Delle Notifiche
+Requisito: "Gli eventi sono dinamici e possono essere generati da altre parti del codice; il motore notifiche reagisce agli eventi emessi."
 Accettazione letterale:
 - C1: Esiste un event bus/registry notifiche riusabile da moduli multipli (engine, scheduler, HA, failsafe, proxy, climate).
 - C2: I producer evento pubblicano su API comune senza dipendere direttamente dal trasporto Telegram.
@@ -317,24 +319,24 @@ Accettazione letterale:
 - C5: Aggiunta nuovo evento nel backend deve comparire in UI senza patch specifica di componenti evento.
 - C6: Test automatici coprono almeno: emissione evento, dispatch rule match/no-match, e assenza di fallback statico.
 
-### F-21 Extended Settings Panel
+### F-21 Pannello Impostazioni Esteso
 Accettazione letterale:
 - C1: Modalità demo (toggle switch) presente in Settings. Quando attiva, deve generare valori simulati per TUTTE le entità (home total power + charger power).
 - C2: Pannello Home Assistant con: URL, Home Total Power Entity, Charger Power Entity. TUTTE le entità HA sono obbligatorie.
-- C3: Pulsante "Connect" per flusso OAuth Home Assistant con indicazione di validità.
+- C3: Pulsante "Connetti" per flusso OAuth Home Assistant con indicazione di validità.
 - C4: Lettura realtime delle entità HA direttamente nel pannello settings per verifica.
 - C5: Pannello Proxy con: URL e VIN (Vehicle Identification Number).
 - C6: Pannello Charging Engine Rules con: Max Home Power, Battery Capacity, Start A, Min A, Max A, time increase for each step A.
 - C7: Sezione "Full configuration yaml" per visualizzazione/editing avanzato.
 - C8: Pulsante "Sign-out" spostato in ALTO nella pagina (non in fondo).
 
-### F-22 Charging Engine Smart Current Algorithm
+### F-22 Algoritmo Smart Current Del Motore Di Ricarica
 Requisito: "Engine calcola la corrente di ricarica usando: Home Total Power - Charger Power = Residual Power; Residual Power / Vehicle Voltage = A delta; New setpoint = A actual + A delta; usa il tempo di loop (Ramp Up Interval) configurabile da settings."
 Accettazione letterale:
 - C1: Formula end-to-end implementata: `Residual Power W = Home Total Power W - Charger Power W`.
 - C2: `A delta = Residual Power W / Vehicle Voltage V` (ampere disponibili dalla rete residua).
 - C3: `New setpoint amps = A actual + A delta` (non incremento fisso +1A).
-- C4: Il campo `rampIntervalSec` (Ramp Up Interval / Loop Refresh Rate) è configurabile in settings e usato come intervallo di aggiornamento del loop engine.
+- C4: Il campo `rampIntervalSec` è configurabile nelle impostazioni e usato come intervallo di aggiornamento del loop engine.
 - C5: Fallback se Home Total Power non disponibile (HA disconnesso): mantieni setpoint corrente senza variazioni.
 - C6: Test automatici verificano la formula con valori noti: Home Total Power X, Charger Power Y, Voltage Z → setpoint atteso calcolato correttamente.
 - C7: Tutte le variabili interne usano nomi espliciti di dominio: `homeTotalPowerW`, `chargerPowerW`, `vehicleVoltageV`, `residualPowerW`, `deltaAmps` (regola 19).
@@ -359,7 +361,7 @@ Accettazione letterale:
 - C4: Statistics mostra costo totale, costo medio sessione e costo per sessione.
 - C5: I calcoli costo usano formula `cost = energyKwh * energyPriceEurPerKwh`.
 
-### F-25 Proxy Vehicle Data Endpoints (testdata.json)
+### F-25 Endpoint Proxy Vehicle Data (testdata.json)
 Requisito: "Usare gli endpoint presenti in testdata.json per leggere lo stato auto e aggiornare anche emulatore."
 Accettazione letterale:
 - C1: Polling backend usa endpoint `GET /api/1/vehicles/{VIN}/vehicle_data`.
@@ -369,22 +371,22 @@ Accettazione letterale:
 - C5: Emulatore espone endpoint `vehicle_data` coerenti con i payload contrattuali.
 - C6: Nessun riferimento a endpoint `summary` inesistente nel flusso runtime/contract.
 
-### F-26 Vehicle Name In Settings
+### F-26 Nome Veicolo Nelle Impostazioni
 Requisito: "Possibilità di impostare un nome macchina da Settings, subito sotto il VIN."
 Accettazione letterale:
-- C1: In Settings è presente campo `Vehicle Name` immediatamente sotto il campo VIN.
+- C1: Nelle impostazioni è presente il campo `Vehicle Name` immediatamente sotto il campo VIN.
 - C2: Il valore è persistente via API settings e salvato in configurazione.
 - C3: Il nome configurato viene usato come display name runtime quando il provider non ne restituisce uno.
 - C4: Build e test automatici includono verifica persistenza `vehicleName`.
 
-### F-27 Sidebar Navigation Information Architecture
+### F-27 Architettura Informativa Della Sidebar
 Requisito: "Riordinare le pagine laterali in un ordine moderno e coerente con il flusso operativo dell'app."
 Accettazione letterale:
 - C1: Ordine sidebar orientato al task flow principale: `Dashboard`, `Schedule`, `Climate`, `Statistics`, `Notifications`, `Settings`.
 - C2: Nessun riferimento a endpoint legacy/non esistenti nel pannello demo sidebar (es. `vehicle.summary`).
 - C3: Build frontend valida dopo il riordino IA.
 
-### F-28 Dashboard Time To Full + Mobile Simulator UX
+### F-28 Dashboard Time To Full + UX Simulatore Mobile
 Requisito: "Il Time To Full in dashboard deve aggiornarsi in modo affidabile; il simulatore non deve rompere il layout in modalità telefonino."
 Accettazione letterale:
 - C1: `timeToFullChargeH` viene popolato anche quando l'API fornisce valori incompleti, con fallback calcolato da SoC, capacità batteria e potenza di carica.
@@ -393,7 +395,7 @@ Accettazione letterale:
 - C4: In desktop il simulatore resta disponibile come pannello laterale dedicato.
 - C5: Build frontend/backend valide dopo il refactor UX + calcolo fallback.
 
-### F-29 Demo Simulator Manual State Apply Reliability
+### F-29 Affidabilità Di Apply Manual State Nel Simulatore Demo
 Requisito: "Apply Manual State deve applicare i valori inseriti senza essere sovrascritto durante l'editing e deve avere test automatici dedicati."
 Accettazione letterale:
 - C1: I campi manuali del simulatore non vengono riscritti ad ogni aggiornamento websocket mentre l'utente sta editando.
@@ -402,7 +404,7 @@ Accettazione letterale:
 - C4: Test backend automatici coprono route `PUT /vehicle/data-request/:section` (successo, validazione sezione, VIN mancante).
 - C5: Test backend automatici coprono il blocco comandi con failsafe attivo su route vehicle.
 
-### F-30 Settings IA + Target-Aware Time-To-Full + Simulator Close Behavior
+### F-30 IA Settings + Time-To-Full Consapevole Del Target + Chiusura Simulatore
 Requisito: "Riordinare Settings con focus sul blocco Charging Engine; rendere sempre chiudibile il pannello simulator; rendere Time To Full dipendente dal target SOC rispetto al target auto nella risposta JSON."
 Accettazione letterale:
 - C1: In Settings il blocco Charging Engine è riordinato in gruppi leggibili (Power/Loop, Battery/Cost, Current Limits) con layout più chiaro.
@@ -413,7 +415,7 @@ Accettazione letterale:
 - C6: Se target selezionato utente > target auto: la UI mostra errore esplicito e blocca avvio `plan/on` fino a target valido.
 - C7: Build frontend/backend e test backend passano dopo l'integrazione.
 
-### F-31 Full Vehicle JSON Mapping + Cable Status Fidelity
+### F-31 Mapping Completo JSON Veicolo + Fedeltà Stato Cavo
 Requisito: "La dashboard deve riflettere correttamente lo stato cavo usando i campi completi del JSON veicolo; il limite hardware auto deve essere indicato in barra SoC con linea verticale interna."
 Accettazione letterale:
 - C1: Mapping backend esteso da `charge_state` includendo almeno `conn_charge_cable`, `charge_port_latch`, `charge_port_door_open`, `charge_current_request`, `charge_current_request_max`, `usable_battery_level`.
@@ -422,7 +424,7 @@ Accettazione letterale:
 - C4: In SoC bar il limite hardware auto (`charge_limit_soc`) è rappresentato con linea verticale interna alla barra, senza label testuale "Selected Target".
 - C5: Build frontend/backend e suite test backend restano verdi dopo l'aggiornamento.
 
-### F-32 Full Demo Payload Fidelity + Engine Verification via charging_state
+### F-32 Fedeltà Completa Del Payload Demo + Verifica Motore Via charging_state
 Requisito: "Il simulatore demo deve generare payload `vehicle_data` esteso coerente al JSON reale e offrire controlli utili (es. `charge_limit_soc`, `charging_state`) per verificare il comportamento dell'engine."
 Accettazione letterale:
 - C1: `fleet-simulator` restituisce `charge_state` e `climate_state` con set esteso di campi reali (timestamps, limiti SoC min/max, charge port/cable metadata, correnti request, placeholder HVAC avanzati) mantenendo shape compatibile al JSON Tesla.
@@ -432,7 +434,7 @@ Accettazione letterale:
 - C5: In Dashboard, vicino al blocco `Limit`, viene mostrato warning esplicito quando limite auto < target selezionato.
 - C6: Build frontend/backend e test backend passano dopo l'estensione.
 
-### F-33 Ordered Dashboard Rewrite + Charging Recap
+### F-33 Riscrittura Ordinata Dashboard + Charging Recap
 Requisito: "Riscrivere la Dashboard in modo più ordinato mantenendo i dati attuali ma riducendo ridondanze e spostando il dettaglio sotto la card principale in un recap coerente."
 Accettazione letterale:
 - C1: Sotto la card principale non esistono più pannelli metrici ridondanti sparsi; i dati sono raccolti in un recap unico e leggibile.
@@ -441,48 +443,128 @@ Accettazione letterale:
 - C4: La Dashboard mantiene comunque visibili i dati necessari al debug charge loop (actual/pilot/request/max, voltage/phases, hardware range, cable status).
 - C5: Gerarchia visiva ordinata: card principale, recap, log engine.
 
-### F-34 Proxy Polling Logic Review
+### F-34 Revisione Logica Polling Proxy
 Requisito: "La logica di polling non deve fare chiamate ridondanti ad ogni tick quando `vehicle_data` contiene già le informazioni necessarie."
 Accettazione letterale:
 - C1: Il polling usa `vehicle_data` come sorgente primaria di stato.
 - C2: La richiesta `vehicle_data?endpoints=charge_state` viene eseguita solo come fallback quando il payload completo non contiene `charge_state` utile.
 
-## F-35 Settings Collapsible Domain Panels
-- The Settings page should be organized into collapsible domain panels instead of one long continuous form.
-- The primary panels should be: Home Assistant, Proxy, Engine Options, and YAML.
-- Each panel should keep related inputs grouped together and allow the user to reduce visual noise by collapsing sections that are not being edited.
-- Engine-related settings should avoid duplicated fields across multiple cards so that each control has a single clear place in the UI.
+## Logica Di Comunicazione EVLoad <-> Proxy (Implementata)
 
-## F-36 Dashboard Load Composition Widget
-- The top section of the Dashboard should present home consumption using a wider multi-column widget instead of isolated metric cards.
-- The widget should include a clear composition bar that visually separates house base load from EV charger load using distinct colors.
-- The total home consumption should remain a separate summary value above the split bar.
-- The split row labels should stay minimal and should not explicitly repeat subtraction formulas if the visual structure already makes the meaning clear.
-- The visual structure should follow an EVCC-inspired energy-flow layout, with the horizontal load bar as the dominant element and secondary statistics kept minimal.
-- Labels and helper copy inside this top widget should stay consistent with the rest of the app: English-only and intentionally minimal.
-- The top area should use a responsive two-column layout on wider screens, with the energy-flow widget alongside the main charging control card.
-- The energy-flow widget should not duplicate live charging cost or tariff values if those are already presented in the adjacent charging control card.
-- On narrow mobile widths, the top two widgets should remain compact enough to be visible within a single screen view as much as possible.
-- The top widgets should favor compact vertical density over explanatory copy so that mobile users can see both blocks together more easily.
+Questa sezione descrive il comportamento effettivamente implementato nel codice attuale tra EVLoad e proxy Tesla.
 
-## F-37 Proxy Live Status In Settings
-- The Proxy panel in Settings should expose a clear live status indicator similar to the Home Assistant panel.
-- The indicator should show whether the latest proxy polling is returning valid live vehicle data.
-- When the proxy is not live, the panel should surface the latest known proxy error or an explicit offline message.
+### Flusso Runtime Principale
+- EVLoad usa un client HTTP dedicato verso il proxy con TLS configurabile tramite `proxy.rejectUnauthorized`.
+- Ogni risposta riuscita del proxy aggiorna uno stato separato `proxyHealthState` con `connected`, `lastSuccessAt`, `lastEndpoint`, `error`.
+- Lo stato proxy e lo stato veicolo sono separati: il proxy puo' risultare LIVE anche quando l'auto dorme o `vehicle_data` non sta girando in quel momento.
 
-## F-38 Dashboard Details Rewrite
-- The old `Charging Recap` section should be replaced with a leaner `Vehicle Details` summary.
-- The new lower summary should avoid repeating values already shown in the energy-flow widget or the main charging control card.
-- The section should prioritize live technical details that are still useful for diagnostics: cable status, current/request, climate state, and electrical/limit context.
-- Power, home load, live cost, tariff, and other already prominent dashboard values should not be repeated inside this lower details block.
+### Loop 1 - Poll Completo Del Veicolo (`vehicle_data`)
+- Il loop `NORMAL` gira con intervallo `proxy.normalPollIntervalMs`.
+- In `NORMAL`, EVLoad chiama `GET /api/1/vehicles/:vehicleId/vehicle_data`.
+- Se il payload completo non contiene un `charge_state` utile ma il veicolo non e' segnalato come asleep, EVLoad esegue solo allora il fallback `GET /api/1/vehicles/:vehicleId/vehicle_data?endpoints=charge_state`.
+- Da `vehicle_data` EVLoad ricava stato di ricarica, SoC, limiti, temperatura, tensione, corrente, fasi, range, lock state, odometro e raw payload diagnostici.
 
-## F-39 Target SoC Draggable + Vehicle Details Collapsible Proxy Panel
+### Loop 2 - Heartbeat Leggero (`body_controller_state`)
+- Il loop heartbeat gira sempre con intervallo `proxy.reactivePollIntervalMs`, indipendentemente dal fatto che il sistema sia in `NORMAL` o `REACTIVE`.
+- Il heartbeat usa `GET /api/1/vehicles/:vehicleId/body_controller_state`.
+- Il heartbeat aggiorna `proxyHealthState` e i campi `vehicleSleepStatus` / `userPresence` senza richiedere `vehicle_data`.
+- In `REACTIVE`, una risposta heartbeat valida mantiene il veicolo marcato come raggiungibile anche se non si stanno facendo refresh completi `vehicle_data`.
 
-### F-39A Target SoC Manual Control By Mode
+### Passaggio Di Modalita'
+- Stato iniziale: `NORMAL`.
+- Se `vehicle_data` o il heartbeat confermano `VEHICLE_SLEEP_STATUS_ASLEEP` per due cicli consecutivi e il veicolo non sta caricando, EVLoad passa a `REACTIVE` senza inviare `wake_up`.
+- Se in `REACTIVE` il heartbeat vede `userPresence = VEHICLE_USER_PRESENCE_PRESENT`, EVLoad torna a `NORMAL`.
+- Se in `REACTIVE` il heartbeat vede `VEHICLE_SLEEP_STATUS_AWAKE`, EVLoad torna a `NORMAL`.
+- `requestWakeMode()` forza sempre `NORMAL`, resetta i contatori sleep e riavvia entrambi i timer.
+
+### Comandi Verso Il Proxy
+- Avvio manuale motore: `startEngine()` chiama `requestWakeMode(false)` prima di avviare il ciclo motore, quindi forza `NORMAL` ma non invia automaticamente `wake_up`.
+- Wake manuale esplicito: `POST /api/engine/wake` chiama `requestWakeMode(true)` e quindi invia `POST /api/1/vehicles/:vehicleId/command/wake_up`.
+- Scheduler: prima degli start pianificati e quando una schedule entra nella lead window, usa `requestWakeMode(true)` per risvegliare il veicolo.
+- Comandi runtime verso il proxy passano da `POST /api/1/vehicles/:vehicleId/command/:command`.
+- Aggiornamenti dati Tesla mutabili passano da `PUT /api/1/vehicles/:vehicleId/data_request/:section`.
+
+### Coordinamento Tra Scheduler E Wake
+- `scheduleLeadTimeSec` definisce quanti secondi prima del prossimo start pianificato EVLoad puo' passare a wake mode.
+- Il scheduler evita wake ripetuti per la stessa occorrenza tramite una chiave interna di deduplicazione.
+- Gli start pianificati (`start_at`, `weekly`, `start_end`, `finish_by`) chiamano sempre il percorso con wake prima dell'avvio del motore.
+
+### Stato Live Esposto Alla Interfaccia
+- WebSocket backend espone separatamente `proxy`, `vehicle` e `pollMode`.
+- `proxy` contiene lo stato live del proxy basato sull'ultima chiamata riuscita a qualunque endpoint proxy supportato, incluso `body_controller_state`.
+- La dashboard mostra il badge modalità (`NORMAL` / `REACTIVE`) e il pulsante `Wake Vehicle`.
+- Le impostazioni mostrano lo stato LIVE/OFFLINE del proxy, l'ultimo endpoint riuscito, l'ultimo timestamp di successo e la configurazione proxy completa.
+
+### Parita' Simulatore
+- Il simulatore supporta `vehicle_data`, fallback `?endpoints=charge_state`, `body_controller_state`, i comandi `wake_up`, `sleep`, `charge_start`, `charge_stop`, `set_charging_amps`, `set_temps`.
+- `body_controller_state` del simulatore restituisce `vehicleSleepStatus`, `vehicleLockState` e `userPresence` coerenti con lo stato simulato.
+
+### Tabella Operativa Endpoint Proxy
+
+| Endpoint proxy | Metodo | Chi lo usa | Quando parte | Effetto principale |
+|---|---|---|---|---|
+| `/api/1/vehicles/:vehicleId/vehicle_data` | `GET` | `proxy.service` | Loop `NORMAL` su `normalPollIntervalMs` | Aggiorna stato veicolo completo e diagnostica raw |
+| `/api/1/vehicles/:vehicleId/vehicle_data?endpoints=charge_state` | `GET` | `proxy.service` | Solo fallback se `vehicle_data` non contiene `charge_state` utile | Recupera il solo `charge_state` senza duplicare sempre la chiamata |
+| `/api/1/vehicles/:vehicleId/body_controller_state` | `GET` | `proxy.service` | Heartbeat continuo su `reactivePollIntervalMs` | Aggiorna `proxyHealthState`, `vehicleSleepStatus`, `userPresence` e supporta lo switch `NORMAL` / `REACTIVE` |
+| `/api/1/vehicles/:vehicleId/command/wake_up` | `POST` | `requestWakeMode(true)` via engine route o scheduler | Wake manuale o pre-wake schedulato | Forza il ritorno a `NORMAL` e tenta il risveglio dell'auto |
+| `/api/1/vehicles/:vehicleId/command/charge_start` | `POST` | engine / scheduler | Avvio ricarica | Comando Tesla di start charging |
+| `/api/1/vehicles/:vehicleId/command/charge_stop` | `POST` | engine / scheduler | Stop manuale, end plan, stop engine | Comando Tesla di stop charging |
+| `/api/1/vehicles/:vehicleId/command/set_charging_amps` | `POST` | engine | Durante balancing e throttling HA | Aggiorna il current request del veicolo |
+| `/api/1/vehicles/:vehicleId/command/set_temps` | `POST` | climate / scheduler | Start climate manuale o schedulato | Imposta temperature abitacolo |
+| `/api/1/vehicles/:vehicleId/data_request/charge_state` | `PUT` | servizi backend | Quando serve aggiornare dati mutabili Tesla lato proxy | Aggiorna `charge_state` via proxy e rinnova health state |
+| `/api/1/vehicles/:vehicleId/data_request/climate_state` | `PUT` | servizi backend | Quando serve aggiornare dati clima lato proxy | Aggiorna `climate_state` via proxy e rinnova health state |
+
+## F-35 Pannelli Di Dominio Collassabili Nelle Impostazioni
+- La pagina impostazioni deve essere organizzata in pannelli di dominio collassabili invece di un unico form lungo e continuo.
+
+### F-40 Polling Proxy Adattivo In Sleep + Wake Reattivo In Garage
+Requisito: "Ridurre wake inutili del veicolo con polling adattivo, ma restare reattivi in garage e prima degli avvii schedulati."
+Accettazione letterale:
+- C1: Il backend mantiene due loop distinti: refresh completo `vehicle_data` su `normalPollIntervalMs` e heartbeat `body_controller_state` su `reactivePollIntervalMs`.
+- C2: `body_controller_state` viene usato come heartbeat leggero continuo e aggiorna sia `proxyHealthState` sia `vehicleSleepStatus` / `userPresence`.
+- C3: In `NORMAL`, dopo due conferme consecutive di sleep e assenza di ricarica attiva, il sistema passa a `REACTIVE` senza inviare comandi wake.
+- C4: In `REACTIVE`, quando `userPresence` risulta `VEHICLE_USER_PRESENCE_PRESENT` oppure `vehicleSleepStatus` torna `AWAKE`, il sistema torna a `NORMAL`.
+- C5: `requestWakeMode(false)` forza `NORMAL` senza `wake_up`; `requestWakeMode(true)` forza `NORMAL`, resetta i timer e invia `wake_up` quando il VIN e' configurato.
+- C6: Scheduler usa `requestWakeMode(true)` sia nella lead window configurabile `scheduleLeadTimeSec` sia immediatamente prima degli start pianificati; l'engine usa `requestWakeMode(false)` allo start manuale.
+- C7: E' disponibile endpoint API autenticato `POST /api/engine/wake` e lo stato websocket espone sia `pollMode` sia `proxy` per la UI.
+- C8: Il simulatore supporta `GET /api/1/vehicles/:vehicleId/body_controller_state` con campi `vehicleSleepStatus`, `vehicleLockState` e `userPresence` coerenti.
+- C9: La dashboard frontend mostra il badge modalità e il pulsante `Wake Vehicle`; le impostazioni mostrano lo stato live del proxy e i campi `normalPollIntervalMs`, `reactivePollIntervalMs`, `scheduleLeadTimeSec`, `rejectUnauthorized`.
+- I pannelli principali devono essere: Home Assistant, Proxy, Opzioni Engine e YAML.
+- Ogni pannello deve mantenere raggruppati gli input correlati e consentire di ridurre il rumore visivo collassando le sezioni non in modifica.
+- Le impostazioni legate all'engine devono evitare campi duplicati su più card, così ogni controllo ha un solo punto chiaro nella UI.
+
+## F-36 Widget Di Composizione Del Carico In Dashboard
+- La sezione superiore della dashboard deve presentare il consumo domestico usando un widget più ampio e multi-colonna invece di card metriche isolate.
+- Il widget deve includere una barra di composizione chiara che separi visivamente il carico base della casa dal carico EV usando colori distinti.
+- Il consumo totale di casa deve restare un valore riepilogativo separato sopra la barra suddivisa.
+- Le etichette della riga di split devono restare minimali e non ripetere esplicitamente formule di sottrazione se la struttura visiva rende già chiaro il significato.
+- La struttura visiva deve seguire un layout energy-flow ispirato a EVCC, con la barra orizzontale del carico come elemento dominante e statistiche secondarie minimali.
+- Label e testo di supporto dentro questo widget superiore devono restare coerenti con il resto dell'app: in inglese e intenzionalmente minimali.
+- L'area superiore deve usare un layout responsive a due colonne sugli schermi larghi, con il widget energy-flow accanto alla card principale di controllo ricarica.
+- Il widget energy-flow non deve duplicare costi live di ricarica o tariffa se sono già presentati nella card di controllo adiacente.
+- Su mobile stretto, i due widget superiori devono restare abbastanza compatti da essere visibili il più possibile in una singola schermata.
+- I widget superiori devono privilegiare densità verticale compatta rispetto a testo esplicativo, così gli utenti mobile possono vedere entrambi i blocchi più facilmente.
+
+## F-37 Stato Live Del Proxy Nelle Impostazioni
+- Il pannello Proxy nelle impostazioni deve esporre un indicatore di stato live chiaro, simile al pannello Home Assistant.
+- L'indicatore deve essere guidato dal backend dedicato `proxyHealthState`, non solo da `vehicle.connected`.
+- Un heartbeat `body_controller_state` riuscito è sufficiente per marcare il proxy come LIVE.
+- Il pannello deve mostrare l'ultimo errore proxy noto o un messaggio offline esplicito quando il proxy non è live.
+- Il pannello deve mostrare l'ultimo endpoint proxy andato a buon fine e il relativo timestamp.
+
+## F-38 Riscrittura Del Blocco Dettagli Dashboard
+- La vecchia sezione `Charging Recap` deve essere sostituita con un riepilogo `Vehicle Details` più essenziale.
+- Il nuovo riepilogo inferiore deve evitare di ripetere valori già mostrati nel widget energy-flow o nella card principale di controllo ricarica.
+- La sezione deve dare priorità a dettagli tecnici live ancora utili per la diagnostica: stato cavo, corrente/request, stato clima e contesto elettrico/limiti.
+- Potenza, carico casa, costo live, tariffa e altri valori già prominenti nella dashboard non devono essere ripetuti dentro questo blocco dettagli inferiore.
+
+## F-39 Target SoC Trascinabile + Pannello Proxy Vehicle Details Collassabile
+
+### F-39A Controllo Manuale Del Target SoC Per Modalità
 Requisito: "Target SoC deve essere drag; il cursore target 80% non è un valore statico ma decidibile da utente. Rimane fisso se siamo in modalità PLAN perché va preso il setpoint del plan ma in modalità Off o On deve essere manualmente modificabile."
 Accettazione letterale:
 - C1: In modalità Off e On il cursore SoC è trascinabile/cliccabile dall'utente e aggiorna il target manuale locale.
-- C2: In modalità Plan il cursore è bloccato (click e drag disabilitati), cursore `not-allowed`, opacità ridotta, e mostra helper text "Target set by schedule".
+- C2: In modalità Plan il cursore è bloccato (click e drag disabilitati), cursore `not-allowed`, opacità ridotta, e mostra testo di aiuto "Target set by schedule".
 - C3: Il valore visualizzato in modalità Plan corrisponde al `targetSoc` della prossima schedulazione reale (endpoint `GET /api/schedule/next-charge`), non al target locale dell'utente.
 - C4: Passando da Plan a Off o On, il cursore torna draggable e mantiene l'ultimo valore manuale dell'utente (non sovrascrive `manualTargetSoc` al cambio modalità).
 - C5: Il backend espone `GET /api/schedule/next-charge` che restituisce `{ id, scheduleType, targetSoc, targetAmps, computedStartAt, finishBy }` per la prossima carica pianificata reale, con logica identica a `runSchedulerTick` (priorità: start_at → start_end → finish_by con calcolo orario avvio).
@@ -496,10 +578,10 @@ Accettazione letterale:
 - C3: Nessun'altra card, metrica sintetica o dato elaborato è presente dentro il pannello Vehicle Details.
 - C4: Il pannello ha un titolo descrittivo che indica chiaramente il suo scopo diagnostico.
 
-### F-39C Dashboard Rewrite From Scratch
+### F-39C Riscrittura Completa Della Dashboard Da Zero
 Requisito: "Riscrivere tutta la dashboard utilizzando lo stesso stile ma cancellando tutto il contenuto e ripartendo da zero per essere certi che tutto sia ok. Recupera solo l'aspetto e riscrivi la logica in modo migliore."
 
-### F-40 Weekly Recurrent Scheduling + Dashboard-like Widgets
+### F-40 Scheduling Settimanale Ricorrente + Widget In Stile Dashboard
 Requisito: "Le schedule devono poter essere ripetitive per giorni della settimana (senza scelta data) e i widget della pagina scheduling devono richiamare il linguaggio visivo della dashboard."
 Accettazione letterale:
 - C1: Creazione schedule charging con selezione multipla giorni settimana + orario (senza input data obbligatorio).
@@ -509,9 +591,9 @@ Accettazione letterale:
 - C5: Widget/section della pagina scheduling devono usare card arrotondate, gerarchia e densità visiva coerenti con la dashboard.
 - C6: Le modalità esistenti `start_at`, `start_end` (e `finish_by` per charging) devono restare disponibili e non essere rimosse.
 - C7: Weekly scheduling disponibile sia per charging sia per climate.
-- C8: La pagina scheduling usa un unico pannello Settings con due selettori modalità (`Charger`/`Climate`).
+- C8: La pagina scheduling usa un unico pannello impostazioni con due selettori modalità (`Charger`/`Climate`).
 - C9: Sono presenti bottoni rapidi `Oggi` e `Domani` per preimpostare il giorno target nel form corrente.
-- C10: Sotto il pannello Settings sono presenti due recap separati: `Charger Recap` e `Climate Recap`.
+- C10: Sotto il pannello impostazioni sono presenti due recap separati: `Charger Recap` e `Climate Recap`.
 Accettazione letterale:
 - C1: Il file `DashboardPage.tsx` viene riscritto da zero: nessuna riga del corpo precedente viene mantenuta verbatim.
 - C2: L'identità visiva è preservata: palette Tailwind `evload-*`, card `rounded-3xl`, icone `lucide-react`, spaziatura e font identici all'attuale.

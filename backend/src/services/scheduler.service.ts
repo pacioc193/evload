@@ -1,18 +1,50 @@
-import { PrismaClient } from '@prisma/client'
 import { logger } from '../logger'
 import { startEngine, getEngineStatus } from '../engine/charging.engine'
-import { sendProxyCommand, getVehicleState } from './proxy.service'
+import { sendProxyCommand, getVehicleState, requestWakeMode } from './proxy.service'
 import { getConfig } from '../config'
 import { isFailsafeActive } from './failsafe.service'
 import { dispatchTelegramNotificationEvent } from './notification-rules.service'
-
-const prisma = new PrismaClient()
+import { prisma } from '../prisma'
 
 let schedulerTimer: NodeJS.Timeout | null = null
+let lastLeadWakeKey: string | null = null
+
+async function startEngineWithWake(targetSoc: number, targetAmps?: number): Promise<void> {
+  await requestWakeMode(true)
+  await startEngine(targetSoc, targetAmps)
+}
+
+export async function getScheduleNextStartMs(now: Date = new Date()): Promise<number | null> {
+  const next = await resolveNextPlannedCharge(now)
+  if (!next) return null
+  return next.computedStartAt.getTime() - now.getTime()
+}
 
 async function runSchedulerTick(): Promise<void> {
   const now = new Date()
   const cfg = getConfig()
+
+  const nextPlanned = await resolveNextPlannedCharge(now)
+  if (nextPlanned) {
+    const nextStartMs = nextPlanned.computedStartAt.getTime() - now.getTime()
+    const leadWindowMs = Math.max(0, cfg.proxy.scheduleLeadTimeSec) * 1000
+    if (nextStartMs > 0 && nextStartMs <= leadWindowMs) {
+      const wakeKey = `${nextPlanned.id}:${nextPlanned.computedStartAt.getTime()}`
+      if (lastLeadWakeKey !== wakeKey) {
+        logger.info('Upcoming schedule within lead window, requesting wake mode', {
+          scheduleId: nextPlanned.id,
+          nextStartMs,
+          leadWindowMs,
+        })
+        await requestWakeMode(true)
+        lastLeadWakeKey = wakeKey
+      }
+    } else {
+      lastLeadWakeKey = null
+    }
+  } else {
+    lastLeadWakeKey = null
+  }
 
   // ── Start-at scheduled charges ────────────────────────────────────────────
   const pendingStartAt = await prisma.scheduledCharge.findMany({
@@ -25,7 +57,7 @@ async function runSchedulerTick(): Promise<void> {
     if (!isFailsafeActive() && !getEngineStatus().running) {
       try {
         dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
-        await startEngine(sc.targetSoc, sc.targetAmps ?? undefined)
+        await startEngineWithWake(sc.targetSoc, sc.targetAmps ?? undefined)
       } catch (err) {
         logger.error(`Scheduled charge id=${sc.id} failed to start engine`, { err })
       }
@@ -48,7 +80,7 @@ async function runSchedulerTick(): Promise<void> {
     if (!isFailsafeActive() && !getEngineStatus().running) {
       try {
         dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
-        await startEngine(sc.targetSoc, sc.targetAmps ?? undefined)
+        await startEngineWithWake(sc.targetSoc, sc.targetAmps ?? undefined)
       } catch (err) {
         logger.error(`Weekly charge id=${sc.id} failed to start engine`, { err })
       }
@@ -69,7 +101,7 @@ async function runSchedulerTick(): Promise<void> {
         const started = new Date()
         await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { startedAt: started } })
         dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
-        await startEngine(sc.targetSoc, sc.targetAmps ?? undefined)
+        await startEngineWithWake(sc.targetSoc, sc.targetAmps ?? undefined)
       } catch (err) {
         logger.error(`Scheduled start_end charge id=${sc.id} failed to start engine`, { err })
       }
@@ -108,7 +140,7 @@ async function runSchedulerTick(): Promise<void> {
       if (!isFailsafeActive() && !getEngineStatus().running) {
         try {
           dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
-          await startEngine(sc.targetSoc, amps)
+          await startEngineWithWake(sc.targetSoc, amps)
         } catch (err) {
           logger.error(`Finish-by charge id=${sc.id} failed to start engine`, { err })
         }

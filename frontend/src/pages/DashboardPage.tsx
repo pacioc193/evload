@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useWsStore } from '../store/wsStore'
-import { startCharging, stopCharging, setPlanMode, getNextPlannedCharge, NextPlannedCharge } from '../api/index'
+import { startCharging, stopCharging, setPlanMode, wakeVehicle, getNextPlannedCharge, NextPlannedCharge } from '../api/index'
 import { WifiOff, Car, Clock3, Home, Zap as ZapIcon, ChevronDown, ChevronRight } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -194,6 +194,7 @@ function VehicleRawProxyPanel({ rawChargeState }: { rawChargeState: Record<strin
 
 export default function DashboardPage() {
   const vehicle = useWsStore((s) => s.vehicle)
+  const pollMode = useWsStore((s) => s.pollMode)
   const engine = useWsStore((s) => s.engine)
   const ha = useWsStore((s) => s.ha)
   const failsafe = useWsStore((s) => s.failsafe)
@@ -208,6 +209,7 @@ export default function DashboardPage() {
     () => (useWsStore.getState().engine?.mode as ChargeMode | undefined) ?? 'off'
   )
   const [loading, setLoading] = useState(false)
+  const [waking, setWaking] = useState(false)
   const [nextCharge, setNextCharge] = useState<NextPlannedCharge | null>(null)
   const [integratedEnergyKwh, setIntegratedEnergyKwh] = useState(0)
   const integrationRef = useRef<{ lastTsMs: number | null }>({ lastTsMs: null })
@@ -336,6 +338,18 @@ export default function DashboardPage() {
     }
   }
 
+  const canWakeVehicle = pollMode === 'REACTIVE' || vehicle?.chargingState === 'Sleeping'
+
+  const handleWakeVehicle = async () => {
+    if (waking) return
+    setWaking(true)
+    try {
+      await wakeVehicle()
+    } finally {
+      setWaking(false)
+    }
+  }
+
   if (!wsConnected && !vehicle) {
     return (
       <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center space-y-2">
@@ -442,6 +456,16 @@ export default function DashboardPage() {
                 <span className="text-sm text-evload-muted font-normal lowercase italic">— no schedule —</span>
               )}
             </div>
+            <div className="mt-2 flex items-center justify-center">
+              <span className={clsx(
+                'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide',
+                pollMode === 'REACTIVE'
+                  ? 'border-amber-400/50 bg-amber-500/15 text-amber-300'
+                  : 'border-emerald-400/40 bg-emerald-500/15 text-emerald-300'
+              )}>
+                {pollMode === 'REACTIVE' ? 'Garage Reactive' : 'Normal'}
+              </span>
+            </div>
           </div>
           <div>
             <div className="text-[11px] uppercase tracking-wide text-evload-muted">Charge Cost</div>
@@ -464,6 +488,15 @@ export default function DashboardPage() {
               <p className="text-sm text-evload-muted mt-1">
                 {vehicle.charging ? 'Charging...' : vehicle.pluggedIn ? 'Connected' : 'Disconnected'}
               </p>
+              {canWakeVehicle && (
+                <button
+                  onClick={handleWakeVehicle}
+                  disabled={waking}
+                  className="mt-2 inline-flex items-center rounded-md border border-evload-border bg-evload-bg px-2.5 py-1 text-xs font-semibold text-evload-text transition-colors hover:bg-evload-border/50 disabled:opacity-60"
+                >
+                  {waking ? 'Waking...' : 'Wake Vehicle'}
+                </button>
+              )}
             </div>
             <div className="text-right text-xs text-evload-muted">
               <div>VIN</div>

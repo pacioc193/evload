@@ -1,14 +1,12 @@
-import { PrismaClient } from '@prisma/client'
 import { EventEmitter } from 'events'
 import { logger } from '../logger'
 import { getConfig } from '../config'
-import { getVehicleState, sendProxyCommand } from '../services/proxy.service'
+import { prisma } from '../prisma'
+import { getVehicleState, sendProxyCommand, requestWakeMode } from '../services/proxy.service'
 import { getHaState } from '../services/ha.service'
 import { isFailsafeActive } from '../services/failsafe.service'
 import { notificationEvents, dispatchTelegramNotificationEvent } from '../services/notification-rules.service'
 import { computeBalancingAction, shouldAdjustAmps, clampAmps } from './balancing'
-
-const prisma = new PrismaClient()
 
 export const engineEvents = new EventEmitter()
 
@@ -89,6 +87,8 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     pushEngineLog('start ignored: engine already running')
     return
   }
+
+  await requestWakeMode(false)
 
   const requestedAmps = targetAmps ?? cfg.charging.maxAmps
 

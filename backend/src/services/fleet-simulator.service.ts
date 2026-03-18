@@ -234,6 +234,24 @@ function vehicleDataResponseFor(endpointsParam: string | undefined): Record<stri
   }
 }
 
+function simulatorSleepStatus(): 'VEHICLE_SLEEP_STATUS_AWAKE' | 'VEHICLE_SLEEP_STATUS_ASLEEP' {
+  return state.state === 'online' ? 'VEHICLE_SLEEP_STATUS_AWAKE' : 'VEHICLE_SLEEP_STATUS_ASLEEP'
+}
+
+function simulatorUserPresence(): 'VEHICLE_USER_PRESENCE_PRESENT' | 'VEHICLE_USER_PRESENCE_NOT_PRESENT' {
+  return (state.pluggedIn || state.chargePortDoorOpen)
+    ? 'VEHICLE_USER_PRESENCE_PRESENT'
+    : 'VEHICLE_USER_PRESENCE_NOT_PRESENT'
+}
+
+function buildBodyControllerState(): Record<string, unknown> {
+  return {
+    vehicleSleepStatus: simulatorSleepStatus(),
+    vehicleLockState: state.locked ? 'VEHICLE_LOCK_STATE_LOCKED' : 'VEHICLE_LOCK_STATE_UNLOCKED',
+    userPresence: simulatorUserPresence(),
+  }
+}
+
 function applyCommand(cmd: string, body: Record<string, unknown>): Record<string, unknown> {
   switch (cmd) {
     case 'charge_start':
@@ -321,6 +339,11 @@ export function startFleetSimulator(): void {
     jsonResult(res, vehicleDataResponseFor(endpointsParam))
   })
 
+  app.get('/api/1/vehicles/:vehicleId/body_controller_state', (req, res) => {
+    if (!ensureVehicle(req, res)) return
+    res.json(buildBodyControllerState())
+  })
+
   app.get('/api/1/vehicles/:vehicleId/data_request/charge_state', (req, res) => {
     if (!ensureVehicle(req, res)) return
     jsonResult(res, {
@@ -358,6 +381,7 @@ export function startFleetSimulator(): void {
     if (body['charge_current_request'] !== undefined) state.chargeCurrentRequest = Number(body['charge_current_request'])
     if (body['charge_current_request_max'] !== undefined) state.chargeCurrentRequestMax = Number(body['charge_current_request_max'])
     if (body['plugged_in'] !== undefined) state.pluggedIn = Boolean(body['plugged_in'])
+    if (body['charge_port_door_open'] !== undefined) state.chargePortDoorOpen = Boolean(body['charge_port_door_open'])
     recalcDerived()
     jsonResult(res, { result: true })
   })

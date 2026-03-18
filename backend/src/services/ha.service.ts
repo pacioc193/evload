@@ -1,11 +1,9 @@
 import axios from 'axios'
 import { EventEmitter } from 'events'
-import { PrismaClient } from '@prisma/client'
 import { logger } from '../logger'
 import { getConfig } from '../config'
+import { prisma } from '../prisma'
 import { getVehicleState } from './proxy.service'
-
-const prisma = new PrismaClient()
 
 export interface HaState {
   connected: boolean

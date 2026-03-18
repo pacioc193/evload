@@ -2,6 +2,7 @@ import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
 import { requireAuth } from '../middleware/auth.middleware'
 import { getEngineStatus, startEngine, stopEngine, setPlanMode } from '../engine/charging.engine'
+import { requestWakeMode } from '../services/proxy.service'
 import { isFailsafeActive, getFailsafeReason, resetFailsafe } from '../services/failsafe.service'
 import {
   dispatchTelegramNotificationEvent,
@@ -47,6 +48,16 @@ router.post('/stop', engineActionLimiter, requireAuth, async (_req, res) => {
   } catch (err) {
     logger.error('Engine stop error', { err })
     res.status(500).json({ error: 'Failed to stop engine' })
+  }
+})
+
+router.post('/wake', engineActionLimiter, requireAuth, async (_req, res) => {
+  try {
+    await requestWakeMode(true)
+    res.json({ success: true })
+  } catch (err) {
+    logger.error('Vehicle wake request error', { err })
+    res.status(500).json({ error: 'Failed to request wake mode' })
   }
 })
 

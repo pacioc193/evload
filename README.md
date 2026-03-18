@@ -1,266 +1,393 @@
 # evload
 
-**evload** is a self-hosted Tesla charging and climate scheduling web application, inspired by [EVCC](https://evcc.io/). It runs as a single Docker container on Proxmox (or any Linux host) and provides:
+evload is a self-hosted Tesla charging and climate control web application.
 
-- **Dynamic load balancing** via Home Assistant — automatically throttles or pauses charging when the house approaches its power limit
-- **Smart scheduling** — "Start at [time]" and "Finish by [time] at [%]" modes, calculated from battery capacity
-- **Climate scheduler** — pre-conditions the cabin, but only when the car is plugged in
-- **100% cell balancing** — monitors actual current to avoid interrupting the BMS balancing cycle
-- **Telegram bot** — `/start`, `/stop`, and proactive notifications when HA overrides a schedule
-- **Demo mode** — fully simulated UI with no real vehicle or HA required
-- **Statistics page** — per-session energy, voltage, and current charts powered by Recharts
+It combines:
 
----
+- a Node.js backend with REST API and WebSocket state streaming
+- a React frontend for dashboard, schedules, settings, statistics, and diagnostics
+- Home Assistant integration for load-aware charging
+- Tesla proxy integration for vehicle data, commands, sleep-aware polling, and wake orchestration
+- a built-in simulator for development and demo mode
 
-## Quick Start (Docker — recommended)
+The project is designed for home charging scenarios where you want to:
 
-### 1. Clone the repo and create config files
+- avoid exceeding a household power limit
+- schedule charging and cabin pre-conditioning
+- keep the UI live without waking the vehicle unnecessarily
+- inspect raw proxy responses and runtime state when something looks wrong
+
+## Highlights
+
+- Sleep-aware proxy polling with separate `vehicle_data` refresh and `body_controller_state` heartbeat
+- Home Assistant-based dynamic current throttling
+- Manual, planned, and scheduled charging modes
+- Charging and climate scheduling, including weekly recurrence
+- First-launch password setup and JWT-based session auth
+- WebSocket-driven live dashboard and settings diagnostics
+- Telegram notifications and command hooks
+- Demo mode with simulator parity for proxy endpoints
+
+## Repository Layout
+
+```text
+evload/
+├── backend/                  Express + Prisma + WebSocket backend
+│   ├── prisma/               Database schema
+│   ├── src/
+│   │   ├── engine/           Charging engine and balancing logic
+│   │   ├── routes/           REST API endpoints
+│   │   ├── services/         Proxy, HA, scheduler, telegram, failsafe
+│   │   └── ws/               WebSocket broadcaster
+│   ├── .env.example
+│   └── config.example.yaml
+├── frontend/                 React + Vite + Tailwind UI
+│   └── src/
+│       ├── api/              Axios API client
+│       ├── pages/            Dashboard, schedule, settings, statistics
+│       └── store/            Zustand stores
+├── docker-compose.yml
+├── Dockerfile
+├── install.ps1
+├── install.sh
+└── features.md
+```
+
+## Architecture Summary
+
+### Backend
+
+- Express API mounted under `/api`
+- WebSocket server mounted under `/ws`
+- Prisma with libSQL adapter and SQLite-style `DATABASE_URL`
+- Periodic services started on boot:
+  - Home Assistant polling
+  - Tesla proxy polling
+  - scheduler
+  - simulator
+  - failsafe
+  - telegram service
+
+### Frontend
+
+- React 18 + Vite
+- Zustand store fed by backend WebSocket state
+- Settings page with structured API editing and raw YAML editing
+- Dashboard with live charging state, next charge, poll mode, and diagnostics
+
+## EVLoad <-> Proxy Communication
+
+The proxy integration is intentionally split into two concerns.
+
+### 1. Full state polling
+
+- Interval: `proxy.normalPollIntervalMs`
+- Endpoint: `GET /api/1/vehicles/:vehicleId/vehicle_data`
+- Purpose: charging state, SoC, voltage, current, range, climate, lock state, odometer, raw diagnostic payloads
+- Fallback: `GET /api/1/vehicles/:vehicleId/vehicle_data?endpoints=charge_state` only when the full payload does not contain a usable `charge_state`
+
+### 2. Lightweight heartbeat
+
+- Interval: `proxy.reactivePollIntervalMs`
+- Endpoint: `GET /api/1/vehicles/:vehicleId/body_controller_state`
+- Purpose: keep proxy liveness updated and detect sleep / user presence without requiring full `vehicle_data`
+
+### Poll modes
+
+- `NORMAL`: full `vehicle_data` refresh is active
+- `REACTIVE`: EVLoad relies on heartbeat and avoids unnecessary wake-ups
+
+Switching rules:
+
+- after repeated sleep confirmation and no active charging, EVLoad moves from `NORMAL` to `REACTIVE`
+- if heartbeat detects user presence in the garage, EVLoad returns to `NORMAL`
+- if heartbeat reports the vehicle awake, EVLoad returns to `NORMAL`
+- `requestWakeMode(true)` forces `NORMAL`, restarts the timers, and sends `wake_up`
+
+### Live state exposed to UI
+
+Backend WebSocket state exposes these proxy-related fields separately:
+
+- `proxy`: live proxy health based on successful proxy calls, including `body_controller_state`
+- `vehicle`: current interpreted vehicle state
+- `pollMode`: `NORMAL` or `REACTIVE`
+
+This means the proxy can be shown as LIVE even if the car is sleeping.
+
+## Features
+
+- Load-aware charging using Home Assistant power entities
+- Charging current ramp logic with configurable bounds and cadence
+- Climate control commands and scheduling
+- Charging schedules: `start_at`, `finish_by`, `start_end`, `weekly`
+- Climate schedules: `start_at`, `start_end`, `weekly`
+- Schedule lead wake support through `scheduleLeadTimeSec`
+- Proxy diagnostics in Settings and raw proxy payload inspection in Dashboard
+- Telegram notifications and test-event workflow
+- Demo/simulator mode for development without a real Tesla
+
+## Prerequisites
+
+- Node.js 18 or newer
+- npm 9 or newer
+
+For Docker usage:
+
+- Docker
+- Docker Compose
+
+## Quick Start For Development
+
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/pacioc193/evload.git
 cd evload
-
-# Copy example files (do NOT commit the real ones)
-cp backend/.env.example .env
-cp backend/config.example.yaml config.yaml
 ```
 
-### 2. Edit `.env` (secrets only)
+### 2. Run the install script
 
-```bash
-nano .env
-```
+Windows PowerShell:
 
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | SQLite path — keep as `file:./data/dev.db` |
-| `JWT_SECRET` | Run `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `TELEGRAM_BOT_TOKEN` | From [@BotFather](https://t.me/botfather) — optional |
-| `TELEGRAM_CHAT_ID` | Your personal or group chat ID — optional |
-| `HA_CLIENT_ID` | Your HA OAuth Client ID — optional |
-| `HA_CLIENT_SECRET` | Your HA OAuth Client Secret — optional |
-
-> **Never put URLs, IPs, or ports in `.env`.** Those belong in `config.yaml` and are editable from the UI.
-
-### 3. Edit `config.yaml` (operational settings)
-
-```yaml
-demo: false                   # Set to true to skip all real connections
-
-charging:
-  batteryCapacityKwh: 75      # Your actual battery size (e.g. 75 for Long Range)
-  defaultAmps: 16
-  maxAmps: 32
-  minAmps: 5
-
-homeAssistant:
-  url: "http://homeassistant.local:8123"
-  powerEntityId: "sensor.home_power"   # Entity that reports total house watts
-  maxHomePowerW: 7000                  # Charging is throttled when house exceeds this
-
-proxy:
-  url: "http://192.168.1.100:8080"     # Your teslablehttpproxy URL
-  vehicleId: "your_vehicle_id_here"
-
-telegram:
-  enabled: false
-  allowedChatIds: []                   # Add your chat ID to restrict access
-```
-
-### 4. Start with Docker Compose
-
-```bash
-docker compose up -d
-```
-
-Open **http://localhost:3001** in your browser. On the first launch you will be prompted to set a UI password.
-
----
-
-## Quick Start (Manual / Development)
-
-### Prerequisites
-
-- Node.js 18+
-- npm 9+
-
-### Install
-
-```bash
-# Unix / macOS
-./install.sh
-
-# Windows (PowerShell)
+```powershell
 ./install.ps1
 ```
 
-### Start in development mode
+Unix/macOS:
+
+```bash
+./install.sh
+```
+
+The install scripts:
+
+- install root, backend, and frontend dependencies
+- create `backend/.env` from `backend/.env.example` if missing
+- generate a JWT secret for local development
+- run Prisma generate
+
+### 3. Ensure backend config exists
+
+Create `backend/config.yaml` from the example if it does not already exist.
+
+PowerShell:
+
+```powershell
+Copy-Item backend/config.example.yaml backend/config.yaml
+```
+
+Unix/macOS:
+
+```bash
+cp backend/config.example.yaml backend/config.yaml
+```
+
+### 4. Start development mode
 
 ```bash
 npm run dev
 ```
 
-This starts both the backend (port 3001) and frontend (Vite dev server, port 5173) with hot-reload. The frontend proxies `/api` and `/ws` to the backend automatically.
+This starts:
 
----
+- backend on port `3001`
+- frontend Vite dev server on port `5173`
 
-## Demo Mode
+The frontend proxies `/api` and `/ws` to the backend during development.
 
-Demo mode lets you explore the full UI without a real Tesla or Home Assistant connection.
+### 5. First launch
 
-### How to enable
+On first launch, the UI will prompt you to choose the application password.
 
-1. Open **Settings** (gear icon in the sidebar)
-2. In the **Quick Settings** panel, click the **Demo Mode** toggle to turn it ON
-3. Click **Save**
-4. Navigate to **Dashboard** — within ~2 seconds you will see a simulated vehicle charging
+## Docker Usage
 
-### What Demo Mode simulates
+The provided Docker setup runs the production backend and serves the built frontend from the backend process.
 
-| Feature | Demo behaviour |
-|---|---|
-| Vehicle state | Connected, plugged in, charging at 16A |
-| SoC | Starts at ~50%, increments slowly |
-| Home power | Simulated oscillating draw |
-| HA connection | Reported as connected with synthetic power data |
-| Cell balancing | Triggered automatically when SoC hits 100% |
-| Climate | Cabin temperature simulated |
+### 1. Prepare files
 
-### Disabling Demo Mode
+- create a root `.env` file based on `backend/.env.example`
+- create a root `config.yaml` file based on `backend/config.example.yaml`
 
-Toggle **Demo Mode** OFF in Settings and click **Save**. The backend reconnects to real integrations within ~2 seconds.
-
----
-
-## Settings Reference
-
-All settings in the Quick Settings panel are persisted immediately to `config.yaml` when you click **Save**. You can also edit the raw YAML directly in the Monaco editor at the bottom of the page.
-
-| Setting | Description |
-|---|---|
-| **Demo Mode** | Bypass all real HTTP calls with simulated data |
-| **HA URL** | Full URL to your Home Assistant instance |
-| **Power Entity ID** | HA sensor entity ID reporting total home watts |
-| **Grid Entity ID** | Optional HA sensor for grid import/export watts |
-| **Max Home Power** | Watts threshold — charging is throttled if house exceeds this |
-| **Proxy URL** | URL of your teslablehttpproxy instance |
-| **Vehicle ID** | The vehicle ID from teslablehttpproxy |
-| **Battery Capacity** | Your car's usable battery in kWh (used for "Finish by" math) |
-| **Default / Max / Min Amps** | Charging current limits |
-
----
-
-## Page Guide
-
-### Dashboard
-
-Shows real-time vehicle state: battery level, charge rate, voltage, current, and cabin temperature. Also displays live home power from Home Assistant.
-
-**Charging Control** panel lets you start/stop the engine with a target SoC and amp setting. If HA is throttling your charge, a warning banner is shown.
-
-### Climate
-
-Manual climate controls (start/stop, set temperature). Climate commands are only sent when the vehicle is plugged in.
-
-### Schedule
-
-Create charging and climate schedules:
-- **Start at [time]** — engine starts exactly at the specified time
-- **Finish by [time] at [%]** — the backend calculates the latest start time using `batteryCapacityKwh`, current SoC, and available amperage
-
-If Home Assistant intervenes and delays a schedule, a Telegram notification explains why.
-
-### Statistics
-
-Per-session history with interactive Recharts graphs: SoC over time, power & current, and voltage.
-
-### Settings
-
-Configure all integrations, Demo Mode toggle, and edit raw `config.yaml` via Monaco Editor.
-
----
-
-## Architecture
-
-```
-evload/
-├── backend/               Node.js + Express + WebSocket
-│   ├── src/
-│   │   ├── config.ts      Config schema + YAML loader (reads backend/config.yaml)
-│   │   ├── engine/        Core charging engine (HA throttle, balancing, scheduler)
-│   │   ├── services/      HA, Proxy, Telegram, Failsafe services
-│   │   ├── routes/        REST API routes
-│   │   └── ws/            1Hz WebSocket broadcaster
-│   ├── prisma/            SQLite schema (telemetry, sessions, schedules)
-│   └── config.example.yaml
-├── frontend/              React + Vite + TailwindCSS
-│   └── src/
-│       ├── pages/         Dashboard, Climate, Statistics, Schedule, Settings
-│       ├── store/         Zustand stores (auth, WebSocket state)
-│       └── api/           Axios API helpers
-├── config.yaml            NOT committed — copy from config.example.yaml
-├── .env                   NOT committed — copy from backend/.env.example
-└── docker-compose.yml
-```
-
-### Config file location
-
-The backend always reads and writes `config.yaml` from the **backend directory** (i.e. `backend/config.yaml` in development, or `/app/backend/config.yaml` in Docker). This is the single source of truth for all operational settings.
-
----
-
-## Fail-Safe Behaviour
-
-If the teslablehttpproxy or Home Assistant connection drops:
-
-1. All automated charging/climate control loops are **immediately halted**
-2. A **Telegram alert** is sent
-3. A red **FAILSAFE ACTIVE** banner is shown across the entire UI
-4. You can still control the car via the official Tesla app
-
-Once the connection is restored, the failsafe clears automatically.
-
----
-
-## Telegram Bot Commands
-
-If `TELEGRAM_BOT_TOKEN` is set and `telegram.enabled: true` in config:
-
-| Command | Action |
-|---|---|
-| `/start [soc] [amps]` | Start charging engine (e.g. `/start 80 16`) |
-| `/stop` | Stop charging engine |
-| `/status` | Get current engine status |
-| `/help` | List available commands |
-
-Proactive notifications are sent when:
-- HA overrides/throttles a charging schedule
-- Cell balancing starts or completes
-- Failsafe activates or clears
-
----
-
-## Development Scripts
+Example:
 
 ```bash
-npm run dev            # Start backend + frontend in parallel (dev mode)
-npm run build          # Build both packages for production
+cp backend/.env.example .env
+cp backend/config.example.yaml config.yaml
+```
 
-# Backend only
+### 2. Start the stack
+
+```bash
+docker compose up -d --build
+```
+
+The container:
+
+- exposes port `3001`
+- mounts `./config.yaml` into `/app/backend/config.yaml`
+- reads environment variables from the root `.env`
+
+Open:
+
+- `http://localhost:3001`
+
+## Configuration
+
+### Environment variables
+
+Example file: `backend/.env.example`
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | Database connection string used by Prisma |
+| `JWT_SECRET` | Secret used to sign auth tokens |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token |
+| `HA_CLIENT_ID` | Optional Home Assistant OAuth client id override |
+| `HA_CLIENT_SECRET` | Home Assistant OAuth client secret |
+| `APP_URL` | Public base URL used for OAuth callback and default Home Assistant client id |
+| `PORT` | Backend HTTP port |
+
+### YAML configuration
+
+Example file: `backend/config.example.yaml`
+
+Main sections:
+
+- `demo`
+- `charging`
+- `climate`
+- `homeAssistant`
+- `telegram`
+- `proxy`
+
+Relevant proxy fields:
+
+| Field | Meaning |
+|---|---|
+| `proxy.url` | Base URL of the Tesla proxy |
+| `proxy.vehicleId` | Vehicle VIN/id used in proxy routes |
+| `proxy.vehicleName` | Friendly display name shown in UI |
+| `proxy.normalPollIntervalMs` | Full `vehicle_data` refresh interval |
+| `proxy.reactivePollIntervalMs` | `body_controller_state` heartbeat interval |
+| `proxy.scheduleLeadTimeSec` | Scheduler pre-wake lead time |
+| `proxy.rejectUnauthorized` | TLS certificate validation for proxy HTTPS |
+
+## Settings UI
+
+The Settings page exposes four main panels:
+
+- Home Assistant
+- Proxy
+- Engine Options
+- YAML
+
+The Proxy panel currently covers:
+
+- proxy URL
+- vehicle id
+- vehicle display name
+- normal poll interval
+- reactive / heartbeat interval
+- scheduler lead time
+- TLS certificate verification toggle
+- proxy LIVE/OFFLINE status
+- last successful proxy endpoint and timestamp
+
+## Demo Mode And Simulator
+
+When `demo: true`, EVLoad can operate against the built-in simulator instead of a real vehicle setup.
+
+The simulator supports:
+
+- `vehicle_data`
+- `vehicle_data?endpoints=charge_state`
+- `body_controller_state`
+- `wake_up`
+- `sleep`
+- `charge_start`
+- `charge_stop`
+- `set_charging_amps`
+- `set_temps`
+
+This is useful for validating UI behavior and proxy contract assumptions without a live car.
+
+## Development Commands
+
+Root:
+
+```bash
+npm run dev
+npm run build
+npm run test
+```
+
+Backend only:
+
+```bash
 npm run dev --prefix backend
-npm run test --prefix backend    # Jest tests
+npm run build --prefix backend
+npm run test --prefix backend
+```
 
-# Frontend only
+Frontend only:
+
+```bash
 npm run dev --prefix frontend
 npm run build --prefix frontend
 ```
 
----
+## API Surface Overview
 
-## Updating
+Main backend groups:
+
+- `/api/auth`
+- `/api/engine`
+- `/api/vehicle`
+- `/api/sessions`
+- `/api/schedule`
+- `/api/settings`
+- `/api/config`
+- `/api/ha`
+- `/api/health`
+
+Useful endpoints for runtime operations:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/health` | Health probe |
+| `GET /api/engine/status` | Engine + failsafe status |
+| `POST /api/engine/start` | Start charging engine |
+| `POST /api/engine/stop` | Stop charging engine |
+| `POST /api/engine/wake` | Force wake mode and send proxy `wake_up` |
+| `GET /api/settings` | Structured settings read |
+| `PATCH /api/settings` | Structured settings write |
+| `GET /api/schedule/next-charge` | Resolve next real planned charge |
+
+## Testing
+
+Backend tests are implemented with Jest.
+
+Run:
 
 ```bash
-git pull
-./install.sh       # Re-installs deps and runs Prisma migrations
-docker compose up -d --build   # If using Docker
+npm run test --prefix backend
 ```
+
+Current repository validation path typically includes:
+
+- backend TypeScript build
+- frontend TypeScript/Vite build
+- backend Jest suite
+
+## Operational Notes
+
+- The backend serves the built frontend in production mode.
+- The WebSocket broadcaster pushes application state every second.
+- Proxy health is intentionally modeled separately from interpreted vehicle connectivity.
+- Manual YAML editing and structured settings editing both write the backend config file.
+
+## Status And Roadmap Notes
+
+Detailed implementation notes and acceptance backlog live in `features.md`.
+
+For the current EVLoad-to-proxy runtime behavior, see the dedicated communication section in `features.md`.

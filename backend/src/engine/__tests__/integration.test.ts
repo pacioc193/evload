@@ -8,6 +8,7 @@ import yaml from 'js-yaml'
 
 // ─── Module-level shared state ────────────────────────────────────────────────
 const mockSendProxyCommand = jest.fn().mockResolvedValue({})
+const mockRequestWakeMode = jest.fn().mockResolvedValue(undefined)
 let mockPluggedIn = false
 let mockPowerW = 2000
 let mockCarChargeKw = 0
@@ -33,6 +34,7 @@ jest.mock('@prisma/client', () => ({
     },
     scheduledCharge: {
       findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
       update: jest.fn().mockResolvedValue({}),
       create: jest.fn(),
     },
@@ -74,6 +76,7 @@ jest.mock('../../../src/services/proxy.service', () => ({
     climateOn: false, locked: false, odometer: 10000, vin: 'vid1', displayName: 'Test',
   }),
   sendProxyCommand: mockSendProxyCommand,
+  requestWakeMode: mockRequestWakeMode,
   vehicleEvents: { on: jest.fn(), emit: jest.fn() },
 }), { virtual: true })
 
@@ -92,7 +95,7 @@ jest.mock('../../../src/config', () => ({
     demo: mockIsDemo,
     charging: { defaultAmps: 16, maxAmps: 32, minAmps: 5, balancingHoldMinutes: 10, batteryCapacityKwh: 75 },
     homeAssistant: { url: '', powerEntityId: '', maxHomePowerW: mockMaxHomePowerW },
-    proxy: { vehicleId: 'vid1', url: '' },
+    proxy: { vehicleId: 'vid1', url: '', scheduleLeadTimeSec: 1800 },
   }),
 }), { virtual: true })
 
@@ -104,6 +107,11 @@ jest.mock('../../../src/services/failsafe.service', () => ({
 
 jest.mock('../../../src/services/telegram.service', () => ({
   sendTelegramNotification: jest.fn().mockResolvedValue({}),
+}), { virtual: true })
+
+jest.mock('../../../src/services/notification-rules.service', () => ({
+  dispatchTelegramNotificationEvent: jest.fn().mockResolvedValue({ delivered: 0, matchedRules: [], messages: [] }),
+  notificationEvents: { on: jest.fn(), emit: jest.fn() },
 }), { virtual: true })
 
 // ─── Test 1: HA limit priority — pure logic ──────────────────────────────────

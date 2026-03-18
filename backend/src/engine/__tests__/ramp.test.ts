@@ -1,6 +1,7 @@
 import type { EngineStatus } from '../../engine/charging.engine'
 
 const mockSendProxyCommand = jest.fn().mockResolvedValue({})
+const mockRequestWakeMode = jest.fn().mockResolvedValue(undefined)
 let mockHaConnected = true
 let mockHaPowerW: number = 8450
 let mockHaChargerW: number | null = null
@@ -49,6 +50,7 @@ jest.mock('../../services/proxy.service', () => ({
     displayName: 'Ramp Test',
   }),
   sendProxyCommand: mockSendProxyCommand,
+  requestWakeMode: mockRequestWakeMode,
   vehicleEvents: { on: jest.fn(), emit: jest.fn() },
 }), { virtual: true })
 
@@ -79,6 +81,11 @@ jest.mock('../../services/failsafe.service', () => ({
 
 jest.mock('../../services/telegram.service', () => ({
   sendTelegramNotification: jest.fn().mockResolvedValue({}),
+}), { virtual: true })
+
+jest.mock('../../services/notification-rules.service', () => ({
+  dispatchTelegramNotificationEvent: jest.fn().mockResolvedValue({ delivered: 0, matchedRules: [], messages: [] }),
+  notificationEvents: { on: jest.fn(), emit: jest.fn() },
 }), { virtual: true })
 
 describe('F-22 Smart Current Algorithm', () => {

@@ -1,4 +1,5 @@
 const mockSendProxyCommand = jest.fn().mockResolvedValue({})
+const mockRequestWakeMode = jest.fn().mockResolvedValue(undefined)
 
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn().mockImplementation(() => ({
@@ -30,6 +31,7 @@ jest.mock('../../services/proxy.service', () => ({
     climateOn: false, locked: false, odometer: 10000, vin: 'MODETEST', displayName: 'Mode Test',
   }),
   sendProxyCommand: mockSendProxyCommand,
+  requestWakeMode: mockRequestWakeMode,
   vehicleEvents: { on: jest.fn(), emit: jest.fn() },
 }), { virtual: true })
 
@@ -55,6 +57,11 @@ jest.mock('../../services/failsafe.service', () => ({
 
 jest.mock('../../services/telegram.service', () => ({
   sendTelegramNotification: jest.fn().mockResolvedValue({}),
+}), { virtual: true })
+
+jest.mock('../../services/notification-rules.service', () => ({
+  dispatchTelegramNotificationEvent: jest.fn().mockResolvedValue({ delivered: 0, matchedRules: [], messages: [] }),
+  notificationEvents: { on: jest.fn(), emit: jest.fn() },
 }), { virtual: true })
 
 describe('F-18: Plan vs On vs Off distinct engine modes', () => {

@@ -1,4 +1,5 @@
 ﻿import { useEffect, useState, type ReactNode } from 'react'
+import axios from 'axios'
 import Editor from '@monaco-editor/react'
 import { getConfig, saveConfig, getHaAuthorizeUrl, getSettings, patchSettings, type AppSettings } from '../api/index'
 import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight } from 'lucide-react'
@@ -76,7 +77,8 @@ function Field({
 export default function SettingsPage() {
   const [configContent, setConfigContent] = useState('')
   const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState('')
+  const [configMessage, setConfigMessage] = useState('')
+  const [haAuthMessage, setHaAuthMessage] = useState('')
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [settingsMsg, setSettingsMsg] = useState('')
   const [expandedPanels, setExpandedPanels] = useState<Record<PanelKey, boolean>>({
@@ -88,6 +90,7 @@ export default function SettingsPage() {
   const clearToken = useAuthStore((s) => s.clearToken)
   const navigate = useNavigate()
   const ha = useWsStore((s) => s.ha)
+  const proxy = useWsStore((s) => s.proxy)
   const vehicle = useWsStore((s) => s.vehicle)
 
   useEffect(() => {
@@ -97,26 +100,30 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     setSaving(true)
-    setMessage('')
+    setConfigMessage('')
     try {
       await saveConfig(configContent)
-      setMessage('Config saved successfully')
+      setConfigMessage('Config saved successfully')
       const updated = await getSettings()
       setSettings(updated)
     } catch (err: unknown) {
-      setMessage(`Save failed: ${err instanceof Error ? err.message : 'unknown error'}`)
+      setConfigMessage(`Save failed: ${err instanceof Error ? err.message : 'unknown error'}`)
     } finally {
       setSaving(false)
-      setTimeout(() => setMessage(''), 4000)
+      setTimeout(() => setConfigMessage(''), 4000)
     }
   }
 
   const handleHaConnect = async () => {
+    setHaAuthMessage('')
     try {
       const { url } = await getHaAuthorizeUrl()
       window.open(url, '_blank', 'noopener,noreferrer')
-    } catch {
-      setMessage('Failed to get HA authorization URL')
+    } catch (err) {
+      const backendMessage = axios.isAxiosError(err)
+        ? err.response?.data?.error
+        : null
+      setHaAuthMessage(typeof backendMessage === 'string' ? backendMessage : 'Failed to get HA authorization URL')
     }
   }
 
@@ -137,6 +144,7 @@ export default function SettingsPage() {
 
   const numberFields = new Set<keyof AppSettings>([
     'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'maxAmps', 'minAmps', 'rampIntervalSec',
+    'normalPollIntervalMs', 'reactivePollIntervalMs', 'scheduleLeadTimeSec',
   ])
 
   const upd = (key: keyof AppSettings) => (val: string) =>
@@ -149,8 +157,12 @@ export default function SettingsPage() {
   const haConnected = ha?.connected ?? false
   const haPower = ha?.powerW ?? 0
   const haCharger = ha?.chargerW ?? 0
-  const proxyConnected = vehicle?.connected ?? false
-  const proxyError = vehicle?.error ?? ''
+  const proxyConnected = proxy?.connected ?? false
+  const proxyError = proxy?.error ?? vehicle?.error ?? ''
+  const proxyLastEndpoint = proxy?.lastEndpoint ?? null
+  const proxyLastSuccessAt = proxy?.lastSuccessAt
+    ? new Date(proxy.lastSuccessAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null
 
   return (
     <div className="space-y-6">
@@ -222,6 +234,11 @@ export default function SettingsPage() {
                 className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm">
                 <ExternalLink size={14} />Connect / Re-authorize
               </button>
+              {haAuthMessage && (
+                <p className={`text-sm ${haAuthMessage.toLowerCase().includes('failed') || haAuthMessage.toLowerCase().includes('not configured') ? 'text-evload-error' : 'text-evload-success'}`}>
+                  {haAuthMessage}
+                </p>
+              )}
             </div>
           </CollapsiblePanel>
 
@@ -245,7 +262,9 @@ export default function SettingsPage() {
               <div className={`rounded-lg border px-4 py-3 text-sm ${proxyConnected ? 'border-evload-success/30 bg-evload-success/10 text-evload-text' : 'border-evload-error/30 bg-evload-error/10 text-evload-text'}`}>
                 <div className="font-medium">{proxyConnected ? 'Proxy responding correctly' : 'Proxy not responding'}</div>
                 <div className="mt-1 text-xs text-evload-muted">
-                  {proxyConnected ? 'The last proxy poll produced live vehicle data.' : (proxyError || 'No valid vehicle data is currently arriving from the proxy.')}
+                  {proxyConnected
+                    ? `Last successful proxy call: ${proxyLastEndpoint ?? 'unknown'}${proxyLastSuccessAt ? ` at ${proxyLastSuccessAt}` : ''}.`
+                    : (proxyError || 'No valid response is currently arriving from the proxy.')}
                 </div>
               </div>
 
@@ -272,6 +291,42 @@ export default function SettingsPage() {
                   placeholder="My Model 3"
                   description="Friendly vehicle name shown in Dashboard and runtime status."
                 />
+              </div>
+              <Field
+                label="Normal Poll Interval"
+                value={settings.normalPollIntervalMs}
+                onChange={upd('normalPollIntervalMs')}
+                type="number"
+                unit="ms"
+                description="Polling interval for full vehicle_data refresh while the car is awake."
+              />
+              <Field
+                label="Reactive / Heartbeat Interval"
+                value={settings.reactivePollIntervalMs}
+                onChange={upd('reactivePollIntervalMs')}
+                type="number"
+                unit="ms"
+                description="How often body_controller_state is used as a low-impact heartbeat and reactive sleep check."
+              />
+              <Field
+                label="Schedule Lead Time"
+                value={settings.scheduleLeadTimeSec}
+                onChange={upd('scheduleLeadTimeSec')}
+                type="number"
+                unit="sec"
+                description="How early the scheduler can request wake mode before a planned charging session."
+              />
+              <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
+                <div>
+                  <div className="font-medium text-sm">Verify TLS Certificates</div>
+                  <div className="text-xs text-evload-muted">Disable only for self-signed proxy certificates in trusted local environments.</div>
+                </div>
+                <button
+                  onClick={() => setSettings((prev) => prev ? { ...prev, rejectUnauthorized: !prev.rejectUnauthorized } : prev)}
+                  className="text-evload-accent hover:text-red-400 transition-colors"
+                >
+                  {settings.rejectUnauthorized ? <ToggleRight size={32} /> : <ToggleLeft size={32} className="text-evload-muted" />}
+                </button>
               </div>
               </div>
             </div>
@@ -388,9 +443,9 @@ export default function SettingsPage() {
               theme="vs-dark"
               options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', scrollBeyondLastLine: false, tabSize: 2 }} />
           </div>
-          {message && (
-            <p className={`text-sm ${message.includes('failed') || message.includes('Failed') ? 'text-evload-error' : 'text-evload-success'}`}>
-              {message}
+          {configMessage && (
+            <p className={`text-sm ${configMessage.includes('failed') || configMessage.includes('Failed') ? 'text-evload-error' : 'text-evload-success'}`}>
+              {configMessage}
             </p>
           )}
         </div>

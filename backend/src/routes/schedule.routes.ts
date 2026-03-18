@@ -1,12 +1,11 @@
 import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
-import { PrismaClient } from '@prisma/client'
 import { requireAuth } from '../middleware/auth.middleware'
 import { getConfig } from '../config'
 import { logger } from '../logger'
+import { prisma } from '../prisma'
 import { resolveNextPlannedCharge } from '../services/scheduler.service'
 
-const prisma = new PrismaClient()
 const router = Router()
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 })
 

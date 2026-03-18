@@ -1,11 +1,20 @@
 import { create } from 'zustand'
 
+export type PollMode = 'NORMAL' | 'REACTIVE'
+
 export interface HaState {
   connected: boolean
   powerW: number | null
   chargerW: number | null
   lastUpdated: string | null
   error?: string
+}
+
+export interface ProxyHealthState {
+  connected: boolean
+  lastSuccessAt: string | null
+  lastEndpoint: string | null
+  error: string | null
 }
 
 export interface VehicleState {
@@ -39,6 +48,8 @@ export interface VehicleState {
   odometer: number | null
   vin: string | null
   displayName: string | null
+  vehicleSleepStatus: 'VEHICLE_SLEEP_STATUS_AWAKE' | 'VEHICLE_SLEEP_STATUS_ASLEEP' | 'VEHICLE_SLEEP_STATUS_UNKNOWN' | null
+  userPresence: 'VEHICLE_USER_PRESENCE_PRESENT' | 'VEHICLE_USER_PRESENCE_NOT_PRESENT' | 'VEHICLE_USER_PRESENCE_UNKNOWN' | null
   error?: string
 }
 
@@ -84,7 +95,9 @@ interface WsState {
   demo: boolean
   charging: WsChargingSettings | null
   ha: HaState | null
+  proxy: ProxyHealthState | null
   vehicle: VehicleState | null
+  pollMode: PollMode
   engine: EngineStatus | null
   failsafe: FailsafeState | null
   simulator: SimulatorDebugState | null
@@ -94,7 +107,9 @@ interface WsState {
     demo?: boolean
     charging?: WsChargingSettings
     ha: HaState
+    proxy?: ProxyHealthState
     vehicle: VehicleState
+    pollMode?: PollMode
     engine: EngineStatus
     failsafe: FailsafeState
     simulator?: SimulatorDebugState
@@ -107,7 +122,9 @@ export const useWsStore = create<WsState>((set) => ({
   demo: false,
   charging: null,
   ha: null,
+  proxy: null,
   vehicle: null,
+  pollMode: 'NORMAL',
   engine: null,
   failsafe: null,
   simulator: null,
@@ -117,7 +134,9 @@ export const useWsStore = create<WsState>((set) => ({
     demo: state.demo ?? false,
     charging: state.charging ?? null,
     ha: state.ha,
+    proxy: state.proxy ?? null,
     vehicle: state.vehicle,
+    pollMode: state.pollMode ?? 'NORMAL',
     engine: state.engine,
     failsafe: state.failsafe,
     simulator: state.simulator ?? null,
