@@ -7,6 +7,7 @@ import dotenv from 'dotenv'
 import { requireAuth } from '../middleware/auth.middleware'
 import { getConfig, reloadConfig } from '../config'
 import { logger } from '../logger'
+import { setPassword, verifyPassword } from '../auth'
 import {
   extractMissingTemplatePlaceholders,
   getNotificationEventOptions,
@@ -44,7 +45,9 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     defaultAmps: cfg.charging.defaultAmps,
     maxAmps: cfg.charging.maxAmps,
     minAmps: cfg.charging.minAmps,
+    stopChargeOnManualStart: cfg.charging.stopChargeOnManualStart,
     rampIntervalSec: cfg.charging.rampIntervalSec,
+    chargeStartRetryMs: cfg.charging.chargeStartRetryMs,
     telegramEnabled: cfg.telegram.enabled,
     telegramBotToken: currentToken ? '********' : '',
     telegramAllowedChatIds: cfg.telegram.allowedChatIds,
@@ -71,7 +74,9 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     defaultAmps: number
     maxAmps: number
     minAmps: number
+    stopChargeOnManualStart: boolean
     rampIntervalSec: number
+    chargeStartRetryMs: number
     telegramEnabled: boolean
     telegramBotToken: string
     telegramAllowedChatIds: string[]
@@ -148,7 +153,9 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.defaultAmps !== undefined) charging['defaultAmps'] = incoming.defaultAmps
   if (incoming.maxAmps !== undefined) charging['maxAmps'] = incoming.maxAmps
   if (incoming.minAmps !== undefined) charging['minAmps'] = incoming.minAmps
+  if (incoming.stopChargeOnManualStart !== undefined) charging['stopChargeOnManualStart'] = incoming.stopChargeOnManualStart
   if (incoming.rampIntervalSec !== undefined) charging['rampIntervalSec'] = incoming.rampIntervalSec
+  if (incoming.chargeStartRetryMs !== undefined) charging['chargeStartRetryMs'] = incoming.chargeStartRetryMs
 
   const nextDefaultAmps = Number(charging['defaultAmps'] ?? activeCfg.charging.defaultAmps)
   const nextMaxAmps = Number(charging['maxAmps'] ?? activeCfg.charging.maxAmps)
@@ -248,6 +255,48 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   }
 
   res.json({ success: true })
+})
+
+router.post('/password', limiter, requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body as {
+      currentPassword?: string
+      newPassword?: string
+      confirmPassword?: string
+    }
+
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ error: 'currentPassword and newPassword are required' })
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      res.status(400).json({ error: 'newPassword and confirmPassword do not match' })
+      return
+    }
+
+    if (newPassword.length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters' })
+      return
+    }
+
+    // Verify current password
+    const isValid = await verifyPassword(currentPassword)
+    if (!isValid) {
+      logger.warn('Failed password change attempt: invalid current password')
+      res.status(401).json({ error: 'Current password is incorrect' })
+      return
+    }
+
+    // Set new password
+    await setPassword(newPassword)
+    logger.info('User changed password via settings')
+    res.json({ success: true, message: 'Password changed successfully' })
+  } catch (err) {
+    logger.error('Password change failed', { err })
+    res.status(500).json({ error: 'Failed to change password' })
+  }
 })
 
 router.post('/telegram/test', limiter, requireAuth, async (req, res) => {

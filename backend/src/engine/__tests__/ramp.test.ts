@@ -67,7 +67,7 @@ jest.mock('../../services/ha.service', () => ({
 jest.mock('../../config', () => ({
   getConfig: () => ({
     demo: false,
-    charging: { defaultAmps: 16, maxAmps: 16, minAmps: 5, balancingHoldMinutes: 10, batteryCapacityKwh: 75 },
+    charging: { defaultAmps: 16, maxAmps: 16, minAmps: 5, batteryCapacityKwh: 75 },
     homeAssistant: { url: '', powerEntityId: '', maxHomePowerW: 9600, resumeDelaySec: 60 },
     proxy: { vehicleId: 'RAMPTEST', url: '' },
   }),

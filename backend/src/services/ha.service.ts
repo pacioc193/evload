@@ -253,24 +253,23 @@ export async function getHaTokenValidity(): Promise<{
 
 export async function saveHaToken(token: string): Promise<void> {
   await prisma.appConfig.upsert({
-    where: { key: 'ha_token' },
-    update: { value: token },
-    create: { key: 'ha_token', value: token },
+    where: { id: 1 },
+    update: { ha_token: token },
+    create: { id: 1, ha_token: token },
   })
   logger.info('HA token saved')
 }
 
 export async function getHaTokenObj(): Promise<HaTokenObj | null> {
-  const rec = await prisma.appConfig.findUnique({ where: { key: 'ha_token_obj' } })
-  if (!rec) return null
+  const rec = await prisma.appConfig.findUnique({ where: { id: 1 } })
+  if (!rec?.ha_token_obj) return null
   try {
-    const parsed = JSON.parse(rec.value) as HaTokenObj
+    const parsed = JSON.parse(rec.ha_token_obj) as HaTokenObj
     if (!parsed.issued_at_ms) {
       parsed.issued_at_ms = Date.now()
-      await prisma.appConfig.upsert({
-        where: { key: 'ha_token_obj' },
-        update: { value: JSON.stringify(parsed) },
-        create: { key: 'ha_token_obj', value: JSON.stringify(parsed) },
+      await prisma.appConfig.update({
+        where: { id: 1 },
+        data: { ha_token_obj: JSON.stringify(parsed) },
       })
       logger.info('HA token object migrated: issued_at_ms persisted')
     }
@@ -286,9 +285,9 @@ export async function saveHaTokenObj(obj: HaTokenObj): Promise<void> {
     issued_at_ms: obj.issued_at_ms ?? Date.now(),
   }
   await prisma.appConfig.upsert({
-    where: { key: 'ha_token_obj' },
-    update: { value: JSON.stringify(normalized) },
-    create: { key: 'ha_token_obj', value: JSON.stringify(normalized) },
+    where: { id: 1 },
+    update: { ha_token_obj: JSON.stringify(normalized) },
+    create: { id: 1, ha_token_obj: JSON.stringify(normalized) },
   })
   await saveHaToken(normalized.access_token)
   logger.info('HA token object saved')

@@ -4,7 +4,11 @@ import axios from 'axios'
 import { setupPassword } from '../api/auth'
 import { useAuthStore } from '../store/authStore'
 
-export default function SetupPage() {
+interface SetupPageProps {
+  onSetupComplete?: () => void
+}
+
+export default function SetupPage({ onSetupComplete }: SetupPageProps) {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
@@ -27,6 +31,7 @@ export default function SetupPage() {
     try {
       const { token } = await setupPassword(password)
       setToken(token)
+      onSetupComplete?.()
       navigate('/dashboard')
     } catch (err) {
       if (axios.isAxiosError(err) && err.response?.data?.error) {

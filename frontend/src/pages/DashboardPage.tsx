@@ -6,6 +6,61 @@ import { clsx } from 'clsx'
 
 type ChargeMode = 'off' | 'plan' | 'on'
 
+const EFFICIENCY_STORAGE_KEY = 'evload.vehicleEfficiencyPct'
+const EFFICIENCY_HISTORY_STORAGE_KEY = 'evload.statistics.efficiencyHistory'
+const RAW_PROXY_PANEL_STORAGE_KEY = 'evload.dashboard.rawProxyPanelExpanded'
+const VEHICLE_DETAILS_PANEL_STORAGE_KEY = 'evload.dashboard.vehicleDetailsExpanded'
+
+function readStoredBoolean(storageKey: string, fallback: boolean): boolean {
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+    if (raw == null) return fallback
+    return raw === 'true'
+  } catch {
+    return fallback
+  }
+}
+
+interface EfficiencyHistorySample {
+  ts: string
+  valuePct: number
+}
+
+function saveEfficiencyForStatistics(valuePct: number): void {
+  if (!Number.isFinite(valuePct) || valuePct <= 0) return
+
+  const nowIso = new Date().toISOString()
+  const raw = window.localStorage.getItem(EFFICIENCY_HISTORY_STORAGE_KEY)
+  const parsed = raw ? JSON.parse(raw) : []
+  const history = Array.isArray(parsed)
+    ? parsed.filter((item): item is EfficiencyHistorySample => {
+      if (!item || typeof item !== 'object') return false
+      const candidate = item as Partial<EfficiencyHistorySample>
+      return typeof candidate.ts === 'string' && typeof candidate.valuePct === 'number' && Number.isFinite(candidate.valuePct)
+    })
+    : []
+
+  const last = history.length > 0 ? history[history.length - 1] : undefined
+  const enoughTimePassed = !last || (new Date(nowIso).getTime() - new Date(last.ts).getTime()) >= 60000
+  const enoughDelta = !last || Math.abs(last.valuePct - valuePct) >= 0.2
+
+  if (!last || enoughTimePassed || enoughDelta) {
+    const next = [...history, { ts: nowIso, valuePct }].slice(-500)
+    window.localStorage.setItem(EFFICIENCY_HISTORY_STORAGE_KEY, JSON.stringify(next))
+  }
+}
+
+function formatHoursToEta(hours: number | null): string {
+  if (hours == null || !Number.isFinite(hours)) return '—'
+  if (hours <= 0) return 'Completata'
+  const totalMinutes = Math.round(hours * 60)
+  const h = Math.floor(totalMinutes / 60)
+  const m = totalMinutes % 60
+  if (h === 0) return `${m} min`
+  if (m === 0) return `${h} h`
+  return `${h} h ${m} min`
+}
+
 function computeTimeToTargetH(params: {
   machineHours: number | null
   stateOfCharge: number
@@ -166,7 +221,11 @@ function FlowStatRow({ icon, label, value, accentClass }: {
 }
 
 function VehicleRawProxyPanel({ rawChargeState }: { rawChargeState: Record<string, unknown> | null | undefined }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(() => readStoredBoolean(RAW_PROXY_PANEL_STORAGE_KEY, false))
+
+  useEffect(() => {
+    window.localStorage.setItem(RAW_PROXY_PANEL_STORAGE_KEY, expanded ? 'true' : 'false')
+  }, [expanded])
 
   return (
     <div className="bg-evload-surface border border-evload-border rounded-3xl p-4 sm:p-5">
@@ -212,6 +271,9 @@ export default function DashboardPage() {
   const [waking, setWaking] = useState(false)
   const [nextCharge, setNextCharge] = useState<NextPlannedCharge | null>(null)
   const [integratedEnergyKwh, setIntegratedEnergyKwh] = useState(0)
+  const [vehicleDetailsExpanded, setVehicleDetailsExpanded] = useState(() => readStoredBoolean(VEHICLE_DETAILS_PANEL_STORAGE_KEY, false))
+  const [savedEfficiencyPct, setSavedEfficiencyPct] = useState<number | null>(null)
+  const [chargingStartedAtMs, setChargingStartedAtMs] = useState<number | null>(null)
   const integrationRef = useRef<{ lastTsMs: number | null }>({ lastTsMs: null })
 
   useEffect(() => {
@@ -239,6 +301,10 @@ export default function DashboardPage() {
     const interval = setInterval(poll, 15000)
     return () => clearInterval(interval)
   }, [wsConnected])
+
+  useEffect(() => {
+    window.localStorage.setItem(VEHICLE_DETAILS_PANEL_STORAGE_KEY, vehicleDetailsExpanded ? 'true' : 'false')
+  }, [vehicleDetailsExpanded])
 
   const soc = Math.max(0, Math.min(100, vehicle?.stateOfCharge ?? 0))
   const carLimitSoc = vehicle?.chargeLimitSoc ?? null
@@ -272,6 +338,7 @@ export default function DashboardPage() {
   const chargedEnergyKwh = validBackendEnergyKwh != null
     ? Math.max(validBackendEnergyKwh, integratedEnergyKwh)
     : (integratedEnergyKwh > 0 ? integratedEnergyKwh : null)
+  const evloadCalculatedEnergyKwh = integratedEnergyKwh > 0 ? integratedEnergyKwh : null
   const chargedEnergyWh = chargedEnergyKwh != null
     ? Math.round(chargedEnergyKwh * 1000)
     : null
@@ -279,6 +346,34 @@ export default function DashboardPage() {
     ? chargedEnergyKwh * energyPriceEurPerKwh
     : null
   const currentRangeKm = vehicle?.batteryRange ?? null
+  const autoActualCurrentA = vehicle?.chargerActualCurrent ?? null
+  const evloadRequestedCurrentA = engine?.setpointAmps ?? engine?.targetAmps ?? null
+  const autoVoltageV = vehicle?.chargerVoltage ?? null
+  const hardwareSetpointCandidatesA = [
+    vehicle?.chargeCurrentRequestMax,
+    vehicle?.chargerPilotCurrent,
+  ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+  const hardwareSetpointA = hardwareSetpointCandidatesA.length > 0 ? Math.min(...hardwareSetpointCandidatesA) : null
+  const softwareSetpointA = evloadRequestedCurrentA ?? vehicle?.chargeCurrentRequest ?? null
+  const autoPowerKw = autoVoltageV != null && autoActualCurrentA != null
+    ? (autoVoltageV * autoActualCurrentA) / 1000
+    : chargePowerKw
+  // Efficiency = energy the vehicle's battery received (from vehicle telemetry) / energy EVLoad measured at the charger
+  const vehicleEfficiencyPct =
+    validBackendEnergyKwh != null && validBackendEnergyKwh > 0 &&
+    evloadCalculatedEnergyKwh != null && evloadCalculatedEnergyKwh > 0
+      ? (validBackendEnergyKwh / evloadCalculatedEnergyKwh) * 100
+      : null
+  const powerLimitCandidates = [
+    hardwareSetpointA,
+    engine?.targetAmps,
+    engine?.setpointAmps,
+  ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+  const safeCurrentLimitA = powerLimitCandidates.length > 0 ? Math.min(...powerLimitCandidates) : null
+  const isCurrentUnderLimit =
+    autoActualCurrentA != null && safeCurrentLimitA != null
+      ? autoActualCurrentA <= safeCurrentLimitA + 0.01
+      : null
   const estimatedRangeAtTargetKm =
     currentRangeKm != null && soc > 0
       ? Math.round((currentRangeKm / soc) * effectiveTargetSoc)
@@ -292,6 +387,41 @@ export default function DashboardPage() {
     chargeRateKw: chargePowerKw,
     batteryCapacityKwh,
   })
+  const remainingEnergyKwh = Math.max(0, ((effectiveTargetSoc - soc) / 100) * batteryCapacityKwh)
+  const nowTsMs = wsLastUpdate ? new Date(wsLastUpdate).getTime() : Date.now()
+  const evloadAveragePowerKw = chargingStartedAtMs != null && nowTsMs > chargingStartedAtMs && integratedEnergyKwh > 0
+    ? integratedEnergyKwh / ((nowTsMs - chargingStartedAtMs) / 3600000)
+    : null
+  const fallbackAveragePowerKw = displayChargePowerKw > 0 ? displayChargePowerKw : null
+  const usableEvloadAveragePowerKw = evloadAveragePowerKw != null && Number.isFinite(evloadAveragePowerKw) && evloadAveragePowerKw > 0
+    ? evloadAveragePowerKw
+    : fallbackAveragePowerKw
+  const etaByEvloadAverageHours = remainingEnergyKwh <= 0
+    ? 0
+    : (usableEvloadAveragePowerKw != null ? remainingEnergyKwh / usableEvloadAveragePowerKw : null)
+  const maxCurrentWhenIdleA = [
+    vehicle?.chargeCurrentRequestMax,
+    vehicle?.chargerPilotCurrent,
+    engine?.targetAmps,
+    engine?.setpointAmps,
+  ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+  const idleMaxCurrentA = maxCurrentWhenIdleA.length > 0 ? Math.max(...maxCurrentWhenIdleA) : null
+  const idleEstimatedPowerKw = idleMaxCurrentA != null ? (idleMaxCurrentA * 220) / 1000 : null
+  const etaWhenNotChargingHours = remainingEnergyKwh <= 0
+    ? 0
+    : (idleEstimatedPowerKw != null && idleEstimatedPowerKw > 0 ? remainingEnergyKwh / idleEstimatedPowerKw : null)
+  const shouldUseCarEta =
+    hardwareSetpointA != null
+    && softwareSetpointA != null
+    && hardwareSetpointA < softwareSetpointA
+    && timeToTarget.hours != null
+  const etaHours = vehicle?.charging
+    ? (shouldUseCarEta ? timeToTarget.hours : (etaByEvloadAverageHours ?? timeToTarget.hours))
+    : (etaWhenNotChargingHours ?? timeToTarget.hours)
+  const etaToChargeEnd = formatHoursToEta(etaHours)
+  const etaSourceLabel = vehicle?.charging
+    ? (shouldUseCarEta ? 'Source: vehicle ETA (hardware-limited)' : 'Source: evload average charging power')
+    : 'Source: max current x 220V'
 
   const nextChargeStartTime = nextCharge?.computedStartAt
     ? new Date(nextCharge.computedStartAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -309,6 +439,15 @@ export default function DashboardPage() {
     : 'Idle'
 
   useEffect(() => {
+    const raw = window.localStorage.getItem(EFFICIENCY_STORAGE_KEY)
+    if (!raw) return
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      setSavedEfficiencyPct(parsed)
+    }
+  }, [])
+
+  useEffect(() => {
     if (validBackendEnergyKwh == null) return
     setIntegratedEnergyKwh(validBackendEnergyKwh)
   }, [validBackendEnergyKwh])
@@ -317,15 +456,28 @@ export default function DashboardPage() {
     const tsMs = wsLastUpdate ? new Date(wsLastUpdate).getTime() : Date.now()
     if (!Number.isFinite(tsMs)) return
 
+    if (vehicle?.charging) {
+      setChargingStartedAtMs((prev) => prev ?? tsMs)
+    } else {
+      setChargingStartedAtMs(null)
+    }
+
     const prevTsMs = integrationRef.current.lastTsMs
-    if (prevTsMs != null && vehicle?.charging && chargePowerKw > 0 && tsMs > prevTsMs) {
+    if (prevTsMs != null && vehicle?.charging && displayChargePowerKw > 0 && tsMs > prevTsMs) {
       const deltaHours = (tsMs - prevTsMs) / 3600000
       if (deltaHours > 0 && deltaHours < 1) {
-        setIntegratedEnergyKwh((prev) => prev + (chargePowerKw * deltaHours))
+        setIntegratedEnergyKwh((prev) => prev + (displayChargePowerKw * deltaHours))
       }
     }
     integrationRef.current.lastTsMs = tsMs
-  }, [wsLastUpdate, vehicle?.charging, chargePowerKw])
+  }, [wsLastUpdate, vehicle?.charging, displayChargePowerKw])
+
+  useEffect(() => {
+    if (vehicleEfficiencyPct == null || !Number.isFinite(vehicleEfficiencyPct) || vehicleEfficiencyPct <= 0) return
+    setSavedEfficiencyPct(vehicleEfficiencyPct)
+    window.localStorage.setItem(EFFICIENCY_STORAGE_KEY, vehicleEfficiencyPct.toFixed(2))
+    saveEfficiencyForStatistics(vehicleEfficiencyPct)
+  }, [vehicleEfficiencyPct])
 
   const applyMode = async (mode: ChargeMode) => {
     if ((mode === 'on' || mode === 'plan') && timeToTarget.error) return
@@ -350,7 +502,7 @@ export default function DashboardPage() {
   const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
   const carStatusLabel = vehicleInGarage ? 'In garage' : isVehicleSleeping ? 'Sleeping' : 'Not in garage / unreachable'
   const statusReason = vehicle?.reason ?? proxy?.error ?? vehicle?.error ?? 'No reason available yet'
-  const controlsDisabled = loading || !!failsafe?.active || !proxyConnected || !vehicleInGarage
+  const controlsDisabled = loading || !!failsafe?.active
 
   const handleWakeVehicle = async () => {
     if (waking) return
@@ -561,6 +713,84 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+
+          <div className="mt-3 rounded-xl border border-evload-border bg-evload-bg/70 px-3 py-2 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-evload-muted">Charge End ETA</div>
+              <div className="text-lg font-semibold text-evload-text">{etaToChargeEnd}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-[11px] text-evload-muted">{etaSourceLabel}</div>
+              {usableEvloadAveragePowerKw != null && (
+                <div className="text-xs text-evload-muted">Evload average: {usableEvloadAveragePowerKw.toFixed(2)} kW</div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 border-t border-evload-border pt-4">
+            <button
+              type="button"
+              onClick={() => setVehicleDetailsExpanded((prev) => !prev)}
+              className="w-full flex items-center justify-between rounded-xl border border-evload-border bg-evload-bg px-3 py-2 text-left"
+            >
+              <div>
+                <div className="text-sm font-semibold text-evload-text">Vehicle Details</div>
+                <div className="text-xs text-evload-muted">Current, voltage, power, energy, ETA, and efficiency</div>
+              </div>
+              {vehicleDetailsExpanded ? (
+                <ChevronDown size={16} className="text-evload-muted" />
+              ) : (
+                <ChevronRight size={16} className="text-evload-muted" />
+              )}
+            </button>
+
+            {vehicleDetailsExpanded && (
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                  <div className="text-xs uppercase tracking-wide text-evload-muted">Actual / Requested Current</div>
+                  <div className="mt-1 text-sm font-semibold text-evload-text">
+                    {autoActualCurrentA != null ? `${autoActualCurrentA.toFixed(1)} A` : '—'} / {evloadRequestedCurrentA != null ? `${evloadRequestedCurrentA.toFixed(1)} A` : '—'}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                  <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Voltage</div>
+                  <div className="mt-1 text-sm font-semibold text-evload-text">{autoVoltageV != null ? `${Math.round(autoVoltageV)} V` : '—'}</div>
+                </div>
+
+                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                  <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Power</div>
+                  <div className="mt-1 text-sm font-semibold text-evload-text">{autoPowerKw > 0 ? `${autoPowerKw.toFixed(2)} kW` : '—'}</div>
+                </div>
+
+                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                  <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Charged Energy</div>
+                  <div className="mt-1 text-sm font-semibold text-evload-text">{chargedEnergyKwh != null ? `${chargedEnergyKwh.toFixed(2)} kWh` : '—'}</div>
+                </div>
+
+                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                  <div className="text-xs uppercase tracking-wide text-evload-muted">Saved Efficiency</div>
+                  <div className="mt-1 text-sm font-semibold text-evload-text">
+                    {savedEfficiencyPct != null ? `${savedEfficiencyPct.toFixed(2)}%` : '—'}
+                  </div>
+                  <div className="mt-1 text-[11px] text-evload-muted">
+                    Formula: vehicle energy / evload calculated energy
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2 rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                  <div className="text-xs uppercase tracking-wide text-evload-muted">Current vs Power Limit Check</div>
+                  <div className="mt-1 text-sm font-semibold text-evload-text">
+                    {isCurrentUnderLimit == null
+                      ? 'Insufficient data'
+                      : isCurrentUnderLimit
+                        ? `OK: ${autoActualCurrentA?.toFixed(1)} A <= ${safeCurrentLimitA?.toFixed(1)} A`
+                        : `WARNING: ${autoActualCurrentA?.toFixed(1)} A > ${safeCurrentLimitA?.toFixed(1)} A`}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -570,7 +800,7 @@ export default function DashboardPage() {
           {(engine?.debugLog?.length ?? 0) === 0 ? (
             <div className="text-evload-muted">No logs yet. Start charging control to see engine actions.</div>
           ) : (
-            (engine?.debugLog ?? []).map((line, idx) => (
+            [...(engine?.debugLog ?? [])].reverse().map((line, idx) => (
               <div key={`${idx}-${line}`} className="text-evload-text">{line}</div>
             ))
           )}

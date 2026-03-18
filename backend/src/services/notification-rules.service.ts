@@ -76,18 +76,13 @@ const COMMON_PLACEHOLDERS: Record<string, PlaceholderInfo> = {
 }
 
 const EVENT_PLACEHOLDER_CATALOG: Record<string, string[]> = {
-  engine_started: ['event', 'timestamp', 'sessionId', 'targetSoc', 'targetAmps', 'reason'],
   engine_stopped: ['event', 'timestamp', 'sessionId', 'reason'],
-  ha_paused: ['event', 'timestamp', 'homePowerW', 'maxHomePowerW', 'retrySec', 'reason'],
   ha_throttled: ['event', 'timestamp', 'homePowerW', 'maxHomePowerW', 'throttledAmps', 'reason'],
-  balancing_started: ['event', 'timestamp', 'targetSoc', 'reason'],
-  balancing_complete: ['event', 'timestamp', 'targetSoc', 'reason'],
   failsafe_activated: ['event', 'timestamp', 'reason'],
   soc_increased: ['event', 'timestamp', 'soc', 'deltaSoc', 'reason'],
   start_charging: ['event', 'timestamp', 'reason'],
   stop_charging: ['event', 'timestamp', 'reason'],
   plan_start: ['event', 'timestamp', 'planId', 'targetSoc', 'reason'],
-  plan_updated: ['event', 'timestamp', 'planId', 'reason'],
   plan_completed: ['event', 'timestamp', 'planId', 'reason'],
   plan_skipped: ['event', 'timestamp', 'planId', 'reason'],
   target_soc_reached: ['event', 'timestamp', 'soc', 'reason'],
@@ -104,18 +99,13 @@ const EVENT_PLACEHOLDER_CATALOG: Record<string, string[]> = {
 }
 
 const EVENT_PAYLOAD_PRESETS: Record<string, Record<string, unknown>> = {
-  engine_started: { sessionId: 123, targetSoc: 80, targetAmps: 16, vehicleId: 'DEMO1', reason: 'manual' },
   engine_stopped: { sessionId: 123, reason: 'finished' },
-  ha_paused: { homePowerW: 5500, maxHomePowerW: 4000, retrySec: 60, reason: 'limit_exceeded' },
-  ha_throttled: { homePowerW: 4200, maxHomePowerW: 4000, throttledAmps: 10, reason: 'balancing' },
-  balancing_started: { targetSoc: 100, reason: 'top_off' },
-  balancing_complete: { targetSoc: 100, reason: 'finished' },
+  ha_throttled: { homePowerW: 4200, maxHomePowerW: 4000, throttledAmps: 10, reason: 'limit_exceeded' },
   failsafe_activated: { reason: 'connection_lost' },
   soc_increased: { soc: 55, deltaSoc: 1, reason: 'charging' },
   start_charging: { reason: 'scheduler' },
   stop_charging: { reason: 'user' },
   plan_start: { planId: 'plan-001', targetSoc: 90, reason: 'scheduled_time' },
-  plan_updated: { planId: 'plan-001', reason: 'user_edit' },
   plan_completed: { planId: 'plan-001', reason: 'target_reached' },
   plan_skipped: { planId: 'plan-001', reason: 'low_priority' },
   target_soc_reached: { soc: 80, reason: 'limit_reached' },
@@ -132,29 +122,13 @@ const EVENT_PAYLOAD_PRESETS: Record<string, Record<string, unknown>> = {
 }
 
 const EVENT_PAYLOAD_SCHEMAS: Record<string, NotificationEventSchema> = {
-  engine_started: {
-    required: ['sessionId', 'targetSoc'],
-    fields: { sessionId: 'number', targetSoc: 'number', targetAmps: 'number', reason: 'string' },
-  },
   engine_stopped: {
     required: ['sessionId'],
     fields: { sessionId: 'number', reason: 'string' },
   },
-  ha_paused: {
-    required: ['homePowerW', 'maxHomePowerW', 'retrySec'],
-    fields: { homePowerW: 'number', maxHomePowerW: 'number', retrySec: 'number', reason: 'string' },
-  },
   ha_throttled: {
     required: ['homePowerW', 'maxHomePowerW', 'throttledAmps'],
     fields: { homePowerW: 'number', maxHomePowerW: 'number', throttledAmps: 'number', reason: 'string' },
-  },
-  balancing_started: {
-    required: ['targetSoc'],
-    fields: { targetSoc: 'number', reason: 'string' },
-  },
-  balancing_complete: {
-    required: ['targetSoc'],
-    fields: { targetSoc: 'number', reason: 'string' },
   },
   failsafe_activated: {
     required: ['reason'],
@@ -175,10 +149,6 @@ const EVENT_PAYLOAD_SCHEMAS: Record<string, NotificationEventSchema> = {
   plan_start: {
     required: ['planId', 'targetSoc'],
     fields: { planId: 'string', targetSoc: 'number', reason: 'string' },
-  },
-  plan_updated: {
-    required: ['planId'],
-    fields: { planId: 'string', reason: 'string' },
   },
   plan_completed: {
     required: ['planId'],

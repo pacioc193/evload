@@ -8,18 +8,16 @@ export interface BalancingInput {
   targetSoc: number
   actualAmps: number
   balancingState: BalancingState
-  holdMinutes: number
   nowMs: number
 }
 
 export type BalancingAction =
   | { type: 'continue_charging' }
-  | { type: 'start_balancing' }
   | { type: 'balancing_in_progress'; message: string }
   | { type: 'stop_charging'; reason: string }
 
 export function computeBalancingAction(input: BalancingInput): BalancingAction {
-  const { soc, targetSoc, actualAmps, balancingState, holdMinutes, nowMs } = input
+  const { soc, targetSoc } = input
 
   if (soc < targetSoc) {
     return { type: 'continue_charging' }
@@ -29,24 +27,10 @@ export function computeBalancingAction(input: BalancingInput): BalancingAction {
     return { type: 'stop_charging', reason: `Target SoC ${targetSoc}% reached` }
   }
 
-  if (!balancingState.balancing) {
-    if (actualAmps > 0) {
-      return { type: 'start_balancing' }
-    }
-    return { type: 'stop_charging', reason: 'SoC 100% and no current flowing' }
-  }
-
-  if (actualAmps === 0 && balancingState.balancingStartedAt) {
-    const elapsedMs = nowMs - balancingState.balancingStartedAt.getTime()
-    const elapsedMin = elapsedMs / 60000
-    if (elapsedMin >= holdMinutes) {
-      return { type: 'stop_charging', reason: 'Cell balancing complete' }
-    }
-  }
-
+  // targetSoc == 100: vehicle manages charging and cell balancing autonomously
   return {
     type: 'balancing_in_progress',
-    message: `Balancing: ${actualAmps}A flowing, SoC: ${soc}%`,
+    message: `Vehicle managing charge at SoC: ${soc}%`,
   }
 }
 

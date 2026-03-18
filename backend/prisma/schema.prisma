@@ -10,9 +10,48 @@ datasource db {
 }
 
 model AppConfig {
-  id           Int     @id @default(autoincrement())
-  key          String  @unique
-  value        String
+  // System-wide application configuration stored in database
+  // All fields are optional to support gradual initialization
+  
+  id           Int     @id @default(1)  // Always 1 - single config record
+
+  // ============================================================
+  // SECRETS & CREDENTIALS (stored encrypted in database)
+  // ============================================================
+  
+  // JWT secret key for signing tokens (32+ bytes hex string)
+  jwt_secret          String?
+  
+  // Home Assistant OAuth Client ID
+  ha_client_id        String?
+  
+  // Home Assistant OAuth Client Secret
+  ha_client_secret    String?
+  
+  // Home Assistant access token (legacy, use ha_token_obj instead)
+  ha_token            String?
+  
+  // Home Assistant token object (JSON) with structure:
+  // { access_token, refresh_token, expires_in, issued_at_ms }
+  ha_token_obj        String?
+  
+  // Telegram bot token
+  telegram_bot_token  String?
+  
+  // UI login password hash (bcrypt)
+  password_hash       String?
+  
+  // ============================================================
+  // STATE & PERSISTENCE
+  // ============================================================
+  
+  // Engine restore state (JSON) - used to restore charging state on boot
+  // Structure: { restorePlan?, targetSoc?, targetAmps?, lastCharge? }
+  engine_restore_state String?
+  
+  // Legacy key-value storage (for backward compatibility)
+  key          String?  @unique
+  value        String?
 }
 
 model ChargingSession {

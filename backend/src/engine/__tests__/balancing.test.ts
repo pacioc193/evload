@@ -2,8 +2,8 @@ import { computeBalancingAction, shouldAdjustAmps, clampAmps } from '../balancin
 
 describe('computeBalancingAction', () => {
   const baseInput = {
-    holdMinutes: 10,
     nowMs: Date.now(),
+    actualAmps: 16,
   }
 
   test('returns continue_charging when soc < targetSoc', () => {
@@ -11,7 +11,6 @@ describe('computeBalancingAction', () => {
       ...baseInput,
       soc: 75,
       targetSoc: 80,
-      actualAmps: 16,
       balancingState: { balancing: false, balancingStartedAt: null },
     })
     expect(result.type).toBe('continue_charging')
@@ -22,68 +21,30 @@ describe('computeBalancingAction', () => {
       ...baseInput,
       soc: 80,
       targetSoc: 80,
-      actualAmps: 16,
       balancingState: { balancing: false, balancingStartedAt: null },
     })
     expect(result.type).toBe('stop_charging')
     expect((result as { type: string; reason: string }).reason).toContain('80%')
   })
 
-  test('returns start_balancing when at 100% with current flowing and not yet balancing', () => {
+  test('returns balancing_in_progress when targetSoc is 100% (vehicle manages charging)', () => {
     const result = computeBalancingAction({
       ...baseInput,
       soc: 100,
       targetSoc: 100,
-      actualAmps: 4,
       balancingState: { balancing: false, balancingStartedAt: null },
-    })
-    expect(result.type).toBe('start_balancing')
-  })
-
-  test('returns stop_charging when at 100% with no current and not balancing', () => {
-    const result = computeBalancingAction({
-      ...baseInput,
-      soc: 100,
-      targetSoc: 100,
-      actualAmps: 0,
-      balancingState: { balancing: false, balancingStartedAt: null },
-    })
-    expect(result.type).toBe('stop_charging')
-  })
-
-  test('returns balancing_in_progress when balancing and current still flowing', () => {
-    const result = computeBalancingAction({
-      ...baseInput,
-      soc: 100,
-      targetSoc: 100,
-      actualAmps: 2,
-      balancingState: { balancing: true, balancingStartedAt: new Date(baseInput.nowMs - 5 * 60000) },
     })
     expect(result.type).toBe('balancing_in_progress')
   })
 
-  test('returns stop_charging after holdMinutes elapsed with no current', () => {
-    const startedAt = new Date(baseInput.nowMs - 11 * 60000)
+  test('never stops charging when targetSoc is 100%', () => {
     const result = computeBalancingAction({
       ...baseInput,
       soc: 100,
       targetSoc: 100,
-      actualAmps: 0,
-      balancingState: { balancing: true, balancingStartedAt: startedAt },
+      balancingState: { balancing: true, balancingStartedAt: new Date(baseInput.nowMs - 60000) },
     })
-    expect(result.type).toBe('stop_charging')
-    expect((result as { type: string; reason: string }).reason).toContain('balancing complete')
-  })
-
-  test('does not stop balancing before holdMinutes elapsed', () => {
-    const startedAt = new Date(baseInput.nowMs - 5 * 60000)
-    const result = computeBalancingAction({
-      ...baseInput,
-      soc: 100,
-      targetSoc: 100,
-      actualAmps: 0,
-      balancingState: { balancing: true, balancingStartedAt: startedAt },
-    })
+    expect(result.type).toBe('balancing_in_progress')
     expect(result.type).not.toBe('stop_charging')
   })
 })

@@ -36,7 +36,7 @@ router.post('/setup', authLimiter, async (req, res) => {
       return
     }
     await setPassword(password)
-    const token = signToken()
+    const token = await signToken()
     res.json({ token })
   } catch (err) {
     logger.error('auth setup error', { err })
@@ -57,7 +57,7 @@ router.post('/login', authLimiter, async (req, res) => {
       res.status(401).json({ error: 'Invalid password' })
       return
     }
-    const token = signToken()
+    const token = await signToken()
     res.json({ token })
   } catch (err) {
     logger.error('auth login error', { err })

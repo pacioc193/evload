@@ -14,6 +14,34 @@ import {
 } from '../api/index'
 import { Bell, ChevronDown, ChevronUp, FolderOpen, HelpCircle, Plus, Save, Send, ToggleLeft, ToggleRight, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
+
+const NOTIFICATIONS_OPEN_SECTIONS_STORAGE_KEY = 'evload.notifications.openSections'
+
+function readOpenSections(): { eventWidget: boolean; rulesBuilder: boolean; testCenter: boolean } {
+  try {
+    const raw = window.localStorage.getItem(NOTIFICATIONS_OPEN_SECTIONS_STORAGE_KEY)
+    if (!raw) {
+      return {
+        eventWidget: true,
+        rulesBuilder: false,
+        testCenter: false,
+      }
+    }
+    const parsed = JSON.parse(raw) as Partial<{ eventWidget: boolean; rulesBuilder: boolean; testCenter: boolean }>
+    return {
+      eventWidget: typeof parsed.eventWidget === 'boolean' ? parsed.eventWidget : true,
+      rulesBuilder: typeof parsed.rulesBuilder === 'boolean' ? parsed.rulesBuilder : false,
+      testCenter: typeof parsed.testCenter === 'boolean' ? parsed.testCenter : false,
+    }
+  } catch {
+    return {
+      eventWidget: true,
+      rulesBuilder: false,
+      testCenter: false,
+    }
+  }
+}
+
 const Zap = ({ size, className }: { size?: number, className?: string }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -167,11 +195,7 @@ export default function NotificationsPage() {
   const [selectedTestPresetId, setSelectedTestPresetId] = useState('')
   const [pendingAddEvent, setPendingAddEvent] = useState('')
 
-  const [openSections, setOpenSections] = useState({
-    eventWidget: true,
-    rulesBuilder: false,
-    testCenter: false,
-  })
+  const [openSections, setOpenSections] = useState(() => readOpenSections())
 
   const [openEvents, setOpenEvents] = useState<Record<string, boolean>>(
     {}
@@ -230,6 +254,10 @@ export default function NotificationsPage() {
   useEffect(() => {
     window.localStorage.setItem(TEST_PAYLOAD_PRESETS_STORAGE_KEY, JSON.stringify(testPayloadPresets))
   }, [testPayloadPresets])
+
+  useEffect(() => {
+    window.localStorage.setItem(NOTIFICATIONS_OPEN_SECTIONS_STORAGE_KEY, JSON.stringify(openSections))
+  }, [openSections])
 
   const saveNotifications = async () => {
     if (!settings) return

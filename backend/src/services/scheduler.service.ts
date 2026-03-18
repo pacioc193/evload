@@ -23,9 +23,10 @@ export async function getScheduleNextStartMs(now: Date = new Date()): Promise<nu
 async function runSchedulerTick(): Promise<void> {
   const now = new Date()
   const cfg = getConfig()
+  const chargeSchedulesEnabled = getEngineStatus().mode !== 'off'
 
   const nextPlanned = await resolveNextPlannedCharge(now)
-  if (nextPlanned) {
+  if (chargeSchedulesEnabled && nextPlanned) {
     const nextStartMs = nextPlanned.computedStartAt.getTime() - now.getTime()
     const leadWindowMs = Math.max(0, cfg.proxy.scheduleLeadTimeSec) * 1000
     if (nextStartMs > 0 && nextStartMs <= leadWindowMs) {
@@ -52,6 +53,7 @@ async function runSchedulerTick(): Promise<void> {
   })
 
   for (const sc of pendingStartAt) {
+    if (!chargeSchedulesEnabled) continue
     await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
     logger.info(`Executing start_at charge id=${sc.id} targetSoc=${sc.targetSoc}`)
     if (!isFailsafeActive() && !getEngineStatus().running) {
@@ -72,6 +74,7 @@ async function runSchedulerTick(): Promise<void> {
   })
 
   for (const sc of pendingWeekly) {
+    if (!chargeSchedulesEnabled) continue
     const currentScheduledAt = sc.scheduledAt ?? now
     const nextWeeklyOccurrence = new Date(currentScheduledAt.getTime() + (7 * 24 * 60 * 60 * 1000))
     await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { scheduledAt: nextWeeklyOccurrence } })
@@ -95,6 +98,7 @@ async function runSchedulerTick(): Promise<void> {
   })
 
   for (const sc of pendingStartEndStart) {
+    if (!chargeSchedulesEnabled) continue
     logger.info(`Executing start_end charge start id=${sc.id} targetSoc=${sc.targetSoc}`)
     if (!isFailsafeActive() && !getEngineStatus().running) {
       try {
@@ -123,6 +127,7 @@ async function runSchedulerTick(): Promise<void> {
   const chargerVoltage = vState.chargerVoltage ?? 230
 
   for (const sc of pendingFinishBy) {
+    if (!chargeSchedulesEnabled) continue
     if (!sc.finishBy) continue
     const amps = sc.targetAmps ?? cfg.charging.defaultAmps
     const powerKw = (amps * chargerVoltage) / 1000

@@ -3,8 +3,16 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area, BarChart, Bar
 } from 'recharts'
-import { getSessions, getSession } from '../api/index'
-import { BarChart2, Zap, Battery, Clock } from 'lucide-react'
+import { deleteSession, getSessions, getSession } from '../api/index'
+import { BarChart2, Zap, Battery, Clock, Trash2 } from 'lucide-react'
+
+const EFFICIENCY_STORAGE_KEY = 'evload.vehicleEfficiencyPct'
+const EFFICIENCY_HISTORY_STORAGE_KEY = 'evload.statistics.efficiencyHistory'
+
+interface EfficiencyHistorySample {
+  ts: string
+  valuePct: number
+}
 
 interface Session {
   id: number
@@ -47,20 +55,88 @@ export default function StatisticsPage() {
   const [selectedSession, setSelectedSession] = useState<SessionDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [sessionLoading, setSessionLoading] = useState(false)
+  const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null)
+  const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<number | null>(null)
+  const [sessionMessage, setSessionMessage] = useState('')
+  const [lastEfficiencyPct, setLastEfficiencyPct] = useState<number | null>(null)
+  const [avgEfficiencyPct, setAvgEfficiencyPct] = useState<number | null>(null)
+  const [efficiencySamplesCount, setEfficiencySamplesCount] = useState(0)
+
+  const loadSessions = async () => {
+    const data = await getSessions(1, 20)
+    setSessions(data.sessions as Session[])
+  }
 
   useEffect(() => {
-    getSessions(1, 20)
-      .then((data) => setSessions(data.sessions as Session[]))
+    loadSessions()
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
 
+  useEffect(() => {
+    const rawHistory = window.localStorage.getItem(EFFICIENCY_HISTORY_STORAGE_KEY)
+    const parsed = rawHistory ? JSON.parse(rawHistory) : []
+    const history = Array.isArray(parsed)
+      ? parsed.filter((item): item is EfficiencyHistorySample => {
+        if (!item || typeof item !== 'object') return false
+        const candidate = item as Partial<EfficiencyHistorySample>
+        return typeof candidate.ts === 'string' && typeof candidate.valuePct === 'number' && Number.isFinite(candidate.valuePct)
+      })
+      : []
+
+    if (history.length > 0) {
+      const avg = history.reduce((sum, sample) => sum + sample.valuePct, 0) / history.length
+      const last = history[history.length - 1]
+      setAvgEfficiencyPct(avg)
+      setLastEfficiencyPct(last.valuePct)
+      setEfficiencySamplesCount(history.length)
+      return
+    }
+
+    const legacy = Number(window.localStorage.getItem(EFFICIENCY_STORAGE_KEY))
+    if (Number.isFinite(legacy) && legacy > 0) {
+      setLastEfficiencyPct(legacy)
+      setAvgEfficiencyPct(legacy)
+      setEfficiencySamplesCount(1)
+    }
+  }, [])
+
   const loadSession = async (id: number) => {
     setSessionLoading(true)
+    setPendingDeleteSessionId(null)
     try {
       setSelectedSession(await getSession(id) as SessionDetail)
     } catch (err) { console.error(err) }
     finally { setSessionLoading(false) }
+  }
+
+  const handleDeleteSession = async (session: Session) => {
+    if (pendingDeleteSessionId !== session.id) {
+      setPendingDeleteSessionId(session.id)
+      setSessionMessage('')
+      return
+    }
+
+    const confirmed = window.confirm(`Delete charging session #${session.id} from ${new Date(session.startedAt).toLocaleString()}? This cannot be undone.`)
+    if (!confirmed) return
+
+    setDeletingSessionId(session.id)
+    setSessionMessage('')
+
+    try {
+      await deleteSession(session.id)
+      setSessions((prev) => prev.filter((item) => item.id !== session.id))
+      if (selectedSession?.id === session.id) {
+        setSelectedSession(null)
+      }
+      setPendingDeleteSessionId(null)
+      setSessionMessage(`Session #${session.id} deleted`)
+    } catch (err) {
+      console.error(err)
+      setSessionMessage('Delete failed')
+    } finally {
+      setDeletingSessionId(null)
+    }
   }
 
   const telemetryData = selectedSession?.telemetry.map((t, i) => ({
@@ -87,6 +163,9 @@ export default function StatisticsPage() {
           { label: 'Total Cost', value: totalCost.toFixed(2), unit: 'EUR', icon: Battery },
           { label: 'Avg Session Cost', value: avgCost.toFixed(2), unit: 'EUR', icon: Clock },
           { label: 'Avg Energy', value: avgEnergy.toFixed(1), unit: 'kWh', icon: Zap },
+          { label: 'Avg Charge Efficiency', value: avgEfficiencyPct != null ? avgEfficiencyPct.toFixed(2) : '—', unit: avgEfficiencyPct != null ? '%' : '', icon: Battery },
+          { label: 'Last Charge Efficiency', value: lastEfficiencyPct != null ? lastEfficiencyPct.toFixed(2) : '—', unit: lastEfficiencyPct != null ? '%' : '', icon: Zap },
+          { label: 'Efficiency Samples', value: efficiencySamplesCount, unit: '', icon: BarChart2 },
           { label: 'Last Session', value: sessions[0] ? new Date(sessions[0].startedAt).toLocaleDateString() : '—', unit: '', icon: Clock },
         ].map(({ label, value, unit, icon: Icon }) => (
           <div key={label} className="bg-evload-surface border border-evload-border rounded-xl p-4">
@@ -99,21 +178,38 @@ export default function StatisticsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 bg-evload-surface border border-evload-border rounded-xl p-4">
           <h2 className="font-semibold mb-3">Sessions</h2>
+          <p className="mb-3 text-xs text-evload-muted">Delete requires two confirmations: arm the action first, then approve the browser confirmation dialog.</p>
+          {sessionMessage && <p className="mb-3 text-sm text-evload-muted">{sessionMessage}</p>}
           {loading ? <p className="text-evload-muted text-sm">Loading...</p> :
             sessions.length === 0 ? <p className="text-evload-muted text-sm">No sessions yet</p> : (
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {sessions.map((s) => (
-                  <button key={s.id} onClick={() => loadSession(s.id)}
-                    className="w-full text-left p-3 rounded-lg border border-evload-border hover:border-evload-accent transition-colors">
-                    <div className="text-sm font-medium">{new Date(s.startedAt).toLocaleString()}</div>
-                    <div className="text-xs text-evload-muted mt-1 flex gap-3">
-                      <span>{s.totalEnergyKwh.toFixed(2)} kWh</span>
-                      <span>{(s.totalCostEur ?? 0).toFixed(2)} EUR</span>
-                      <span>@ {(s.energyPriceEurPerKwh ?? 0).toFixed(3)} EUR/kWh</span>
-                      <span>{formatDuration(s.startedAt, s.endedAt)}</span>
-                      {s._count && <span>{s._count.telemetry} pts</span>}
+                  <div key={s.id} className="rounded-lg border border-evload-border p-3 transition-colors hover:border-evload-accent">
+                    <div className="flex items-start justify-between gap-3">
+                      <button onClick={() => loadSession(s.id)} className="flex-1 text-left">
+                        <div className="text-sm font-medium">{new Date(s.startedAt).toLocaleString()}</div>
+                        <div className="text-xs text-evload-muted mt-1 flex flex-wrap gap-3">
+                          <span>{s.totalEnergyKwh.toFixed(2)} kWh</span>
+                          <span>{(s.totalCostEur ?? 0).toFixed(2)} EUR</span>
+                          <span>@ {(s.energyPriceEurPerKwh ?? 0).toFixed(3)} EUR/kWh</span>
+                          <span>{formatDuration(s.startedAt, s.endedAt)}</span>
+                          {s._count && <span>{s._count.telemetry} pts</span>}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSession(s)}
+                        disabled={deletingSessionId === s.id}
+                        className={pendingDeleteSessionId === s.id
+                          ? 'flex items-center gap-1 rounded-md border border-red-500 px-2 py-1 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-50'
+                          : 'flex items-center gap-1 rounded-md border border-evload-border px-2 py-1 text-xs text-evload-muted hover:text-evload-error disabled:opacity-50'}
+                        title={pendingDeleteSessionId === s.id ? 'Click again to open the final confirmation dialog' : 'Arm delete for this charging session'}
+                      >
+                        <Trash2 size={12} />
+                        {deletingSessionId === s.id ? 'Deleting...' : pendingDeleteSessionId === s.id ? 'Confirm Delete' : 'Delete'}
+                      </button>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             )}

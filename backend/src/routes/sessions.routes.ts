@@ -42,4 +42,25 @@ router.get('/:id', sessionsLimiter, requireAuth, async (req, res) => {
   res.json(session)
 })
 
+router.delete('/:id', sessionsLimiter, requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params['id'] ?? ''), 10)
+  if (isNaN(id)) {
+    res.status(400).json({ error: 'Invalid session ID' })
+    return
+  }
+
+  const existingSession = await prisma.chargingSession.findUnique({
+    where: { id },
+    select: { id: true },
+  })
+
+  if (!existingSession) {
+    res.status(404).json({ error: 'Session not found' })
+    return
+  }
+
+  await prisma.chargingSession.delete({ where: { id } })
+  res.json({ success: true, id })
+})
+
 export default router

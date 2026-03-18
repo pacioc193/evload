@@ -1,12 +1,15 @@
 import 'dotenv/config'
 import http from 'http'
 import os from 'os'
+import fs from 'fs'
+import path from 'path'
+import crypto from 'crypto'
 import express from 'express'
 import cors from 'cors'
-import path from 'path'
 import rateLimit from 'express-rate-limit'
 import { logger, sanitizeForLog } from './logger'
-import { loadConfig, getConfig } from './config'
+import { loadConfig, getConfig, ensureConfigYaml } from './config'
+import { prisma } from './prisma'
 import authRoutes from './routes/auth.routes'
 import haRoutes from './routes/ha.routes'
 import vehicleRoutes from './routes/vehicle.routes'
@@ -22,7 +25,7 @@ import { initTelegram, registerTelegramCommand } from './services/telegram.servi
 import { initFailsafe } from './services/failsafe.service'
 import { startScheduler } from './services/scheduler.service'
 import { initWebSocketServer, stopWebSocketServer } from './ws/broadcaster'
-import { startEngine, stopEngine, getEngineStatus } from './engine/charging.engine'
+import { startEngine, stopEngine, getEngineStatus, initializeEngineState } from './engine/charging.engine'
 import { isFailsafeActive } from './services/failsafe.service'
 import { notificationEvents, dispatchTelegramNotificationEvent } from './services/notification-rules.service'
 
@@ -80,6 +83,63 @@ if (!configuredAppUrl || isLocalhostUrl) {
 
 logger.info(`HA OAuth will use APP_URL: ${process.env.APP_URL}`)
 
+// ============================================================
+// FIRST-RUN INITIALIZATION FUNCTIONS
+// ============================================================
+
+/**
+ * Ensure .env exists - copy from .env.example if not present
+ * Called during boot to initialize environment variables
+ */
+function ensureEnvFile(): void {
+  const envPath = '.env'
+  const envExamplePath = '.env.example'
+
+  if (fs.existsSync(envPath)) {
+    return
+  }
+
+  if (!fs.existsSync(envExamplePath)) {
+    logger.warn(`.env.example not found at ${envExamplePath}, skipping .env initialization`)
+    return
+  }
+
+  try {
+    fs.copyFileSync(envExamplePath, envPath)
+    logger.info(`✅ Created .env from .env.example (restart needed to load new variables)`)
+  } catch (err) {
+    logger.error('Failed to copy .env from example', { err })
+  }
+}
+
+/**
+ * Initialize secrets in database if not already present
+ * Called during boot after Prisma is ready
+ */
+async function initializeSecrets(): Promise<void> {
+  try {
+    const config = await prisma.appConfig.findUnique({ where: { id: 1 } })
+
+    // Initialize JWT secret if missing
+    if (!config?.jwt_secret) {
+      const jwtSecret = crypto.randomBytes(32).toString('hex')
+      await prisma.appConfig.upsert({
+        where: { id: 1 },
+        update: { jwt_secret: jwtSecret },
+        create: {
+          id: 1,
+          jwt_secret: jwtSecret,
+        },
+      })
+      logger.info(`✅ JWT Secret generated and saved to database`)
+    }
+
+    logger.debug('Secrets initialization complete')
+  } catch (err) {
+    logger.error('Failed to initialize secrets in database', { err })
+  }
+}
+
 const app = express()
 
 app.use(cors())
@@ -124,6 +184,12 @@ if ((process.env.LOG_LEVEL ?? 'info').toLowerCase() === 'debug') {
 
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 })
 app.use('/api/', apiLimiter)
+
+// ============================================================
+// FIRST-RUN INITIALIZATION
+// ============================================================
+ensureEnvFile()
+ensureConfigYaml()
 
 loadConfig()
 
@@ -218,21 +284,30 @@ registerTelegramCommand('start', async (_chatId, args) => {
 
 registerTelegramCommand('stop', async () => {
   if (!getEngineStatus().running) return 'ℹ️ Charging is not running'
-  await stopEngine()
+  await stopEngine({ forceOff: true })
   return '🛑 Charging stopped'
 })
 
-startHaPoll()
-startFleetSimulator()
-startProxyPoll()
-startScheduler()
+async function bootstrap(): Promise<void> {
+  // Initialize secrets in database (JWT, HA credentials, etc)
+  await initializeSecrets()
 
-stopEngine().catch((err) => {
-  logger.error('Startup OFF enforcement failed', { err })
-})
+  // Restore engine state from previous session
+  await initializeEngineState()
 
-server.listen(PORT, () => {
-  logger.info(`evload backend listening on port ${PORT}`)
+  startHaPoll()
+  startFleetSimulator()
+  startProxyPoll()
+  startScheduler()
+
+  server.listen(PORT, () => {
+    logger.info(`evload backend listening on port ${PORT}`)
+  })
+}
+
+bootstrap().catch((err) => {
+  logger.error('Backend startup failed', { err })
+  process.exit(1)
 })
 
 process.on('SIGTERM', () => {

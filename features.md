@@ -357,7 +357,31 @@ Accettazione letterale:
 - C3: `New setpoint amps = A actual + A delta` (non incremento fisso +1A).
 - C4: Il campo `rampIntervalSec` è configurabile nelle impostazioni e usato come intervallo di aggiornamento del loop engine.
 - C5: Fallback se Home Total Power non disponibile (HA disconnesso): mantieni setpoint corrente senza variazioni.
-- C6: Test automatici verificano la formula con valori noti: Home Total Power X, Charger Power Y, Voltage Z → setpoint atteso calcolato correttamente.
+- C6: Test automatici verificano la formula con valori noti: Home Total Power X, Charger Power Y, Voltage Z -> setpoint atteso calcolato correttamente.
+
+### F-23 Modalita Plan Persistente
+Requisito: "Plan e' un selettore funzionale persistente e non deve richiedere riarmo dopo ogni piano."
+Accettazione letterale:
+- C1: Se l'utente seleziona `Plan`, la modalita resta `Plan` durante e dopo l'esecuzione del piano.
+- C2: La modalita passa a `Off` solo con azione esplicita di stop/disarmo utente.
+- C3: Lo scheduler avvia piani solo quando la modalita engine non e' `Off`.
+- C4: La UI mostra stato modalita coerente con backend in runtime.
+
+### F-24 Interrompi Ricarica Allo Start
+Requisito: "Se abilitata, una partenza manuale dal pannello engine deve interrompere la ricarica invece di avviarla."
+Accettazione letterale:
+- C1: Esiste configurazione `stopChargeOnManualStart` in settings/config.
+- C2: Con toggle attivo, `POST /api/engine/start` esegue stop e non start.
+- C3: Con toggle disattivo, `POST /api/engine/start` mantiene comportamento standard di avvio.
+- C4: Opzione visibile e persistente nel pannello Settings -> Engine Options.
+
+### F-25 Coerenza Lingua UI E Selettore Engine Sempre Disponibile
+Requisito: "La UI deve restare in inglese coerente e lo stato engine deve essere selezionabile anche con auto sleep/offline."
+Accettazione letterale:
+- C1: Label e testi delle nuove sezioni Dashboard/Settings sono in inglese.
+- C2: Pulsanti mode `Off/Plan/On` non vengono disabilitati per `proxy offline` o `vehicle sleep`.
+- C3: Disabilitazione mode consentita solo per loading locale o failsafe attivo.
+- C4: Il comportamento reale del backend resta protetto da guardrail di sicurezza anche con selettori disponibili.
 - C7: Tutte le variabili interne usano nomi espliciti di dominio: `homeTotalPowerW`, `chargerPowerW`, `vehicleVoltageV`, `residualPowerW`, `deltaAmps` (regola 19).
 
 ### F-23 Scheduler Extended Windows + Telegram Scope Cleanup
@@ -467,6 +491,23 @@ Requisito: "La logica di polling non deve fare chiamate ridondanti ad ogni tick 
 Accettazione letterale:
 - C1: Il polling usa `vehicle_data` come sorgente primaria di stato.
 - C2: La richiesta `vehicle_data?endpoints=charge_state` viene eseguita solo come fallback quando il payload completo non contiene `charge_state` utile.
+
+### F-35 Persistenza Stato Pannelli UI
+Requisito: "Salva lo stato di ogni pannello se è stato compresso o no."
+Accettazione letterale:
+- C1: I pannelli comprimibili di Dashboard mantengono lo stato expand/collapse dopo refresh pagina.
+- C2: I pannelli comprimibili di Notifications mantengono lo stato expand/collapse dopo refresh pagina.
+- C3: I pannelli comprimibili di Settings mantengono lo stato expand/collapse dopo refresh pagina.
+- C4: La persistenza avviene senza rompere il caricamento iniziale delle pagine.
+
+### F-36 Cancellazione Sessioni In Statistics Con Doppia Conferma
+Requisito: "Con un doppio conferma dammi la possibilità di cancellare delle ricarica della statistica."
+Accettazione letterale:
+- C1: La pagina Statistics espone un'azione di delete per ogni sessione di ricarica.
+- C2: La delete richiede doppia conferma esplicita prima della rimozione definitiva.
+- C3: Il backend espone una route autenticata per eliminare una sessione e la relativa telemetria.
+- C4: Dopo la delete la lista Statistics si aggiorna senza lasciare selezioni stale nel dettaglio sessione.
+- C5: README e backlog features documentano la funzionalità.
 
 ## Logica Di Comunicazione EVLoad <-> Proxy (Implementata)
 

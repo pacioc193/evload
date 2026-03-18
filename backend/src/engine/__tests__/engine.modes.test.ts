@@ -1,5 +1,6 @@
 const mockSendProxyCommand = jest.fn().mockResolvedValue({})
 const mockRequestWakeMode = jest.fn().mockResolvedValue(undefined)
+const mockAppConfigStore = new Map<string, string>()
 
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn().mockImplementation(() => ({
@@ -10,6 +11,18 @@ jest.mock('@prisma/client', () => ({
     chargingTelemetry: {
       create: jest.fn().mockResolvedValue({}),
       aggregate: jest.fn().mockResolvedValue({ _sum: { energyKwh: 0 } }),
+    },
+    appConfig: {
+      findUnique: jest.fn().mockImplementation(({ where }: { where: { key: string } }) => {
+        const value = mockAppConfigStore.get(where.key)
+        return Promise.resolve(value == null ? null : { key: where.key, value })
+      }),
+      upsert: jest.fn().mockImplementation(({ where, update, create }: { where: { key: string }; update: { value: string }; create: { key: string; value: string } }) => {
+        const key = where.key ?? create.key
+        const value = update.value ?? create.value
+        mockAppConfigStore.set(key, value)
+        return Promise.resolve({ key, value })
+      }),
     },
   })),
 }))
@@ -43,7 +56,7 @@ jest.mock('../../services/ha.service', () => ({
 jest.mock('../../config', () => ({
   getConfig: () => ({
     demo: false,
-    charging: { defaultAmps: 16, maxAmps: 32, minAmps: 5, balancingHoldMinutes: 10, batteryCapacityKwh: 75 },
+    charging: { defaultAmps: 16, maxAmps: 32, minAmps: 5, batteryCapacityKwh: 75 },
     homeAssistant: { url: '', powerEntityId: '', maxHomePowerW: 0, resumeDelaySec: 60 },
     proxy: { vehicleId: 'MODETEST', url: '' },
   }),
@@ -67,7 +80,8 @@ jest.mock('../../services/notification-rules.service', () => ({
 describe('F-18: Plan vs On vs Off distinct engine modes', () => {
   afterEach(async () => {
     const { stopEngine } = await import('../charging.engine')
-    await stopEngine()
+    await stopEngine({ forceOff: true })
+    mockAppConfigStore.clear()
     jest.resetModules()
   })
 
@@ -105,7 +119,7 @@ describe('F-18: Plan vs On vs Off distinct engine modes', () => {
     expect(status.mode).toBe('off')
   })
 
-  test('switching from "plan" to "on" starts engine immediately', async () => {
+  test('switching from "plan" starts engine while keeping plan mode armed', async () => {
     const { setPlanMode, startEngine, getEngineStatus } = await import('../charging.engine')
 
     setPlanMode(80)
@@ -114,6 +128,23 @@ describe('F-18: Plan vs On vs Off distinct engine modes', () => {
 
     await startEngine(80)
     expect(getEngineStatus().running).toBe(true)
-    expect(getEngineStatus().mode).toBe('on')
+    expect(getEngineStatus().mode).toBe('plan')
+  })
+
+  test('restart restores only persisted plan mode', async () => {
+    const firstModule = await import('../charging.engine')
+
+    firstModule.setPlanMode(87)
+    await new Promise((resolve) => setImmediate(resolve))
+
+    jest.resetModules()
+
+    const secondModule = await import('../charging.engine')
+    await secondModule.initializeEngineState()
+
+    const status = secondModule.getEngineStatus()
+    expect(status.running).toBe(false)
+    expect(status.mode).toBe('plan')
+    expect(status.targetSoc).toBe(87)
   })
 })

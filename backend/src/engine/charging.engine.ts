@@ -48,9 +48,76 @@ let haStoppedForLimit = false
 let haResumeAfterMs: number | null = null
 let lastChargeStartAttemptMs = 0
 let lastRampUpMs = 0
+let lastSetpointSentMs = 0
 let sessionEnergyPriceEurPerKwh = 0
+let planArmed = false
 
-const CHARGE_START_RETRY_MS = 10000
+interface PersistedEngineRestoreState {
+  restorePlan: boolean
+  targetSoc?: number
+  targetAmps?: number
+}
+
+async function persistEngineRestoreState(): Promise<void> {
+  const payload: PersistedEngineRestoreState = planArmed
+    ? {
+        restorePlan: true,
+        targetSoc: status.targetSoc,
+        targetAmps: status.targetAmps,
+      }
+    : {
+        restorePlan: false,
+      }
+
+  await prisma.appConfig.upsert({
+    where: { id: 1 },
+    update: { engine_restore_state: JSON.stringify(payload) },
+    create: { id: 1, engine_restore_state: JSON.stringify(payload) },
+  })
+}
+
+export async function initializeEngineState(): Promise<void> {
+  const persisted = await prisma.appConfig.findUnique({ where: { id: 1 } })
+  if (!persisted?.engine_restore_state) {
+    planArmed = false
+    return
+  }
+
+  try {
+    const parsed = JSON.parse(persisted.engine_restore_state) as PersistedEngineRestoreState
+    if (!parsed.restorePlan) {
+      planArmed = false
+      return
+    }
+
+    const cfg = getConfig()
+    const restoredTargetSoc = Number.isFinite(parsed.targetSoc) ? Math.max(1, Math.min(100, Number(parsed.targetSoc))) : status.targetSoc
+    const restoredTargetAmps = Number.isFinite(parsed.targetAmps)
+      ? Math.max(cfg.charging.minAmps, Math.min(cfg.charging.maxAmps, Number(parsed.targetAmps)))
+      : cfg.charging.defaultAmps
+
+    planArmed = true
+    status = {
+      ...status,
+      running: false,
+      mode: 'plan',
+      sessionId: null,
+      targetSoc: restoredTargetSoc,
+      targetAmps: restoredTargetAmps,
+      setpointAmps: restoredTargetAmps,
+      currentAmps: 0,
+      balancing: false,
+      balancingStartedAt: null,
+      phase: 'idle',
+      message: 'Plan restored after restart',
+      haThrottled: false,
+      debugLog: [],
+    }
+  } catch {
+    planArmed = false
+    await persistEngineRestoreState()
+  }
+}
 
 function getCommandVehicleId(cfg: ReturnType<typeof getConfig>): string {
   if (cfg.proxy.vehicleId) return cfg.proxy.vehicleId
@@ -68,6 +135,7 @@ export function getEngineStatus(): EngineStatus {
 }
 
 export function setPlanMode(targetSoc: number): void {
+  planArmed = true
   status = {
     ...status,
     running: false,
@@ -78,6 +146,7 @@ export function setPlanMode(targetSoc: number): void {
     debugLog: [],
   }
   engineEvents.emit('mode_changed', status)
+  persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
 }
 
 export async function startEngine(targetSoc: number, targetAmps?: number): Promise<void> {
@@ -97,12 +166,12 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
   status = {
     ...status,
     running: true,
-    mode: 'on',
+    mode: planArmed ? 'plan' : 'on',
     targetSoc,
     targetAmps: requestedAmps,
     setpointAmps: requestedAmps,
     phase: 'idle',
-    message: 'Engine started',
+    message: planArmed ? 'Planned session started' : 'Engine started',
     debugLog: prevSessionTail.length > 0 ? [...prevSessionTail, '--- new session ---'] : [],
   }
   sessionEnergyPriceEurPerKwh = cfg.charging.energyPriceEurPerKwh
@@ -123,6 +192,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
   logger.info(`Charging session started`, { sessionId: session.id, targetSoc, targetAmps: requestedAmps })
   pushEngineLog(`session ${session.id} started: targetSoc=${targetSoc}% targetAmps=${requestedAmps}A`)
   engineEvents.emit('started', status)
+  await persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
   dispatchTelegramNotificationEvent('start_charging', { reason: 'user_or_scheduler' }).catch(() => {})
   dispatchTelegramNotificationEvent(
     'engine_started',
@@ -139,7 +209,11 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
   }, 1000)
 }
 
-export async function stopEngine(): Promise<void> {
+export async function stopEngine(options?: { forceOff?: boolean }): Promise<void> {
+  const forceOff = options?.forceOff ?? false
+  if (forceOff) {
+    planArmed = false
+  }
   const cfg = getConfig()
   const vid = getCommandVehicleId(cfg)
   const vState = getVehicleState()
@@ -178,10 +252,10 @@ export async function stopEngine(): Promise<void> {
   status = {
     ...status,
     running: false,
-    mode: 'off',
+    mode: planArmed ? 'plan' : 'off',
     sessionId: null,
     phase: 'idle',
-    message: 'Engine stopped',
+    message: planArmed ? 'Plan armed — waiting for scheduled start' : 'Engine stopped',
     balancing: false,
     balancingStartedAt: null,
     haThrottled: false,
@@ -191,7 +265,9 @@ export async function stopEngine(): Promise<void> {
   haResumeAfterMs = null
   lastChargeStartAttemptMs = 0
   lastRampUpMs = 0
+  lastSetpointSentMs = 0
   sessionEnergyPriceEurPerKwh = 0
+  await persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
   engineEvents.emit('stopped', status)
 }
 
@@ -368,9 +444,8 @@ async function runEngineStep(): Promise<void> {
     const action = computeBalancingAction({
       soc,
       targetSoc: status.targetSoc,
-      actualAmps,
+      actualAmps: status.currentAmps,
       balancingState: { balancing: status.balancing, balancingStartedAt: status.balancingStartedAt },
-      holdMinutes: cfg.charging.balancingHoldMinutes,
       nowMs: Date.now(),
     })
 
@@ -383,7 +458,8 @@ async function runEngineStep(): Promise<void> {
           await adjustAmps(cfg)
         } else {
           const now = Date.now()
-          const retryAllowed = vState.pluggedIn && (now - lastChargeStartAttemptMs >= CHARGE_START_RETRY_MS)
+          const retryMs = cfg.charging.chargeStartRetryMs
+          const retryAllowed = vState.pluggedIn && (now - lastChargeStartAttemptMs >= retryMs)
 
           if (retryAllowed) {
             const vid = getCommandVehicleId(cfg)
@@ -401,22 +477,12 @@ async function runEngineStep(): Promise<void> {
               pushEngineLog('cannot send charge_start: no vehicleId configured')
             }
           } else {
-            const nextInMs = Math.max(0, CHARGE_START_RETRY_MS - (now - lastChargeStartAttemptMs))
+            const nextInMs = Math.max(0, retryMs - (now - lastChargeStartAttemptMs))
             status.phase = 'paused'
             status.message = `Not charging (state: ${vState.chargingState}), retry in ${Math.ceil(nextInMs / 1000)}s`
             pushEngineLog(`paused: vehicle state=${vState.chargingState}, next charge_start retry in ${Math.ceil(nextInMs / 1000)}s`)
           }
         }
-        break
-
-      case 'start_balancing':
-        status.balancing = true
-        status.balancingStartedAt = new Date()
-        status.phase = 'balancing'
-        status.message = 'Cell balancing in progress (100% hold)'
-        logger.info('Cell balancing phase started - holding at 100%')
-        pushEngineLog('balancing started')
-        dispatchTelegramNotificationEvent('balancing_started', { targetSoc: status.targetSoc }).catch(() => {})
         break
 
       case 'balancing_in_progress':
@@ -427,9 +493,6 @@ async function runEngineStep(): Promise<void> {
       case 'stop_charging':
         logger.info(action.reason)
         pushEngineLog(`stop requested: ${action.reason}`)
-        if (action.reason.includes('balancing complete')) {
-          dispatchTelegramNotificationEvent('balancing_complete', { reason: action.reason }).catch(() => {})
-        }
         await stopEngine()
         return
     }
@@ -477,29 +540,37 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
     desired = maxPossible
     lastRampUpMs = now
   } else if (homeTotalPowerW !== null && now - lastRampUpMs >= rampIntervalMs) {
-    const residualPowerW = homeTotalPowerW - chargerPowerW
-    const deltaAmps = residualPowerW / vehicleVoltageV
-    const actualAmps = vState.chargerActualCurrent ?? 0
-    desired = Math.round(actualAmps + deltaAmps)
-    lastRampUpMs = now
-    pushEngineLog(`ramp: homeTotalPowerW=${homeTotalPowerW}W chargerPowerW=${Math.round(chargerPowerW)}W residualPowerW=${Math.round(residualPowerW)}W deltaAmps=${deltaAmps.toFixed(2)} setpoint=${desired}A`)
+    // Only ramp if the vehicle has had time to respond to the last setpoint change
+    const settleMs = Math.max(rampIntervalMs, 3000)
+    if (now - lastSetpointSentMs >= settleMs) {
+      const residualPowerW = homeTotalPowerW - chargerPowerW
+      const deltaAmps = residualPowerW / vehicleVoltageV
+      const actualAmps = vState.chargerActualCurrent ?? 0
+      desired = Math.round(actualAmps + deltaAmps)
+      lastRampUpMs = now
+      pushEngineLog(`ramp: homeTotalPowerW=${homeTotalPowerW}W chargerPowerW=${Math.round(chargerPowerW)}W residualPowerW=${Math.round(residualPowerW)}W deltaAmps=${deltaAmps.toFixed(2)} candidate=${desired}A`)
+    } else {
+      pushEngineLog(`ramp skipped: waiting settle (${Math.ceil((settleMs - (now - lastSetpointSentMs)) / 1000)}s)`)
+    }
   }
 
   desired = clampAmps(desired, cfg.charging.minAmps, cfg.charging.maxAmps)
-  status.setpointAmps = desired
-  const actual = vState.chargerActualCurrent ?? 0
 
-  if (shouldAdjustAmps(desired, actual, 1)) {
-    try {
-      await sendProxyCommand(vid, 'set_charging_amps', { charging_amps: desired })
-      logger.debug(`Adjusted charging amps to ${desired}A`)
-      pushEngineLog(`setpoint changed: ${actual}A -> ${desired}A`)
+  // Only send set_charging_amps when the intended setpoint actually changes — prevents oscillation
+  if (desired !== status.setpointAmps) {
+      const previousSetpoint = status.setpointAmps
+      status.setpointAmps = desired
+      try {
+        await sendProxyCommand(vid, 'set_charging_amps', { charging_amps: desired })
+        lastSetpointSentMs = now
+        logger.debug(`Adjusted charging amps to ${desired}A`)
+        pushEngineLog(`setpoint changed: ${previousSetpoint}A -> ${desired}A`)
     } catch (err) {
       logger.error('Failed to adjust charging amps', { err })
       pushEngineLog(`setpoint command failed: desired=${desired}A`)
     }
   } else {
-    pushEngineLog(`setpoint unchanged: desired=${desired}A actual=${actual}A`)
+    pushEngineLog(`setpoint stable: ${desired}A`)
   }
 }
 

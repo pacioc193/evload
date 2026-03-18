@@ -12,12 +12,40 @@ import {
   type AppSettings,
   type HaTokenStatus,
 } from '../api/index'
-import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight } from 'lucide-react'
+import { changePassword } from '../api/auth'
+import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useNavigate } from 'react-router-dom'
 import { useWsStore } from '../store/wsStore'
 
-type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'yaml'
+type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'security' | 'yaml'
+
+const SETTINGS_PANEL_STATE_KEY = 'evload.settings.expandedPanels'
+
+const defaultExpandedPanels: Record<PanelKey, boolean> = {
+  homeAssistant: true,
+  proxy: true,
+  engine: true,
+  security: false,
+  yaml: false,
+}
+
+function readExpandedPanels(): Record<PanelKey, boolean> {
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_PANEL_STATE_KEY)
+    if (!raw) return defaultExpandedPanels
+    const parsed = JSON.parse(raw) as Partial<Record<PanelKey, boolean>>
+    return {
+      homeAssistant: typeof parsed.homeAssistant === 'boolean' ? parsed.homeAssistant : defaultExpandedPanels.homeAssistant,
+      proxy: typeof parsed.proxy === 'boolean' ? parsed.proxy : defaultExpandedPanels.proxy,
+      engine: typeof parsed.engine === 'boolean' ? parsed.engine : defaultExpandedPanels.engine,
+      security: typeof parsed.security === 'boolean' ? parsed.security : defaultExpandedPanels.security,
+      yaml: typeof parsed.yaml === 'boolean' ? parsed.yaml : defaultExpandedPanels.yaml,
+    }
+  } catch {
+    return defaultExpandedPanels
+  }
+}
 
 function SectionCard({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -94,12 +122,15 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [haTokenStatus, setHaTokenStatus] = useState<HaTokenStatus | null>(null)
   const [settingsMsg, setSettingsMsg] = useState('')
-  const [expandedPanels, setExpandedPanels] = useState<Record<PanelKey, boolean>>({
-    homeAssistant: true,
-    proxy: true,
-    engine: true,
-    yaml: false,
-  })
+  const [expandedPanels, setExpandedPanels] = useState<Record<PanelKey, boolean>>(() => readExpandedPanels())
+  
+  // Security / Password Change
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordMsg, setPasswordMsg] = useState('')
+  const [changingPassword, setChangingPassword] = useState(false)
+  
   const clearToken = useAuthStore((s) => s.clearToken)
   const navigate = useNavigate()
   const ha = useWsStore((s) => s.ha)
@@ -196,6 +227,10 @@ export default function SettingsPage() {
     window.history.replaceState({}, '', cleanedUrl)
   }, [])
 
+  useEffect(() => {
+    window.localStorage.setItem(SETTINGS_PANEL_STATE_KEY, JSON.stringify(expandedPanels))
+  }, [expandedPanels])
+
   const handleSave = async () => {
     setSaving(true)
     setConfigMessage('')
@@ -242,7 +277,7 @@ export default function SettingsPage() {
   }
 
   const numberFields = new Set<keyof AppSettings>([
-    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'maxAmps', 'minAmps', 'rampIntervalSec',
+    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
     'normalPollIntervalMs', 'scheduleLeadTimeSec',
   ])
 
@@ -251,6 +286,44 @@ export default function SettingsPage() {
 
   const togglePanel = (key: PanelKey) => {
     setExpandedPanels((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setPasswordMsg('')
+
+    if (!currentPassword || !newPassword) {
+      setPasswordMsg('Current and new passwords are required')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordMsg('New passwords do not match')
+      return
+    }
+
+    if (newPassword.length < 8) {
+      setPasswordMsg('New password must be at least 8 characters')
+      return
+    }
+
+    setChangingPassword(true)
+    try {
+      await changePassword(currentPassword, newPassword, confirmPassword)
+      setPasswordMsg('✅ Password changed successfully')
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setTimeout(() => setPasswordMsg(''), 4000)
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.data?.error) {
+        setPasswordMsg(err.response.data.error)
+      } else {
+        setPasswordMsg('Failed to change password. Please try again.')
+      }
+    } finally {
+      setChangingPassword(false)
+    }
   }
 
   const haPower = ha?.powerW ?? 0
@@ -525,7 +598,15 @@ export default function SettingsPage() {
                     onChange={upd('rampIntervalSec')}
                     type="number"
                     unit="sec"
-                    description="How often the engine recomputes smart current setpoint."
+                    description="How often the engine recomputes smart current setpoint (also minimum settle time between setpoint changes)."
+                  />
+                  <Field
+                    label="Charge Start Retry"
+                    value={settings.chargeStartRetryMs}
+                    onChange={upd('chargeStartRetryMs')}
+                    type="number"
+                    unit="ms"
+                    description="How long to wait before retrying charge_start when the vehicle is connected but not charging."
                   />
                 </div>
               </SectionCard>
@@ -558,6 +639,19 @@ export default function SettingsPage() {
                   <Field label="Max A" value={settings.maxAmps} onChange={upd('maxAmps')} type="number" description="Upper bound for ramp and target setpoint." />
                 </div>
               </SectionCard>
+
+              <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
+                <div>
+                  <div className="font-medium text-sm">Stop Charging On Start</div>
+                  <div className="text-xs text-evload-muted">If enabled, a manual start from the engine panel sends stop instead of start.</div>
+                </div>
+                <button
+                  onClick={() => setSettings((prev) => prev ? { ...prev, stopChargeOnManualStart: !prev.stopChargeOnManualStart } : prev)}
+                  className="text-evload-accent hover:text-red-400 transition-colors"
+                >
+                  {settings.stopChargeOnManualStart ? <ToggleRight size={32} /> : <ToggleLeft size={32} className="text-evload-muted" />}
+                </button>
+              </div>
             </div>
           </CollapsiblePanel>
 
@@ -566,6 +660,63 @@ export default function SettingsPage() {
           )}
         </div>
       )}
+
+      <CollapsiblePanel
+        title="Security"
+        subtitle="Manage your UI login password."
+        expanded={expandedPanels.security}
+        onToggle={() => togglePanel('security')}
+        action={<Lock size={18} className="text-evload-muted" />}
+      >
+        <div className="pt-5 space-y-4">
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-evload-text mb-2">Current Password</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="w-full bg-evload-bg border border-evload-border rounded-lg px-4 py-2 text-evload-text focus:outline-none focus:border-evload-accent"
+                placeholder="Enter current password"
+              />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-evload-text mb-2">New Password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full bg-evload-bg border border-evload-border rounded-lg px-4 py-2 text-evload-text focus:outline-none focus:border-evload-accent"
+                  placeholder="Minimum 8 characters"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-evload-text mb-2">Confirm Password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full bg-evload-bg border border-evload-border rounded-lg px-4 py-2 text-evload-text focus:outline-none focus:border-evload-accent"
+                  placeholder="Repeat new password"
+                />
+              </div>
+            </div>
+            {passwordMsg && (
+              <p className={`text-sm ${passwordMsg.includes('✅') || passwordMsg.includes('successfully') ? 'text-evload-success' : 'text-evload-error'}`}>
+                {passwordMsg}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={changingPassword}
+              className="flex items-center gap-2 px-6 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+            >
+              {changingPassword ? 'Changing...' : 'Change Password'}
+            </button>
+          </form>
+        </div>
+      </CollapsiblePanel>
 
       <CollapsiblePanel
         title="YAML"

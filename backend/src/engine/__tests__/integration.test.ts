@@ -93,7 +93,7 @@ jest.mock('../../../src/services/ha.service', () => ({
 jest.mock('../../../src/config', () => ({
   getConfig: () => ({
     demo: mockIsDemo,
-    charging: { defaultAmps: 16, maxAmps: 32, minAmps: 5, balancingHoldMinutes: 10, batteryCapacityKwh: 75 },
+    charging: { defaultAmps: 16, maxAmps: 32, minAmps: 5, batteryCapacityKwh: 75 },
     homeAssistant: { url: '', powerEntityId: '', maxHomePowerW: mockMaxHomePowerW },
     proxy: { vehicleId: 'vid1', url: '', scheduleLeadTimeSec: 1800 },
   }),
@@ -248,7 +248,7 @@ describe('Demo mode toggle — persists to config.yaml', () => {
       demo,
       homeAssistant: { url: 'http://ha.local:8123', powerEntityId: 'sensor.home_power', maxHomePowerW: 7000 },
       proxy: { url: 'http://proxy.local:8080', vehicleId: '', pollIntervalMs: 1000 },
-      charging: { defaultTargetSoc: 80, defaultAmps: 16, maxAmps: 32, minAmps: 5, balancingHoldMinutes: 10, batteryCapacityKwh: 75 },
+      charging: { defaultTargetSoc: 80, defaultAmps: 16, maxAmps: 32, minAmps: 5, batteryCapacityKwh: 75 },
       telegram: { enabled: false, allowedChatIds: [] },
       climate: { defaultTempC: 21 },
     }

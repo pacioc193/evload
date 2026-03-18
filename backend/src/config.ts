@@ -39,8 +39,9 @@ const ConfigSchema = z.object({
     defaultAmps: z.number().min(1).max(48).default(16),
     maxAmps: z.number().min(1).max(48).default(32),
     minAmps: z.number().min(1).max(48).default(5),
+    stopChargeOnManualStart: z.boolean().default(false),
     rampIntervalSec: z.number().min(1).default(10),
-    balancingHoldMinutes: z.number().default(10),
+    chargeStartRetryMs: z.number().min(500).default(10000),
     batteryCapacityKwh: z.number().min(1).default(75),
     energyPriceEurPerKwh: z.number().min(0).default(0.3),
   }).default({}),
@@ -79,6 +80,29 @@ export type AppConfig = z.infer<typeof ConfigSchema>
 const CONFIG_PATH = process.env.CONFIG_PATH ?? path.join(__dirname, '../config.yaml')
 
 let cachedConfig: AppConfig | null = null
+
+/**
+ * Ensure config.yaml exists - copy from config.example.yaml if not present
+ * Called during first-run initialization
+ */
+export function ensureConfigYaml(): void {
+  if (fs.existsSync(CONFIG_PATH)) {
+    return
+  }
+
+  const configExamplePath = path.join(__dirname, '../config.example.yaml')
+  if (!fs.existsSync(configExamplePath)) {
+    logger.warn(`Config files not found: neither ${CONFIG_PATH} nor ${configExamplePath}`)
+    return
+  }
+
+  try {
+    fs.copyFileSync(configExamplePath, CONFIG_PATH)
+    logger.info(`✅ Created config.yaml from config.example.yaml`)
+  } catch (err) {
+    logger.error('Failed to copy config.yaml from example', { err })
+  }
+}
 
 export function loadConfig(): AppConfig {
   if (cachedConfig) return cachedConfig

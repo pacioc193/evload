@@ -52,6 +52,11 @@ export async function getSession(id: number) {
   return res.data
 }
 
+export async function deleteSession(id: number) {
+  const res = await api.delete(`/sessions/${id}`)
+  return res.data as { success: boolean; id: number }
+}
+
 export async function triggerTestEvent(event: string, payload: Record<string, unknown>) {
   const res = await api.post('/engine/test-event', { event, payload })
   return res.data as { success: boolean; delivered: number; matchedRules: string[]; messages: string[] }
@@ -125,7 +130,9 @@ export interface AppSettings {
   defaultAmps: number
   maxAmps: number
   minAmps: number
+  stopChargeOnManualStart: boolean
   rampIntervalSec: number
+  chargeStartRetryMs: number
   telegramEnabled: boolean
   telegramBotToken?: string
   telegramAllowedChatIds: string[]

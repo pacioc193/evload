@@ -18,10 +18,17 @@ const THEME_STORAGE_KEY = 'evload.theme'
 function AppContent() {
   useWebSocket()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const [firstLaunch, setFirstLaunch] = useState(true)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const saved = localStorage.getItem(THEME_STORAGE_KEY)
     return (saved as 'light' | 'dark') || 'dark'
   })
+
+  useEffect(() => {
+    getAuthStatus()
+      .then((s) => setFirstLaunch(s.firstLaunch))
+      .catch(() => setFirstLaunch(false))
+  }, [])
 
   useEffect(() => {
     const root = window.document.documentElement
@@ -37,52 +44,31 @@ function AppContent() {
 
   return (
     <Routes>
-      <Route path="/setup" element={<SetupPage />} />
-      <Route path="/login" element={<LoginPage />} />
-      {isAuthenticated() ? (
-        <>
-          <Route path="/dashboard" element={<Layout theme={theme} onToggleTheme={toggleTheme}><DashboardPage /></Layout>} />
-          <Route path="/climate" element={<Layout theme={theme} onToggleTheme={toggleTheme}><ClimatePage /></Layout>} />
-          <Route path="/statistics" element={<Layout theme={theme} onToggleTheme={toggleTheme}><StatisticsPage /></Layout>} />
-          <Route path="/schedule" element={<Layout theme={theme} onToggleTheme={toggleTheme}><SchedulePage /></Layout>} />
-          <Route path="/notifications" element={<Layout theme={theme} onToggleTheme={toggleTheme}><NotificationsPage /></Layout>} />
-          <Route path="/settings" element={<Layout theme={theme} onToggleTheme={toggleTheme}><SettingsPage /></Layout>} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </>
+      {firstLaunch && !isAuthenticated() ? (
+        <Route path="*" element={<SetupPage onSetupComplete={() => setFirstLaunch(false)} />} />
       ) : (
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <>
+          <Route path="/login" element={<LoginPage />} />
+          {isAuthenticated() ? (
+            <>
+              <Route path="/dashboard" element={<Layout theme={theme} onToggleTheme={toggleTheme}><DashboardPage /></Layout>} />
+              <Route path="/climate" element={<Layout theme={theme} onToggleTheme={toggleTheme}><ClimatePage /></Layout>} />
+              <Route path="/statistics" element={<Layout theme={theme} onToggleTheme={toggleTheme}><StatisticsPage /></Layout>} />
+              <Route path="/schedule" element={<Layout theme={theme} onToggleTheme={toggleTheme}><SchedulePage /></Layout>} />
+              <Route path="/notifications" element={<Layout theme={theme} onToggleTheme={toggleTheme}><NotificationsPage /></Layout>} />
+              <Route path="/settings" element={<Layout theme={theme} onToggleTheme={toggleTheme}><SettingsPage /></Layout>} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </>
+          ) : (
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          )}
+        </>
       )}
     </Routes>
   )
 }
 
 export default function App() {
-  const [firstLaunch, setFirstLaunch] = useState<boolean | null>(null)
-
-  useEffect(() => {
-    getAuthStatus()
-      .then((s) => setFirstLaunch(s.firstLaunch))
-      .catch(() => setFirstLaunch(false))
-  }, [])
-
-  if (firstLaunch === null) {
-    return (
-      <div className="min-h-screen bg-evload-bg flex items-center justify-center">
-        <div className="text-evload-muted">Loading...</div>
-      </div>
-    )
-  }
-
-  if (firstLaunch) {
-    return (
-      <BrowserRouter>
-        <Routes>
-          <Route path="*" element={<SetupPage />} />
-        </Routes>
-      </BrowserRouter>
-    )
-  }
-
   return (
     <BrowserRouter>
       <AppContent />

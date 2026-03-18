@@ -10,6 +10,7 @@ import {
   validateNotificationPayload,
 } from '../services/notification-rules.service'
 import { logger } from '../logger'
+import { getConfig } from '../config'
 
 const router = Router()
 
@@ -33,6 +34,13 @@ router.post('/start', engineActionLimiter, requireAuth, async (req, res) => {
     return
   }
   try {
+    const cfg = getConfig()
+    if (cfg.charging.stopChargeOnManualStart) {
+      await stopEngine()
+      triggerImmediatePoll().catch(() => {})
+      res.json({ success: true, interrupted: true, status: getEngineStatus() })
+      return
+    }
     await startEngine(targetSoc, targetAmps)
     triggerImmediatePoll().catch(() => {})
     res.json({ success: true, status: getEngineStatus() })
@@ -44,7 +52,7 @@ router.post('/start', engineActionLimiter, requireAuth, async (req, res) => {
 
 router.post('/stop', engineActionLimiter, requireAuth, async (_req, res) => {
   try {
-    await stopEngine()
+    await stopEngine({ forceOff: true })
     res.json({ success: true, status: getEngineStatus() })
   } catch (err) {
     logger.error('Engine stop error', { err })

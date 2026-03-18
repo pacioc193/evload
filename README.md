@@ -22,6 +22,8 @@ The project is designed for home charging scenarios where you want to:
 - Proxy status driven by `vehicle_data` polling with explicit proxy-vs-car state separation
 - Home Assistant-based dynamic current throttling
 - Manual, planned, and scheduled charging modes
+- Plan mode remains armed across scheduled runs until explicitly switched to Off
+- Scheduler starts charging plans only when engine mode is not Off
 - Charging and climate scheduling, including weekly recurrence
 - First-launch password setup and JWT-based session auth
 - WebSocket-driven live dashboard and settings diagnostics
@@ -125,7 +127,16 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - HA diagnostics panel in Settings: retry count, last error, manual reconnect warning
 - Dashboard EV power prefers HA charger entity (`ha.chargerW`) with vehicle telemetry as fallback
 - Sleep state label: Dashboard shows "Sleeping" instead of "Not in garage" for sleeping vehicle
+- Engine mode selector remains available even when car is sleeping/offline (blocked only by loading/failsafe)
 - Settings Proxy panel: yellow "SLEEP" badge and amber card when proxy up but vehicle sleeping
+- Dashboard charging ETA source logic:
+  - while charging: vehicle ETA if hardware setpoint is below software setpoint, otherwise EVLoad average charging power
+  - while not charging: estimate from max current x 220V
+- Dashboard vehicle details panel with current/voltage/power/energy/efficiency and current-vs-limit check
+- Charging efficiency persisted to local storage and surfaced in Statistics (last/average/sample count)
+- Expand/collapse state persisted for Dashboard diagnostic panels, Notifications sections, and Settings panels
+- Statistics sessions can be deleted from the UI with a two-step confirmation flow
+- Engine live log rendered newest-first (latest line on top)
 - Climate control commands and scheduling
 - Charging schedules: `start_at`, `finish_by`, `start_end`, `weekly`
 - Climate schedules: `start_at`, `start_end`, `weekly`
@@ -307,6 +318,7 @@ The Settings page exposes four collapsible panels:
 - Demo mode toggle
 - Max Home Power, Ramp Interval, Battery Capacity, Energy Price per kWh
 - Min/Max/Default charging amps, HA Resume Delay
+- Stop Charging On Start toggle: if enabled, a manual start action sends stop instead of start
 
 **YAML**
 - Full raw config.yaml editor for advanced configuration
