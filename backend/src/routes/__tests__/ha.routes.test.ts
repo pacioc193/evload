@@ -16,6 +16,17 @@ jest.mock('../../config', () => ({
 jest.mock('../../services/ha.service', () => ({
   saveHaTokenObj: jest.fn(async () => undefined),
   getHaState: jest.fn(() => ({ connected: false, powerW: null, chargerW: null })),
+  getValidHaAccessToken: jest.fn(async () => null),
+  getHaTokenValidity: jest.fn(async () => ({
+    hasToken: false,
+    issuedAt: null,
+    expiresAt: null,
+    expiresInSec: null,
+    secondsRemaining: null,
+    isExpired: false,
+    refreshWindowSec: 60,
+  })),
+  requestHaReconnectAttempt: jest.fn(),
 }))
 
 describe('ha routes oauth configuration', () => {

@@ -55,6 +55,12 @@ export function initFailsafe(): void {
     }
   })
 
+  haEvents.on('state', (state: { connected?: boolean }) => {
+    if (state.connected && failsafeActive && failsafeReason.includes('Home Assistant')) {
+      resetFailsafe().catch((err) => logger.error('Failsafe reset error', { err }))
+    }
+  })
+
   vehicleEvents.on('disconnected', () => {
     activateFailsafe('Vehicle proxy disconnected').catch((err) =>
       logger.error('Failsafe activation error', { err })

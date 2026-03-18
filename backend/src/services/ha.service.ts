@@ -450,6 +450,7 @@ async function pollHaOnce(): Promise<void> {
       return
     }
 
+    registerHaSuccess()
     haState = {
       ...haState,
       connected: true,
@@ -458,7 +459,6 @@ async function pollHaOnce(): Promise<void> {
       lastUpdated: new Date(),
       error: undefined,
     }
-    registerHaSuccess()
     haEvents.emit('state', haState)
   } catch (err) {
     logger.error('HA poll error', { err })
