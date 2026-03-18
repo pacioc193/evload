@@ -19,6 +19,13 @@ export interface HaState {
 
 export const haEvents = new EventEmitter()
 
+export interface HaTokenObj {
+  access_token: string
+  refresh_token: string
+  expires_in: number
+  issued_at_ms?: number
+}
+
 let haState: HaState = {
   connected: false,
   powerW: null,
@@ -41,6 +48,9 @@ const HA_AUTH_BACKOFF_MAX_MS = 30 * 60_000
 const HA_GENERAL_BACKOFF_BASE_MS = 2_000
 const HA_GENERAL_BACKOFF_MAX_MS = 5 * 60_000
 const HA_MAX_FAILURES_BEFORE_MANUAL_RECONNECT = 3
+const HA_TOKEN_REFRESH_MARGIN_MS = 60_000
+
+let haTokenRefreshPromise: Promise<string | null> | null = null
 
 type HaEntityRead = {
   state: string
@@ -66,6 +76,13 @@ function computeBackoffMs(statusCode?: number): number {
   return Math.min(maxMs, baseMs * (2 ** exponent))
 }
 
+function normalizeHaFailureReason(reason: string, statusCode?: number): string {
+  if (statusCode === 401 || statusCode === 403) {
+    return `Home Assistant token invalid or revoked (HTTP ${statusCode})`
+  }
+  return reason
+}
+
 function registerHaSuccess(): void {
   const wasConnected = haState.connected
   haConsecutiveFailures = 0
@@ -86,15 +103,17 @@ function registerHaSuccess(): void {
 function registerHaFailure(reason: string, statusCode?: number): void {
   const prevConnected = haState.connected
   haConsecutiveFailures += 1
-  const nextFailureCount = Math.max(haConsecutiveFailures, haState.failureCount + 1)
+  const rawFailureCount = Math.max(haConsecutiveFailures, haState.failureCount + 1)
+  const nextFailureCount = Math.min(HA_MAX_FAILURES_BEFORE_MANUAL_RECONNECT, rawFailureCount)
+  const normalizedReason = normalizeHaFailureReason(reason, statusCode)
   const requiresManualReconnect = nextFailureCount >= HA_MAX_FAILURES_BEFORE_MANUAL_RECONNECT
   const backoffMs = computeBackoffMs(statusCode)
   haBackoffUntilMs = requiresManualReconnect ? Number.POSITIVE_INFINITY : Date.now() + backoffMs
   haLastBackoffMs = requiresManualReconnect ? 0 : backoffMs
 
   const errorMessage = requiresManualReconnect
-    ? `${reason} (stopped after ${nextFailureCount} failures; press Connect / Re-authorize to retry)`
-    : `${reason} (retry in ${Math.ceil(backoffMs / 1000)}s)`
+    ? `${normalizedReason} (stopped after ${nextFailureCount} failures; press Connect / Re-authorize to retry)`
+    : `${normalizedReason} (retry in ${Math.ceil(backoffMs / 1000)}s)`
 
   haState = {
     connected: false,
@@ -104,7 +123,7 @@ function registerHaFailure(reason: string, statusCode?: number): void {
     failureCount: nextFailureCount,
     maxFailuresBeforeManualReconnect: HA_MAX_FAILURES_BEFORE_MANUAL_RECONNECT,
     requiresManualReconnect,
-    lastError: reason,
+    lastError: normalizedReason,
     error: errorMessage,
   }
 
@@ -120,6 +139,31 @@ function registerHaFailure(reason: string, statusCode?: number): void {
     backoffMs: requiresManualReconnect ? null : backoffMs,
     requiresManualReconnect,
   })
+}
+
+function markHaManualReconnectRequired(reason: string): void {
+  const prevConnected = haState.connected
+  haConsecutiveFailures = HA_MAX_FAILURES_BEFORE_MANUAL_RECONNECT
+  haBackoffUntilMs = Number.POSITIVE_INFINITY
+  haLastBackoffMs = 0
+
+  haState = {
+    connected: false,
+    powerW: null,
+    chargerW: null,
+    lastUpdated: new Date(),
+    failureCount: HA_MAX_FAILURES_BEFORE_MANUAL_RECONNECT,
+    maxFailuresBeforeManualReconnect: HA_MAX_FAILURES_BEFORE_MANUAL_RECONNECT,
+    requiresManualReconnect: true,
+    lastError: reason,
+    error: `${reason} (manual reconnect required)`,
+  }
+
+  if (prevConnected) {
+    haEvents.emit('disconnected', haState)
+  }
+  haEvents.emit('state', haState)
+  logger.warn('HA manual reconnect required', { reason })
 }
 
 export function requestHaReconnectAttempt(): void {
@@ -141,6 +185,72 @@ async function getHaToken(): Promise<string | null> {
   return rec?.value ?? null
 }
 
+function getAppUrl(): string {
+  const raw = process.env.APP_URL?.trim() ?? ''
+  return raw.replace(/\/+$/, '')
+}
+
+function getOauthClientId(): string {
+  const configuredClientId = (process.env.HA_CLIENT_ID ?? '').trim()
+  if (configuredClientId) return configuredClientId
+  const appUrl = getAppUrl()
+  if (appUrl) return appUrl
+  return ''
+}
+
+function getOauthClientSecret(): string {
+  return (process.env.HA_CLIENT_SECRET ?? '').trim()
+}
+
+function isHaTokenExpired(tokenObj: HaTokenObj): boolean {
+  if (!tokenObj.expires_in || tokenObj.expires_in <= 0) return false
+  if (!tokenObj.issued_at_ms || tokenObj.issued_at_ms <= 0) return false
+  const expiresAtMs = tokenObj.issued_at_ms + (tokenObj.expires_in * 1000)
+  return Date.now() >= (expiresAtMs - HA_TOKEN_REFRESH_MARGIN_MS)
+}
+
+export async function getHaTokenValidity(): Promise<{
+  hasToken: boolean
+  issuedAt: string | null
+  expiresAt: string | null
+  expiresInSec: number | null
+  secondsRemaining: number | null
+  isExpired: boolean
+  refreshWindowSec: number
+}> {
+  const tokenObj = await getHaTokenObj()
+  if (!tokenObj) {
+    return {
+      hasToken: false,
+      issuedAt: null,
+      expiresAt: null,
+      expiresInSec: null,
+      secondsRemaining: null,
+      isExpired: false,
+      refreshWindowSec: Math.floor(HA_TOKEN_REFRESH_MARGIN_MS / 1000),
+    }
+  }
+
+  const issuedAtMs = tokenObj.issued_at_ms ?? null
+  const expiresInSec = Number.isFinite(tokenObj.expires_in) ? tokenObj.expires_in : null
+  const expiresAtMs = issuedAtMs != null && expiresInSec != null
+    ? issuedAtMs + (expiresInSec * 1000)
+    : null
+  const secondsRemaining = expiresAtMs != null
+    ? Math.max(0, Math.floor((expiresAtMs - Date.now()) / 1000))
+    : null
+
+  return {
+    hasToken: true,
+    issuedAt: issuedAtMs != null ? new Date(issuedAtMs).toISOString() : null,
+    expiresAt: expiresAtMs != null ? new Date(expiresAtMs).toISOString() : null,
+    expiresInSec,
+    secondsRemaining,
+    isExpired: secondsRemaining != null ? secondsRemaining <= 0 : false,
+    refreshWindowSec: Math.floor(HA_TOKEN_REFRESH_MARGIN_MS / 1000),
+  }
+}
+
 export async function saveHaToken(token: string): Promise<void> {
   await prisma.appConfig.upsert({
     where: { key: 'ha_token' },
@@ -150,23 +260,100 @@ export async function saveHaToken(token: string): Promise<void> {
   logger.info('HA token saved')
 }
 
-export async function getHaTokenObj(): Promise<{ access_token: string; refresh_token: string; expires_in: number } | null> {
+export async function getHaTokenObj(): Promise<HaTokenObj | null> {
   const rec = await prisma.appConfig.findUnique({ where: { key: 'ha_token_obj' } })
   if (!rec) return null
   try {
-    return JSON.parse(rec.value) as { access_token: string; refresh_token: string; expires_in: number }
+    const parsed = JSON.parse(rec.value) as HaTokenObj
+    if (!parsed.issued_at_ms) {
+      parsed.issued_at_ms = Date.now()
+      await prisma.appConfig.upsert({
+        where: { key: 'ha_token_obj' },
+        update: { value: JSON.stringify(parsed) },
+        create: { key: 'ha_token_obj', value: JSON.stringify(parsed) },
+      })
+      logger.info('HA token object migrated: issued_at_ms persisted')
+    }
+    return parsed
   } catch {
     return null
   }
 }
 
-export async function saveHaTokenObj(obj: { access_token: string; refresh_token: string; expires_in: number }): Promise<void> {
+export async function saveHaTokenObj(obj: HaTokenObj): Promise<void> {
+  const normalized: HaTokenObj = {
+    ...obj,
+    issued_at_ms: obj.issued_at_ms ?? Date.now(),
+  }
   await prisma.appConfig.upsert({
     where: { key: 'ha_token_obj' },
-    update: { value: JSON.stringify(obj) },
-    create: { key: 'ha_token_obj', value: JSON.stringify(obj) },
+    update: { value: JSON.stringify(normalized) },
+    create: { key: 'ha_token_obj', value: JSON.stringify(normalized) },
   })
+  await saveHaToken(normalized.access_token)
   logger.info('HA token object saved')
+}
+
+async function refreshHaAccessToken(tokenObj: HaTokenObj): Promise<string | null> {
+  if (!tokenObj.refresh_token) return tokenObj.access_token || null
+  if (haTokenRefreshPromise) return haTokenRefreshPromise
+
+  haTokenRefreshPromise = (async () => {
+    const cfg = getConfig()
+    const haUrl = cfg.homeAssistant.url
+    const params = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: tokenObj.refresh_token,
+    })
+    const clientId = getOauthClientId()
+    const clientSecret = getOauthClientSecret()
+    if (clientId) params.set('client_id', clientId)
+    if (clientSecret) params.set('client_secret', clientSecret)
+
+    try {
+      const tokenRes = await axios.post<{ access_token: string; refresh_token?: string; expires_in: number }>(
+        `${haUrl}/auth/token`,
+        params,
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 8000 }
+      )
+
+      const refreshed: HaTokenObj = {
+        access_token: tokenRes.data.access_token,
+        refresh_token: tokenRes.data.refresh_token ?? tokenObj.refresh_token,
+        expires_in: tokenRes.data.expires_in,
+        issued_at_ms: Date.now(),
+      }
+      await saveHaTokenObj(refreshed)
+      logger.info('HA access token refreshed successfully')
+      return refreshed.access_token
+    } catch (err) {
+      logger.error('HA access token refresh failed', { err })
+      const statusCode = axios.isAxiosError(err) ? err.response?.status : undefined
+      const isHardAuthFailure = statusCode === 400 || statusCode === 401 || statusCode === 403
+      if (isHardAuthFailure) {
+        markHaManualReconnectRequired(`HA token refresh rejected (status ${statusCode})`)
+      }
+      return null
+    } finally {
+      haTokenRefreshPromise = null
+    }
+  })()
+
+  return haTokenRefreshPromise
+}
+
+export async function getValidHaAccessToken(forceRefresh = false): Promise<string | null> {
+  const tokenObj = await getHaTokenObj()
+  if (!tokenObj) {
+    return getHaToken()
+  }
+
+  if (forceRefresh || isHaTokenExpired(tokenObj)) {
+    const refreshed = await refreshHaAccessToken(tokenObj)
+    if (refreshed) return refreshed
+  }
+
+  return tokenObj.access_token || (await getHaToken())
 }
 
 async function pollHaOnce(): Promise<void> {
@@ -201,8 +388,7 @@ async function pollHaOnce(): Promise<void> {
       haEvents.emit('state', haState)
       return
     }
-    const tokenObj = await getHaTokenObj()
-    const token = tokenObj?.access_token ?? (await getHaToken())
+    let token = await getValidHaAccessToken()
     if (!token) {
       haState = {
         ...haState,
@@ -217,14 +403,29 @@ async function pollHaOnce(): Promise<void> {
       return
     }
     const haUrl = cfg.homeAssistant.url
-    const headers = { Authorization: `Bearer ${token}` }
+    const fetchPowerStates = async (accessToken: string) => {
+      const headers = { Authorization: `Bearer ${accessToken}` }
+      return Promise.allSettled([
+        axios.get<HaEntityRead>(`${haUrl}/api/states/${cfg.homeAssistant.powerEntityId}`, { headers, timeout: 5000 }),
+        cfg.homeAssistant.chargerEntityId
+          ? axios.get<HaEntityRead>(`${haUrl}/api/states/${cfg.homeAssistant.chargerEntityId}`, { headers, timeout: 5000 })
+          : Promise.resolve(null),
+      ])
+    }
 
-    const [powerRes, chargerRes] = await Promise.allSettled([
-      axios.get<HaEntityRead>(`${haUrl}/api/states/${cfg.homeAssistant.powerEntityId}`, { headers, timeout: 5000 }),
-      cfg.homeAssistant.chargerEntityId
-        ? axios.get<HaEntityRead>(`${haUrl}/api/states/${cfg.homeAssistant.chargerEntityId}`, { headers, timeout: 5000 })
-        : Promise.resolve(null),
-    ])
+    let [powerRes, chargerRes] = await fetchPowerStates(token)
+
+    const firstFailureStatus = powerRes.status === 'rejected' && axios.isAxiosError(powerRes.reason)
+      ? powerRes.reason.response?.status
+      : undefined
+    const shouldRefreshAndRetry = firstFailureStatus === 401 || firstFailureStatus === 403
+    if (shouldRefreshAndRetry) {
+      const refreshedToken = await getValidHaAccessToken(true)
+      if (refreshedToken && refreshedToken !== token) {
+        token = refreshedToken
+        ;[powerRes, chargerRes] = await fetchPowerStates(token)
+      }
+    }
 
     const powerFailureStatus = powerRes.status === 'rejected' && axios.isAxiosError(powerRes.reason)
       ? powerRes.reason.response?.status

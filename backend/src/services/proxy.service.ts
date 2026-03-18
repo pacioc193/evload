@@ -149,6 +149,11 @@ function computeChargeRateKw(currentA: number | null | undefined, voltageV: numb
   return null
 }
 
+function milesToKm(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value)) return null
+  return Number((value * 1.609344).toFixed(2))
+}
+
 function computeTimeToFullChargeH(
   minutesToFull: number | null | undefined,
   stateOfCharge: number | null,
@@ -223,6 +228,29 @@ async function proxyGet<T>(url: string, options?: { timeoutMs?: number }): Promi
     }
     return res.data
   } catch (err) {
+    // Tesla proxy may return non-200 for sleeping/unavailable vehicle —
+    // the proxy itself is reachable, so treat as proxy success but re-parse body.
+    if (axios.isAxiosError(err) && err.response?.data != null) {
+      const body = err.response.data as Record<string, unknown>
+      const innerResponse = (body as Record<string, unknown>)?.response as Record<string, unknown> | undefined
+      const reason = String(innerResponse?.reason ?? body?.reason ?? '')
+      const isVehicleSleepResponse =
+        reason.toLowerCase().includes('sleep') ||
+        reason.toLowerCase().includes('asleep') ||
+        reason.toLowerCase().includes('offline') ||
+        reason.toLowerCase().includes('unavailable')
+      if (isVehicleSleepResponse) {
+        markProxySuccess(url)
+        const key = endpointKeyFromUrl(url)
+        if (key) recordSimulatorResponse(key, err.response.data, 'simulated')
+        logger.debug('Proxy returned non-200 vehicle-state response (proxy reachable)', {
+          url,
+          statusCode: err.response.status,
+          reason,
+        })
+        return err.response.data as T
+      }
+    }
     markProxyError(url, err)
     throw err
   }
@@ -449,6 +477,16 @@ async function pollProxyOnce(): Promise<void> {
       || (chargePortLatch && chargePortLatch.toLowerCase() !== 'disengaged')
       || cableType
     )
+
+    logger.debug('Proxy poll parsed', {
+      httpResult: fullResponse?.result,
+      reason: fullResponse?.reason,
+      vehicleReachable,
+      vehicleAsleep,
+      chargingState,
+      pluggedIn,
+      stateOfCharge: nextSoc,
+    })
     const chargeLimitSoc = cd?.charge_limit_soc != null ? Math.round(cd.charge_limit_soc) : null
     const chargeLimitSocMin = cd?.charge_limit_soc_min != null ? Math.round(cd.charge_limit_soc_min) : null
     const chargeLimitSocMax = cd?.charge_limit_soc_max != null ? Math.round(cd.charge_limit_soc_max) : null
@@ -481,7 +519,7 @@ async function pollProxyOnce(): Promise<void> {
       stateOfCharge: nextSoc,
       usableBatteryLevel,
       chargeLimitSoc,
-      batteryRange: cd?.battery_range ?? null,
+      batteryRange: milesToKm(cd?.battery_range ?? null),
       chargingState,
       chargerVoltage: cd?.charger_voltage ?? null,
       chargerActualCurrent: cd?.charger_actual_current ?? null,
@@ -493,7 +531,7 @@ async function pollProxyOnce(): Promise<void> {
       outsideTempC: cl?.outside_temp ?? null,
       climateOn: cl?.is_climate_on ?? false,
       locked: vd?.locked ?? true,
-      odometer: vd?.odometer ?? null,
+      odometer: milesToKm(vd?.odometer ?? null),
       vin: fullResponse?.vin ?? vehicleState.vin ?? vid,
       displayName: cfg.proxy.vehicleName || vehicleState.displayName || 'Vehicle',
       vehicleSleepStatus: sleepStatus,
@@ -537,6 +575,20 @@ export function stopProxyPoll(): void {
     pollTimer = null
   }
   logger.info('Proxy polling stopped')
+}
+
+export async function triggerImmediatePoll(): Promise<void> {
+  if (pollTimer) {
+    clearTimeout(pollTimer)
+    pollTimer = null
+  }
+  logger.debug('Proxy immediate poll triggered')
+  try {
+    await pollProxyOnce()
+  } catch (err) {
+    logger.error('Unhandled immediate poll rejection', { err })
+  }
+  scheduleNextPoll()
 }
 
 function scheduleNextPoll(): void {

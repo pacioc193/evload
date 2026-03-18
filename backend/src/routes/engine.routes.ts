@@ -2,7 +2,7 @@ import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
 import { requireAuth } from '../middleware/auth.middleware'
 import { getEngineStatus, startEngine, stopEngine, setPlanMode } from '../engine/charging.engine'
-import { requestWakeMode } from '../services/proxy.service'
+import { requestWakeMode, triggerImmediatePoll } from '../services/proxy.service'
 import { isFailsafeActive, getFailsafeReason, resetFailsafe } from '../services/failsafe.service'
 import {
   dispatchTelegramNotificationEvent,
@@ -34,6 +34,7 @@ router.post('/start', engineActionLimiter, requireAuth, async (req, res) => {
   }
   try {
     await startEngine(targetSoc, targetAmps)
+    triggerImmediatePoll().catch(() => {})
     res.json({ success: true, status: getEngineStatus() })
   } catch (err) {
     logger.error('Engine start error', { err })

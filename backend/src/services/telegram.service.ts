@@ -20,6 +20,11 @@ function getBotToken(): string | undefined {
   return process.env.TELEGRAM_BOT_TOKEN
 }
 
+function getNotificationChatIds(): string[] {
+  const cfg = getConfig()
+  return (cfg.telegram.allowedChatIds ?? []).map((chatId) => String(chatId).trim()).filter(Boolean)
+}
+
 export function initTelegram(): void {
   const token = getBotToken()
   const cfg = getConfig()
@@ -95,20 +100,24 @@ async function handleCommand(chatId: string, text: string): Promise<void> {
 export async function sendTelegramNotification(message: string): Promise<boolean> {
   const token = getBotToken()
   const cfg = getConfig()
-  const chatId = process.env.TELEGRAM_CHAT_ID
+  const chatIds = getNotificationChatIds()
 
   if (!bot && token && cfg.telegram.enabled) {
     initTelegram()
   }
 
-  if (!bot || !chatId || !cfg.telegram.enabled) {
+  if (!bot || chatIds.length === 0 || !cfg.telegram.enabled) {
     logger.debug('Telegram notification skipped - bot not running, no chat ID, or telegram disabled')
     return false
   }
   try {
-    await bot.sendMessage(chatId, message)
+    let delivered = 0
+    for (const chatId of chatIds) {
+      await bot.sendMessage(chatId, message)
+      delivered += 1
+    }
     logger.info(`Telegram notification sent: ${message}`)
-    return true
+    return delivered > 0
   } catch (err) {
     logger.error('Failed to send Telegram notification', { err })
     return false
@@ -117,7 +126,7 @@ export async function sendTelegramNotification(message: string): Promise<boolean
 
 export function isTelegramReady(): boolean {
   const cfg = getConfig()
-  return Boolean(bot && process.env.TELEGRAM_CHAT_ID && cfg.telegram.enabled)
+  return Boolean(bot && getNotificationChatIds().length > 0 && cfg.telegram.enabled)
 }
 
 export function getTelegramPrerequisiteStatus(): TelegramPrerequisiteStatus {
@@ -125,7 +134,7 @@ export function getTelegramPrerequisiteStatus(): TelegramPrerequisiteStatus {
   const missing: string[] = []
   if (!cfg.telegram.enabled) missing.push('telegram_disabled')
   if (!getBotToken()) missing.push('bot_token_missing')
-  if (!process.env.TELEGRAM_CHAT_ID && (!cfg.telegram.allowedChatIds || cfg.telegram.allowedChatIds.length === 0)) {
+  if (!cfg.telegram.allowedChatIds || cfg.telegram.allowedChatIds.length === 0) {
     missing.push('chat_id_missing')
   }
   return { ok: missing.length === 0, missing }

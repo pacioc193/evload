@@ -77,43 +77,62 @@ evload/
 
 ## EVLoad <-> Proxy Communication
 
-Proxy runtime state is resolved through a single polling endpoint for status.
+EVLoad communicates with a [TeslaBleHttpProxy](https://github.com/wimaha/TeslaBleHttpProxy) instance over HTTP.
+The proxy translates HTTP requests into BLE commands sent directly to the vehicle.
 
-### State polling
+### Polling Does Not Wake The Vehicle
 
-- Interval: `proxy.normalPollIntervalMs`
+`GET /vehicle_data` (without `?wakeup=true`) is explicitly sleep-safe: TeslaBleHttpProxy does not establish a BLE connection or send any wake signal when the vehicle is asleep.
+POST commands (`charge_start`, `charge_stop`, `set_charging_amps`, `wake_up`) automatically wake the vehicle via BLE.
+EVLoad leverages this to poll safely at all times and only sends commands when the vehicle is confirmed reachable.
+
+### State Polling
+
+- Interval: `proxy.normalPollIntervalMs` (default 30 seconds)
 - Endpoint: `GET /api/1/vehicles/:vehicleId/vehicle_data`
-- Source of truth:
-  - `response.result === true` => car is reachable/in garage
-  - `response.result === false` => proxy is reachable but car is not reachable/in garage
-  - network/timeout error => proxy is not reachable
-- `response.reason` is always surfaced to UI for diagnostics
+- An additional immediate poll is triggered on engine start (no wait for the next scheduled tick)
+- Non-200 responses where the reason contains `sleep` / `asleep` / `offline` / `unavailable` are treated as proxy-reachable and parsed normally
 
-### Runtime status contract
+### Runtime Status Contract
 
-- `proxy.connected`: indicates proxy HTTP reachability
-- `vehicle.connected`: indicates car reachability from `vehicle_data.response.result`
-- Dashboard remains visible while WebSocket is connected; center panel shows proxy state, car state, and reason text
+| Condition | `proxy.connected` | `vehicle.connected` | UI label |
+|---|---|---|---|
+| `result: true` | `true` | `true` | Proxy: Online / Car: In garage |
+| `result: false`, reason contains sleep | `true` | `false` | Proxy: Online / Car: Sleeping |
+| `result: false`, other reason | `true` | `false` | Proxy: Online / Car: Not in garage |
+| Network error / timeout | `false` | unchanged | Proxy: Offline |
 
-### Live state exposed to UI
+- `proxy.connected`: HTTP reachability of the proxy process
+- `vehicle.connected`: car reachability from `vehicle_data.response.result`
+- `response.reason` is always surfaced to Dashboard and Settings for diagnostics
 
-Backend WebSocket state exposes these proxy-related fields separately:
+### Command Guard For Sleeping Vehicle
 
-- `proxy`: live proxy health based on successful proxy calls
-- `vehicle`: current interpreted vehicle state
-
-This means the proxy can be shown as LIVE even if the car is sleeping.
+`stopEngine()` and other command paths check `vehicle.connected` before sending commands.
+If the vehicle is disconnected or sleeping, `charge_stop` (and other commands) are skipped to avoid an unintentional BLE wake.
+The engine log shows `charge_stop skipped: vehicle not connected` when this guard fires.
 
 ## Features
 
 - Load-aware charging using Home Assistant power entities
 - Charging current ramp logic with configurable bounds and cadence
+- Sleep-aware proxy polling: `GET /vehicle_data` never wakes the vehicle
+- Immediate proxy poll on engine start (no 30-second wait)
+- Command guard: commands to the vehicle are skipped when it is sleeping or unreachable
+- Engine log preserved across session restarts (last 20 lines carried forward)
+- Home Assistant OAuth with same-tab flow, mobile-safe dynamic `returnTo` via base64url state
+- Home Assistant anti-hammer: exponential backoff + manual-reconnect lock after 3 consecutive failures
+- HA diagnostics panel in Settings: retry count, last error, manual reconnect warning
+- Dashboard EV power prefers HA charger entity (`ha.chargerW`) with vehicle telemetry as fallback
+- Sleep state label: Dashboard shows "Sleeping" instead of "Not in garage" for sleeping vehicle
+- Settings Proxy panel: yellow "SLEEP" badge and amber card when proxy up but vehicle sleeping
 - Climate control commands and scheduling
 - Charging schedules: `start_at`, `finish_by`, `start_end`, `weekly`
 - Climate schedules: `start_at`, `start_end`, `weekly`
 - Schedule lead wake support through `scheduleLeadTimeSec`
 - Proxy diagnostics in Settings and raw proxy payload inspection in Dashboard
-- Telegram notifications and test-event workflow
+- Failsafe protection with automatic reset on proxy reconnect
+- Telegram notifications with dynamic event catalog and configurable rules
 - Demo/simulator mode for development without a real Tesla
 
 ## Prerequisites
@@ -227,15 +246,19 @@ Open:
 
 Example file: `backend/.env.example`
 
+The backend requires environment configuration at startup, typically via a `.env` file or injected process environment. Only a minimal subset is mandatory.
+
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | Database connection string used by Prisma |
-| `JWT_SECRET` | Secret used to sign auth tokens |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token |
+| `DATABASE_URL` | Required. Database connection string used by Prisma |
+| `JWT_SECRET` | Required. Secret used to sign auth tokens |
+| `TELEGRAM_BOT_TOKEN` | Optional. Can also be written from Notifications UI |
 | `HA_CLIENT_ID` | Optional Home Assistant OAuth client id override |
-| `HA_CLIENT_SECRET` | Home Assistant OAuth client secret |
-| `APP_URL` | Public base URL used for OAuth callback and default Home Assistant client id |
-| `PORT` | Backend HTTP port |
+| `HA_CLIENT_SECRET` | Optional Home Assistant OAuth client secret |
+| `APP_URL` | Optional. If omitted, backend auto-detects a LAN URL for HA OAuth |
+| `FRONTEND_URL` | Optional. Useful in dev to redirect OAuth callback to Vite frontend |
+| `PORT` | Optional backend HTTP port (default `3001`) |
+| `LOG_LEVEL` | Optional backend log level (default `info`) |
 
 ### YAML configuration
 
@@ -263,25 +286,30 @@ Relevant proxy fields:
 
 ## Settings UI
 
-The Settings page exposes four main panels:
+The Settings page exposes four collapsible panels:
 
-- Home Assistant
-- Proxy
-- Engine Options
-- YAML
+**Home Assistant**
+- HA URL, Home Power Entity ID, Charger Power Entity ID
+- OAuth flow (same-tab, mobile-safe)
+- Live entity value readout
+- Diagnostics card: connection status, retry count (X/3), last error message, manual reconnect warning
 
-The Proxy panel currently covers:
-
-- proxy URL
-- vehicle id
-- vehicle display name
-- normal poll interval
-- scheduler lead time
+**Proxy**
+- Proxy URL, Vehicle ID (VIN), Vehicle Name
+- Normal poll interval, scheduler lead time
 - TLS certificate verification toggle
-- proxy LIVE/OFFLINE status
-- car reachability status (`in garage` vs `not in garage / unreachable`)
-- reason text always visible for proxy/car diagnostics
-- last successful proxy endpoint and timestamp
+- Status badge: green LIVE / yellow SLEEP / red OFFLINE
+- Card: "Proxy reachable — vehicle sleeping" when proxy up but vehicle asleep
+- Car reachability label: In garage / Sleeping / Not in garage
+- Last successful proxy endpoint and timestamp
+
+**Engine Options**
+- Demo mode toggle
+- Max Home Power, Ramp Interval, Battery Capacity, Energy Price per kWh
+- Min/Max/Default charging amps, HA Resume Delay
+
+**YAML**
+- Full raw config.yaml editor for advanced configuration
 
 ## Demo Mode And Simulator
 
@@ -371,8 +399,11 @@ Current repository validation path typically includes:
 
 - The backend serves the built frontend in production mode.
 - The WebSocket broadcaster pushes application state every second.
-- Proxy health is intentionally modeled separately from interpreted vehicle connectivity.
+- Proxy health is intentionally modeled separately from interpreted vehicle connectivity: proxy can be LIVE while the car is sleeping.
 - Manual YAML editing and structured settings editing both write the backend config file.
+- Polling `GET /vehicle_data` is sleep-safe and does not establish a BLE connection when the vehicle is asleep.
+- Commands (charge_start, charge_stop, set_charging_amps) automatically wake the vehicle via the proxy; EVLoad guards against sending them to a sleeping vehicle.
+- The engine log carries over the last 20 lines from the previous session so stop-engine entries remain visible after a new session starts.
 
 ## Status And Roadmap Notes
 

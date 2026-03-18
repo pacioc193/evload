@@ -37,6 +37,10 @@ interface SimulatorState {
 let simServer: http.Server | null = null
 let simTick: NodeJS.Timeout | null = null
 
+function kmToMiles(value: number): number {
+  return Number((value / 1.609344).toFixed(5))
+}
+
 const state: SimulatorState = {
   vehicleId: 'DEMO000000000001',
   vin: 'DEMO000000000001',
@@ -102,6 +106,8 @@ function jsonResult(res: Response, payload: unknown): void {
 
 function buildVehicleDataBody(): Record<string, unknown> {
   const nowTs = Math.floor(Date.now() / 1000)
+  const batteryRangeMiles = kmToMiles(state.batteryRange)
+  const odometerMiles = kmToMiles(state.odometer)
   return {
     charge_state: {
       timestamp: nowTs,
@@ -117,9 +123,9 @@ function buildVehicleDataBody(): Record<string, unknown> {
       fast_charger_type: '<nil>',
       battery_level: state.batteryLevel,
       usable_battery_level: state.usableBatteryLevel,
-      battery_range: state.batteryRange,
-      est_battery_range: Number((state.batteryRange * 1.28).toFixed(5)),
-      ideal_battery_range: state.batteryRange,
+      battery_range: batteryRangeMiles,
+      est_battery_range: Number((batteryRangeMiles * 1.28).toFixed(5)),
+      ideal_battery_range: batteryRangeMiles,
       charge_energy_added: 0,
       charge_miles_added_rated: 0,
       charge_miles_added_ideal: 0,
@@ -200,7 +206,7 @@ function buildVehicleDataBody(): Record<string, unknown> {
       wiper_blade_heater: false,
     },
     vehicle_state: {
-      odometer: state.odometer,
+      odometer: odometerMiles,
       locked: state.locked,
     },
   }
@@ -304,7 +310,7 @@ export function startFleetSimulator(): void {
       vin: state.vin,
       display_name: state.displayName,
       state: state.state,
-      odometer: state.odometer,
+      odometer: kmToMiles(state.odometer),
     })
   })
 
@@ -318,7 +324,7 @@ export function startFleetSimulator(): void {
     jsonResult(res, {
       charging_state: state.chargingState,
       battery_level: state.batteryLevel,
-      battery_range: state.batteryRange,
+      battery_range: kmToMiles(state.batteryRange),
       charger_voltage: state.chargerVoltage,
       charger_actual_current: state.chargerActualCurrent,
       charger_pilot_current: state.chargerPilotCurrent,

@@ -9,12 +9,10 @@ const mockedGetConfig = getConfig as jest.MockedFunction<typeof getConfig>
 
 describe('telegram.service token source', () => {
   const originalToken = process.env.TELEGRAM_BOT_TOKEN
-  const originalChat = process.env.TELEGRAM_CHAT_ID
 
   beforeEach(() => {
     jest.clearAllMocks()
     delete process.env.TELEGRAM_BOT_TOKEN
-    delete process.env.TELEGRAM_CHAT_ID
   })
 
   afterAll(() => {
@@ -22,12 +20,6 @@ describe('telegram.service token source', () => {
       delete process.env.TELEGRAM_BOT_TOKEN
     } else {
       process.env.TELEGRAM_BOT_TOKEN = originalToken
-    }
-
-    if (originalChat === undefined) {
-      delete process.env.TELEGRAM_CHAT_ID
-    } else {
-      process.env.TELEGRAM_CHAT_ID = originalChat
     }
   })
 
@@ -58,5 +50,20 @@ describe('telegram.service token source', () => {
 
     const status = getTelegramPrerequisiteStatus()
     expect(status.missing).not.toContain('bot_token_missing')
+  })
+
+  test('does not report chat id missing when allowed chat ids are configured', () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'env-only-token'
+
+    mockedGetConfig.mockReturnValue({
+      telegram: {
+        enabled: true,
+        botToken: 'legacy-config-token',
+        allowedChatIds: ['12345'],
+      },
+    } as never)
+
+    const status = getTelegramPrerequisiteStatus()
+    expect(status.missing).not.toContain('chat_id_missing')
   })
 })

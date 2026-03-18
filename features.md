@@ -121,6 +121,12 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 22. Rimuovi ciò che non è espressamente presente in questo file a livello di codice/ui/implementazione seguendo le regole del punto 21.
 
+23. Policy `.env` Minimo Obbligatorio.
+- Una configurazione environment resta necessaria anche se molte impostazioni applicative sono persistite nel `.db` o in `config.yaml`, perché contiene variabili runtime e segreti di bootstrap.
+- Variabili obbligatorie minime: `DATABASE_URL`, `JWT_SECRET`.
+- Variabili opzionali (da tenere come placeholder commentati nel template): `TELEGRAM_BOT_TOKEN`, `HA_CLIENT_ID`, `HA_CLIENT_SECRET`, `APP_URL`, `FRONTEND_URL`, `PORT`, `LOG_LEVEL`.
+- Ogni modifica alla policy `.env` deve aggiornare `backend/.env.example` e la sezione Environment Variables in `README.md`.
+
 ## Protocollo Di Verifica Per Ogni Step
 
 Per ogni item `F-XX`:
@@ -464,70 +470,90 @@ Accettazione letterale:
 
 ## Logica Di Comunicazione EVLoad <-> Proxy (Implementata)
 
-Hard-cleaning note (March 2026): runtime status logic uses a single polling endpoint `vehicle_data`; legacy heartbeat-based references below are superseded by F-21 and retained only as historical context.
+Questa sezione descrive il comportamento effettivamente implementato nel codice attuale tra EVLoad e il proxy Tesla (TeslaBleHttpProxy).
 
-Questa sezione descrive il comportamento effettivamente implementato nel codice attuale tra EVLoad e proxy Tesla.
+### Principio Fondamentale: Il Polling Non Sveglia Il Veicolo
 
-### Flusso Runtime Principale
+TeslaBleHttpProxy **non** sveglia il veicolo quando riceve `GET /vehicle_data` (senza `?wakeup=true`).
+I comandi POST (`charge_start`, `charge_stop`, `set_charging_amps`, `wake_up`) invece svegliano automaticamente il veicolo.
+EVLoad sfrutta questo comportamento per separare il polling diagnostico (sicuro, non invasivo) dai comandi operativi (che richiedono il veicolo sveglio).
+
+### Flusso Runtime
+
 - EVLoad usa un client HTTP dedicato verso il proxy con TLS configurabile tramite `proxy.rejectUnauthorized`.
-- Ogni risposta riuscita del proxy aggiorna uno stato separato `proxyHealthState` con `connected`, `lastSuccessAt`, `lastEndpoint`, `error`.
-- Lo stato proxy e lo stato veicolo sono separati: il proxy puo' risultare LIVE anche quando l'auto dorme o `vehicle_data` non sta girando in quel momento.
+- Il polling gira su un singolo loop con intervallo `proxy.normalPollIntervalMs`.
+- Ad ogni tick viene chiamato `GET /api/1/vehicles/:vehicleId/vehicle_data` senza parametri wake.
+- Ogni risposta riuscita del proxy aggiorna `proxyHealthState` con `connected`, `lastSuccessAt`, `lastEndpoint`, `error`.
+- Lo stato proxy e lo stato veicolo sono separati: `proxy.connected = true` anche quando l'auto dorme.
 
-### Loop 1 - Poll Completo Del Veicolo (`vehicle_data`)
-- Il loop `NORMAL` gira con intervallo `proxy.normalPollIntervalMs`.
-- In `NORMAL`, EVLoad chiama `GET /api/1/vehicles/:vehicleId/vehicle_data`.
-- Se il payload completo non contiene un `charge_state` utile ma il veicolo non e' segnalato come asleep, EVLoad esegue solo allora il fallback `GET /api/1/vehicles/:vehicleId/vehicle_data?endpoints=charge_state`.
-- Da `vehicle_data` EVLoad ricava stato di ricarica, SoC, limiti, temperatura, tensione, corrente, fasi, range, lock state, odometro e raw payload diagnostici.
+### Gestione Risposta Sleep Del Proxy
 
-### Loop 2 - Heartbeat Leggero (`body_controller_state`)
-- Il loop heartbeat gira sempre con intervallo `proxy.reactivePollIntervalMs`, indipendentemente dal fatto che il sistema sia in `NORMAL` o `REACTIVE`.
-- Il heartbeat usa `GET /api/1/vehicles/:vehicleId/body_controller_state`.
-- Il heartbeat aggiorna `proxyHealthState` e i campi `vehicleSleepStatus` / `userPresence` senza richiedere `vehicle_data`.
-- In `REACTIVE`, una risposta heartbeat valida mantiene il veicolo marcato come raggiungibile anche se non si stanno facendo refresh completi `vehicle_data`.
+Il proxy TeslaBleHttpProxy può restituire una risposta HTTP non-200 quando il veicolo è addormentato, con payload del tipo:
 
-### Passaggio Di Modalita'
-- Stato iniziale: `NORMAL`.
-- Se `vehicle_data` o il heartbeat confermano `VEHICLE_SLEEP_STATUS_ASLEEP` per due cicli consecutivi e il veicolo non sta caricando, EVLoad passa a `REACTIVE` senza inviare `wake_up`.
-- Se in `REACTIVE` il heartbeat vede `userPresence = VEHICLE_USER_PRESENCE_PRESENT`, EVLoad torna a `NORMAL`.
-- Se in `REACTIVE` il heartbeat vede `VEHICLE_SLEEP_STATUS_AWAKE`, EVLoad torna a `NORMAL`.
-- `requestWakeMode()` forza sempre `NORMAL`, resetta i contatori sleep e riavvia entrambi i timer.
+```json
+{ "response": { "result": false, "reason": "vehicle is sleeping" } }
+```
+
+EVLoad intercetta questi casi in `proxyGet`: se la risposta non-200 contiene una `reason` che include `sleep`, `asleep`, `offline` o `unavailable`, il proxy viene marcato come **raggiungibile** (`proxy.connected = true`) e il corpo viene letto normalmente per estrarre lo stato sleep.
+
+### Interpretazione Del Payload `vehicle_data`
+
+| Condizione payload | `proxy.connected` | `vehicle.connected` | `vehicle.vehicleSleepStatus` |
+|---|---|---|---|
+| `result: true` + `charge_state` presente | `true` | `true` | `AWAKE` |
+| `result: false` + reason contiene "sleep" | `true` | `false` | `ASLEEP` |
+| `result: false` + altra reason | `true` | `false` | `AWAKE` |
+| Errore rete / timeout | `false` | invariato | invariato |
+
+Da `vehicle_data` EVLoad ricava: stato ricarica, SoC, limiti, temperatura, tensione, corrente, fasi, range, lock state, odometro e raw payload diagnostici.
+
+### Poll Immediato All'Avvio Motore
+
+Quando l'utente preme Start, `POST /api/engine/start` chiama `triggerImmediatePoll()` in fire-and-forget.
+Questo cancella il timer del prossimo poll schedulato ed esegue subito `pollProxyOnce()`, evitando attese fino a `normalPollIntervalMs`.
+
+### Guard Comandi Su Veicolo Disconnesso
+
+`stopEngine()` verifica `vState.connected` prima di inviare `charge_stop`:
+- `vehicle.connected = true` → invia `charge_stop` normalmente.
+- `vehicle.connected = false` → **salta** `charge_stop` per non risvegliare il veicolo involontariamente.
+
+Lo stesso principio si applica a qualsiasi comando operativo.
 
 ### Comandi Verso Il Proxy
-- Avvio manuale motore: `startEngine()` chiama `requestWakeMode(false)` prima di avviare il ciclo motore, quindi forza `NORMAL` ma non invia automaticamente `wake_up`.
-- Wake manuale esplicito: `POST /api/engine/wake` chiama `requestWakeMode(true)` e quindi invia `POST /api/1/vehicles/:vehicleId/command/wake_up`.
-- Scheduler: prima degli start pianificati e quando una schedule entra nella lead window, usa `requestWakeMode(true)` per risvegliare il veicolo.
-- Comandi runtime verso il proxy passano da `POST /api/1/vehicles/:vehicleId/command/:command`.
-- Aggiornamenti dati Tesla mutabili passano da `PUT /api/1/vehicles/:vehicleId/data_request/:section`.
 
-### Coordinamento Tra Scheduler E Wake
-- `scheduleLeadTimeSec` definisce quanti secondi prima del prossimo start pianificato EVLoad puo' passare a wake mode.
-- Il scheduler evita wake ripetuti per la stessa occorrenza tramite una chiave interna di deduplicazione.
-- Gli start pianificati (`start_at`, `weekly`, `start_end`, `finish_by`) chiamano sempre il percorso con wake prima dell'avvio del motore.
+- Avvio manuale motore: `startEngine()` chiama `requestWakeMode(false)` (nessun wake_up esplicito) poi `triggerImmediatePoll()`.
+- Wake manuale esplicito: `POST /api/engine/wake` chiama `requestWakeMode(true)` e invia `POST /api/1/vehicles/:vehicleId/command/wake_up`.
+- Scheduler: usa `requestWakeMode(true)` nella lead window `scheduleLeadTimeSec` e prima degli start pianificati.
+- Comandi runtime: `POST /api/1/vehicles/:vehicleId/command/:command`.
+- Aggiornamenti dati mutabili: `PUT /api/1/vehicles/:vehicleId/data_request/:section`.
 
-### Stato Live Esposto Alla Interfaccia
-- WebSocket backend espone separatamente `proxy`, `vehicle` e `pollMode`.
-- `proxy` contiene lo stato live del proxy basato sull'ultima chiamata riuscita a qualunque endpoint proxy supportato, incluso `body_controller_state`.
-- La dashboard mostra il badge modalità (`NORMAL` / `REACTIVE`) e il pulsante `Wake Vehicle`.
-- Le impostazioni mostrano lo stato LIVE/OFFLINE del proxy, l'ultimo endpoint riuscito, l'ultimo timestamp di successo e la configurazione proxy completa.
+### Stato Live Esposto Alla UI
 
-### Parita' Simulatore
-- Il simulatore supporta `vehicle_data`, fallback `?endpoints=charge_state`, `body_controller_state`, i comandi `wake_up`, `sleep`, `charge_start`, `charge_stop`, `set_charging_amps`, `set_temps`.
-- `body_controller_state` del simulatore restituisce `vehicleSleepStatus`, `vehicleLockState` e `userPresence` coerenti con lo stato simulato.
+WebSocket backend espone separatamente `proxy` e `vehicle`.
+- `proxy.connected`: proxy HTTP raggiungibile (rimane `true` durante sleep veicolo).
+- `vehicle.connected`: veicolo raggiungibile (da `vehicle_data.response.result`).
+- `vehicle.vehicleSleepStatus`: stato sleep interpretato dalla risposta.
+- Dashboard mostra "Sleeping" invece di "Not in garage" quando `vehicle.connected = false` e `vehicleSleepStatus = ASLEEP`.
+- Pannello Proxy in Settings: badge giallo "SLEEP" quando proxy è up ma veicolo dorme.
 
 ### Tabella Operativa Endpoint Proxy
 
 | Endpoint proxy | Metodo | Chi lo usa | Quando parte | Effetto principale |
 |---|---|---|---|---|
-| `/api/1/vehicles/:vehicleId/vehicle_data` | `GET` | `proxy.service` | Loop `NORMAL` su `normalPollIntervalMs` | Aggiorna stato veicolo completo e diagnostica raw |
-| `/api/1/vehicles/:vehicleId/vehicle_data?endpoints=charge_state` | `GET` | `proxy.service` | Solo fallback se `vehicle_data` non contiene `charge_state` utile | Recupera il solo `charge_state` senza duplicare sempre la chiamata |
-| `/api/1/vehicles/:vehicleId/body_controller_state` | `GET` | `proxy.service` | Heartbeat continuo su `reactivePollIntervalMs` | Aggiorna `proxyHealthState`, `vehicleSleepStatus`, `userPresence` e supporta lo switch `NORMAL` / `REACTIVE` |
-| `/api/1/vehicles/:vehicleId/command/wake_up` | `POST` | `requestWakeMode(true)` via engine route o scheduler | Wake manuale o pre-wake schedulato | Forza il ritorno a `NORMAL` e tenta il risveglio dell'auto |
-| `/api/1/vehicles/:vehicleId/command/charge_start` | `POST` | engine / scheduler | Avvio ricarica | Comando Tesla di start charging |
-| `/api/1/vehicles/:vehicleId/command/charge_stop` | `POST` | engine / scheduler | Stop manuale, end plan, stop engine | Comando Tesla di stop charging |
-| `/api/1/vehicles/:vehicleId/command/set_charging_amps` | `POST` | engine | Durante balancing e throttling HA | Aggiorna il current request del veicolo |
-| `/api/1/vehicles/:vehicleId/command/set_temps` | `POST` | climate / scheduler | Start climate manuale o schedulato | Imposta temperature abitacolo |
-| `/api/1/vehicles/:vehicleId/data_request/charge_state` | `PUT` | servizi backend | Quando serve aggiornare dati mutabili Tesla lato proxy | Aggiorna `charge_state` via proxy e rinnova health state |
-| `/api/1/vehicles/:vehicleId/data_request/climate_state` | `PUT` | servizi backend | Quando serve aggiornare dati clima lato proxy | Aggiorna `climate_state` via proxy e rinnova health state |
+| `/api/1/vehicles/:vehicleId/vehicle_data` | `GET` | `proxy.service` | Loop periodico su `normalPollIntervalMs` + trigger immediato su start engine | Aggiorna stato veicolo completo, proxyHealthState e diagnostica raw. Non sveglia il veicolo. |
+| `/api/1/vehicles/:vehicleId/command/wake_up` | `POST` | `requestWakeMode(true)` via engine route o scheduler | Wake manuale o pre-wake schedulato | Sveglia attivamente il veicolo. |
+| `/api/1/vehicles/:vehicleId/command/charge_start` | `POST` | engine / scheduler | Avvio ricarica (solo se `vehicle.connected = true`) | Sveglia il veicolo se dormiente e avvia la ricarica. |
+| `/api/1/vehicles/:vehicleId/command/charge_stop` | `POST` | engine / scheduler | Stop engine (solo se `vehicle.connected = true`) | Ferma la ricarica. Skippato se veicolo disconnesso per evitare wake non voluto. |
+| `/api/1/vehicles/:vehicleId/command/set_charging_amps` | `POST` | engine | Durante throttling HA e ramp | Aggiorna il current request del veicolo. |
+| `/api/1/vehicles/:vehicleId/command/set_temps` | `POST` | climate / scheduler | Start climate manuale o schedulato | Imposta temperature abitacolo. |
+| `/api/1/vehicles/:vehicleId/data_request/charge_state` | `PUT` | servizi backend | Quando serve aggiornare dati mutabili Tesla lato proxy | Aggiorna `charge_state` via proxy. |
+| `/api/1/vehicles/:vehicleId/data_request/climate_state` | `PUT` | servizi backend | Quando serve aggiornare dati clima lato proxy | Aggiorna `climate_state` via proxy. |
+
+### Nota Su F-40 (Polling Adattivo / Heartbeat)
+
+F-40 (loop heartbeat separato via `body_controller_state` con modalità NORMAL/REACTIVE) è nel backlog ma **non implementato**.
+L'implementazione attuale usa un singolo loop `vehicle_data` che è già sleep-safe grazie alla gestione delle risposte non-200 descritta sopra.
 
 ## F-35 Pannelli Di Dominio Collassabili Nelle Impostazioni
 - La pagina impostazioni deve essere organizzata in pannelli di dominio collassabili invece di un unico form lungo e continuo.
@@ -617,6 +643,18 @@ Accettazione letterale:
 - C5: Tutti i dati esistenti sono preservati: Energy Flow, Next Charge, Engine Log, potenze, SoC, costi, metriche elettriche.
 - C6: Nessun commento nel codice (regola 12). Nomi variabili semantici coerenti col dominio EV (regola 19).
 - C7: Build TypeScript frontend (`npm run build`) priva di errori dopo la riscrittura.
+
+### F-41 Hardened Home Assistant Auth Lifecycle + Entities Anti-Ban
+Requisito: "Evitare re-auth frequente HA, ridurre ban per auth failure ripetute, e non fare refresh periodico inutile della lista sensori in Settings."
+Accettazione letterale:
+- C1: Il backend salva e usa un token HA con metadato `issued_at_ms` persistito, includendo migrazione dei token legacy senza timestamp.
+- C2: Il backend esegue refresh automatico del token (`grant_type=refresh_token`) prima della scadenza access token usando una finestra di sicurezza.
+- C3: In caso di 401/403 durante polling HA o fetch entities, il backend tenta una sola volta refresh forzato e retry della richiesta.
+- C4: Se il refresh token fallisce con errore auth hard (400/401/403), il backend imposta immediatamente stato `requiresManualReconnect=true` senza continuare retry aggressivi.
+- C5: L'endpoint `GET /api/ha/entities` ha limiter dedicato e cooldown auth con risposta `429` + header `Retry-After` per evitare martellamento verso HA.
+- C6: La pagina Settings non esegue polling periodico della lista sensori HA; la lista viene caricata solo quando HA è connesso o dopo OAuth success.
+- C7: La UI Settings mostra feedback esplicito per stati auth invalid/cooldown/locked (es. reconnect richiesto o retry tra X secondi), evitando errori silenziosi.
+- C8: Build frontend/backend rimane verde dopo l'integrazione della logica auth hardening.
 
 ## Regola Finale Anti-Regressione
 

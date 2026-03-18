@@ -2,13 +2,23 @@ import { Router } from 'express'
 import axios from 'axios'
 import rateLimit from 'express-rate-limit'
 import { requireAuth } from '../middleware/auth.middleware'
-import { saveHaTokenObj, getHaState, getHaTokenObj, requestHaReconnectAttempt } from '../services/ha.service'
+import {
+  saveHaTokenObj,
+  getHaState,
+  getValidHaAccessToken,
+  getHaTokenValidity,
+  requestHaReconnectAttempt,
+} from '../services/ha.service'
 import { getConfig } from '../config'
 import { logger } from '../logger'
 
 const router = Router()
 
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 })
+const entitiesLimiter = rateLimit({ windowMs: 60 * 1000, max: 10 })
+
+const HA_ENTITIES_AUTH_COOLDOWN_MS = 2 * 60_000
+let haEntitiesAuthCooldownUntilMs = 0
 
 const HA_URL = () => getConfig().homeAssistant.url
 const CLIENT_ID = () => process.env.HA_CLIENT_ID ?? ''
@@ -186,6 +196,11 @@ router.get('/state', limiter, requireAuth, (_req, res) => {
   res.json(getHaState())
 })
 
+router.get('/token-status', limiter, requireAuth, async (_req, res) => {
+  const validity = await getHaTokenValidity()
+  res.json(validity)
+})
+
 type HaEntityState = {
   entity_id: string
   state: string
@@ -195,10 +210,27 @@ type HaEntityState = {
   }
 }
 
-router.get('/entities', limiter, requireAuth, async (req, res) => {
+router.get('/entities', entitiesLimiter, requireAuth, async (req, res) => {
   try {
-    const tokenObj = await getHaTokenObj()
-    const token = tokenObj?.access_token
+    const haState = getHaState()
+    if (haState.requiresManualReconnect) {
+      res.status(429).json({
+        error: 'Home Assistant authorization is locked. Press Connect / Re-authorize to continue.',
+      })
+      return
+    }
+
+    const now = Date.now()
+    if (now < haEntitiesAuthCooldownUntilMs) {
+      const retryAfterSec = Math.max(1, Math.ceil((haEntitiesAuthCooldownUntilMs - now) / 1000))
+      res.setHeader('Retry-After', String(retryAfterSec))
+      res.status(429).json({
+        error: `Home Assistant auth temporarily blocked after repeated 401/403. Retry in ${retryAfterSec}s or reconnect HA.`,
+      })
+      return
+    }
+
+    let token = await getValidHaAccessToken()
     if (!token) {
       res.status(400).json({ error: 'Home Assistant is not connected yet' })
       return
@@ -207,10 +239,28 @@ router.get('/entities', limiter, requireAuth, async (req, res) => {
     const domainRaw = typeof req.query.domain === 'string' ? req.query.domain.trim() : ''
     const domain = (domainRaw || 'sensor').toLowerCase()
 
-    const statesRes = await axios.get<HaEntityState[]>(`${HA_URL()}/api/states`, {
-      headers: { Authorization: `Bearer ${token}` },
+    const fetchStates = (accessToken: string) => axios.get<HaEntityState[]>(`${HA_URL()}/api/states`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
       timeout: 8000,
     })
+
+    let statesRes
+    try {
+      statesRes = await fetchStates(token)
+    } catch (firstErr) {
+      const status = axios.isAxiosError(firstErr) ? firstErr.response?.status : undefined
+      if (status === 401 || status === 403) {
+        const refreshed = await getValidHaAccessToken(true)
+        if (refreshed && refreshed !== token) {
+          token = refreshed
+          statesRes = await fetchStates(token)
+        } else {
+          throw firstErr
+        }
+      } else {
+        throw firstErr
+      }
+    }
 
     const entities = (statesRes.data ?? [])
       .filter((e) => typeof e.entity_id === 'string' && e.entity_id.startsWith(`${domain}.`))
@@ -223,6 +273,20 @@ router.get('/entities', limiter, requireAuth, async (req, res) => {
 
     res.json({ domain, entities })
   } catch (err) {
+    if (axios.isAxiosError(err)) {
+      const status = err.response?.status
+      if (status === 401 || status === 403) {
+        haEntitiesAuthCooldownUntilMs = Date.now() + HA_ENTITIES_AUTH_COOLDOWN_MS
+        logger.warn('HA entities auth failed; cooldown activated', {
+          status,
+          cooldownMs: HA_ENTITIES_AUTH_COOLDOWN_MS,
+        })
+        res.status(429).json({
+          error: 'Home Assistant authorization failed (401/403). Reconnect HA and retry after cooldown.',
+        })
+        return
+      }
+    }
     logger.error('Failed to fetch Home Assistant entities', { err })
     res.status(502).json({ error: 'Unable to load Home Assistant entities' })
   }

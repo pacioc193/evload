@@ -92,6 +92,8 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
 
   const requestedAmps = targetAmps ?? cfg.charging.maxAmps
 
+  // Keep last 20 lines from previous session so charge_stop / session-end entries stay visible
+  const prevSessionTail = status.debugLog.slice(-20)
   status = {
     ...status,
     running: true,
@@ -101,7 +103,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     setpointAmps: requestedAmps,
     phase: 'idle',
     message: 'Engine started',
-    debugLog: [],
+    debugLog: prevSessionTail.length > 0 ? [...prevSessionTail, '--- new session ---'] : [],
   }
   sessionEnergyPriceEurPerKwh = cfg.charging.energyPriceEurPerKwh
   haStoppedForLimit = false
@@ -140,11 +142,17 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
 export async function stopEngine(): Promise<void> {
   const cfg = getConfig()
   const vid = getCommandVehicleId(cfg)
+  const vState = getVehicleState()
   if (vid) {
-    await sendProxyCommand(vid, 'charge_stop', {}).catch((err) =>
-      logger.error('charge_stop failed during stopEngine', { err })
-    )
-    pushEngineLog('charge_stop sent by stopEngine')
+    if (vState.connected) {
+      await sendProxyCommand(vid, 'charge_stop', {}).catch((err) =>
+        logger.error('charge_stop failed during stopEngine', { err })
+      )
+      pushEngineLog('charge_stop sent by stopEngine')
+    } else {
+      logger.info('Skipping charge_stop: vehicle not connected (sleeping or unreachable)')
+      pushEngineLog('charge_stop skipped: vehicle not connected')
+    }
   }
 
   if (engineTimer) {

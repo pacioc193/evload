@@ -1,7 +1,17 @@
-﻿import { useEffect, useState, type ReactNode } from 'react'
+﻿import { useEffect, useRef, useState, type ReactNode } from 'react'
 import axios from 'axios'
 import Editor from '@monaco-editor/react'
-import { getConfig, saveConfig, getHaAuthorizeUrl, getHaEntities, getSettings, patchSettings, type AppSettings } from '../api/index'
+import {
+  getConfig,
+  saveConfig,
+  getHaAuthorizeUrl,
+  getHaEntities,
+  getHaTokenStatus,
+  getSettings,
+  patchSettings,
+  type AppSettings,
+  type HaTokenStatus,
+} from '../api/index'
 import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useNavigate } from 'react-router-dom'
@@ -82,6 +92,7 @@ export default function SettingsPage() {
   const [haAuthMessage, setHaAuthMessage] = useState('')
   const [haEntities, setHaEntities] = useState<string[]>([])
   const [settings, setSettings] = useState<AppSettings | null>(null)
+  const [haTokenStatus, setHaTokenStatus] = useState<HaTokenStatus | null>(null)
   const [settingsMsg, setSettingsMsg] = useState('')
   const [expandedPanels, setExpandedPanels] = useState<Record<PanelKey, boolean>>({
     homeAssistant: true,
@@ -94,17 +105,76 @@ export default function SettingsPage() {
   const ha = useWsStore((s) => s.ha)
   const proxy = useWsStore((s) => s.proxy)
   const vehicle = useWsStore((s) => s.vehicle)
+  const haConnected = ha?.connected ?? false
+  const hasLoadedHaEntitiesRef = useRef(false)
 
   const loadHaEntities = () => {
     getHaEntities('sensor')
-      .then((res) => setHaEntities(res.entities.map((entity) => entity.entityId)))
-      .catch(() => setHaEntities([]))
+      .then((res) => {
+        setHaEntities(res.entities.map((entity) => entity.entityId))
+      })
+      .catch((err) => {
+        setHaEntities([])
+        if (axios.isAxiosError(err)) {
+          const status = err.response?.status
+          const retryAfterRaw = err.response?.headers?.['retry-after']
+          const retryAfter = typeof retryAfterRaw === 'string' ? Number(retryAfterRaw) : null
+          const backendMessage = err.response?.data?.error
+
+          if (status === 429 && Number.isFinite(retryAfter)) {
+            setHaAuthMessage(`Home Assistant temporarily in cooldown. Retry in ${retryAfter}s.`)
+            return
+          }
+
+          if (status === 401 || status === 403 || status === 429) {
+            setHaAuthMessage(
+              typeof backendMessage === 'string'
+                ? backendMessage
+                : 'Home Assistant authorization is invalid or locked. Reconnect / Re-authorize.'
+            )
+            return
+          }
+        }
+      })
+  }
+
+  const loadHaTokenStatus = () => {
+    getHaTokenStatus()
+      .then((status) => setHaTokenStatus(status))
+      .catch(() => setHaTokenStatus(null))
   }
 
   useEffect(() => {
     getConfig().then((d) => setConfigContent(d.content)).catch(console.error)
     getSettings().then(setSettings).catch(console.error)
+    loadHaTokenStatus()
+  }, [])
+
+  useEffect(() => {
+    if (!haConnected) return
+    if (hasLoadedHaEntitiesRef.current) return
+    hasLoadedHaEntitiesRef.current = true
     loadHaEntities()
+  }, [haConnected])
+
+  useEffect(() => {
+    const pollTokenStatus = () => loadHaTokenStatus()
+    pollTokenStatus()
+    const refreshInterval = setInterval(pollTokenStatus, 30_000)
+    const countdownInterval = setInterval(() => {
+      setHaTokenStatus((prev) => {
+        if (!prev || prev.secondsRemaining == null) return prev
+        return {
+          ...prev,
+          secondsRemaining: Math.max(0, prev.secondsRemaining - 1),
+          isExpired: prev.secondsRemaining - 1 <= 0,
+        }
+      })
+    }, 1000)
+    return () => {
+      clearInterval(refreshInterval)
+      clearInterval(countdownInterval)
+    }
   }, [])
 
   useEffect(() => {
@@ -114,6 +184,7 @@ export default function SettingsPage() {
 
     if (haStatus === 'connected') {
       setHaAuthMessage('Home Assistant connected. Sensor list refreshed.')
+      hasLoadedHaEntitiesRef.current = true
       loadHaEntities()
     } else if (haStatus === 'error') {
       setHaAuthMessage('Home Assistant authorization failed.')
@@ -182,20 +253,25 @@ export default function SettingsPage() {
     setExpandedPanels((prev) => ({ ...prev, [key]: !prev[key] }))
   }
 
-  const haConnected = ha?.connected ?? false
   const haPower = ha?.powerW ?? 0
   const haCharger = ha?.chargerW ?? 0
-  const haFailureCount = ha?.failureCount ?? 0
+  const haFailureCount = Math.min(ha?.failureCount ?? 0, ha?.maxFailuresBeforeManualReconnect ?? 3)
   const haMaxFailures = ha?.maxFailuresBeforeManualReconnect ?? 3
   const haRequiresManualReconnect = ha?.requiresManualReconnect ?? false
   const haLastError = ha?.lastError ?? null
   const proxyConnected = proxy?.connected ?? false
   const vehicleInGarage = vehicle?.connected ?? false
+  const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
+  const vehicleStatusLabel = vehicleInGarage ? 'In garage' : isVehicleSleeping ? 'Sleeping' : 'Not in garage / unreachable'
   const runtimeReason = vehicle?.reason ?? proxy?.error ?? vehicle?.error ?? 'No reason available yet'
   const proxyLastEndpoint = proxy?.lastEndpoint ?? null
   const proxyLastSuccessAt = proxy?.lastSuccessAt
     ? new Date(proxy.lastSuccessAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : null
+
+  const tokenRemainingText = haTokenStatus?.secondsRemaining == null
+    ? 'Unknown'
+    : `${Math.floor(haTokenStatus.secondsRemaining / 60)}m ${haTokenStatus.secondsRemaining % 60}s`
 
   return (
     <div className="space-y-6">
@@ -246,6 +322,14 @@ export default function SettingsPage() {
                 <div className="mt-1 text-xs text-evload-muted">
                   Last error: {haLastError ?? 'None'}
                 </div>
+                <div className="mt-1 text-xs text-evload-muted">
+                  Token remaining: {haTokenStatus?.hasToken ? tokenRemainingText : 'No token'}
+                </div>
+                {haTokenStatus?.expiresAt && (
+                  <div className="mt-1 text-xs text-evload-muted">
+                    Token expires at: {new Date(haTokenStatus.expiresAt).toLocaleString()}
+                  </div>
+                )}
                 {haRequiresManualReconnect && (
                   <div className="mt-2 text-xs text-evload-error font-semibold">
                     Retry stopped after {haMaxFailures} failures. Press Connect / Re-authorize to retry.
@@ -294,7 +378,7 @@ export default function SettingsPage() {
                 <ExternalLink size={14} />Connect / Re-authorize
               </button>
               {haAuthMessage && (
-                <p className={`text-sm ${haAuthMessage.toLowerCase().includes('failed') || haAuthMessage.toLowerCase().includes('not configured') ? 'text-evload-error' : 'text-evload-success'}`}>
+                <p className={`text-sm ${haAuthMessage.toLowerCase().includes('failed') || haAuthMessage.toLowerCase().includes('not configured') || haAuthMessage.toLowerCase().includes('invalid') || haAuthMessage.toLowerCase().includes('cooldown') || haAuthMessage.toLowerCase().includes('reconnect') || haAuthMessage.toLowerCase().includes('locked') ? 'text-evload-error' : 'text-evload-success'}`}>
                   {haAuthMessage}
                 </p>
               )}
@@ -312,15 +396,23 @@ export default function SettingsPage() {
                   className="flex items-center gap-2 px-3 py-1.5 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-xs">
                   <Save size={12} />Save
                 </button>
-                <span className={`w-2 h-2 rounded-full ${proxyConnected ? 'bg-evload-success' : 'bg-evload-error'}`} />
-                <span className="text-[10px] uppercase font-bold text-evload-muted">{proxyConnected ? 'LIVE' : 'OFFLINE'}</span>
+                <span className={`w-2 h-2 rounded-full ${proxyConnected ? 'bg-evload-success' : isVehicleSleeping ? 'bg-yellow-400' : 'bg-evload-error'}`} />
+                <span className="text-[10px] uppercase font-bold text-evload-muted">{proxyConnected ? 'LIVE' : isVehicleSleeping ? 'SLEEP' : 'OFFLINE'}</span>
               </div>
             }
           >
             <div className="pt-5 space-y-4">
-              <div className={`rounded-lg border px-4 py-3 text-sm ${proxyConnected ? 'border-evload-success/30 bg-evload-success/10 text-evload-text' : 'border-evload-error/30 bg-evload-error/10 text-evload-text'}`}>
-                <div className="font-medium">{proxyConnected ? 'Proxy connection is healthy' : 'Proxy connection is down'}</div>
-                <div className="mt-1 text-xs text-evload-muted">Vehicle: {vehicleInGarage ? 'In garage' : 'Not in garage / unreachable'}</div>
+              <div className={`rounded-lg border px-4 py-3 text-sm ${
+                proxyConnected
+                  ? 'border-evload-success/30 bg-evload-success/10 text-evload-text'
+                  : isVehicleSleeping
+                    ? 'border-yellow-500/30 bg-yellow-500/10 text-evload-text'
+                    : 'border-evload-error/30 bg-evload-error/10 text-evload-text'
+              }`}>
+                <div className="font-medium">
+                  {proxyConnected ? 'Proxy connection is healthy' : isVehicleSleeping ? 'Proxy reachable — vehicle sleeping' : 'Proxy connection is down'}
+                </div>
+                <div className="mt-1 text-xs text-evload-muted">Vehicle: {vehicleStatusLabel}</div>
                 <div className="mt-1 text-xs text-evload-muted">Reason: {runtimeReason}</div>
                 <div className="mt-1 text-xs text-evload-muted">
                   Last successful proxy call: {proxyLastEndpoint ?? 'unknown'}{proxyLastSuccessAt ? ` at ${proxyLastSuccessAt}` : ''}.

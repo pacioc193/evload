@@ -347,6 +347,8 @@ export default function DashboardPage() {
   const canWakeVehicle = vehicle?.chargingState === 'Sleeping'
   const proxyConnected = proxy?.connected ?? false
   const vehicleInGarage = vehicle?.connected ?? false
+  const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
+  const carStatusLabel = vehicleInGarage ? 'In garage' : isVehicleSleeping ? 'Sleeping' : 'Not in garage / unreachable'
   const statusReason = vehicle?.reason ?? proxy?.error ?? vehicle?.error ?? 'No reason available yet'
   const controlsDisabled = loading || !!failsafe?.active || !proxyConnected || !vehicleInGarage
 
@@ -491,7 +493,7 @@ export default function DashboardPage() {
                 <Car size={18} /> {vehicle.displayName ?? 'Vehicle'}
               </h2>
               <p className="text-sm text-evload-muted mt-1">Proxy: {proxyConnected ? 'Online' : 'Offline'}</p>
-              <p className="text-sm text-evload-muted">Car: {vehicleInGarage ? 'In garage' : 'Not in garage / unreachable'}</p>
+              <p className="text-sm text-evload-muted">Car: {carStatusLabel}</p>
               <p className="text-xs text-evload-muted mt-1">Reason: {statusReason}</p>
               {canWakeVehicle && (
                 <button

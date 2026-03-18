@@ -80,6 +80,21 @@ export async function getHaEntities(domain = 'sensor') {
   return res.data as { domain: string; entities: HaEntityOption[] }
 }
 
+export interface HaTokenStatus {
+  hasToken: boolean
+  issuedAt: string | null
+  expiresAt: string | null
+  expiresInSec: number | null
+  secondsRemaining: number | null
+  isExpired: boolean
+  refreshWindowSec: number
+}
+
+export async function getHaTokenStatus() {
+  const res = await api.get('/ha/token-status')
+  return res.data as HaTokenStatus
+}
+
 export async function getConfig() {
   const res = await api.get('/config')
   return res.data as { content: string }

@@ -238,9 +238,12 @@ export default function NotificationsPage() {
     try {
       await patchSettings({
         telegramEnabled: settings.telegramEnabled,
+        telegramBotToken: settings.telegramBotToken,
         telegramAllowedChatIds: settings.telegramAllowedChatIds,
         telegramRules: settings.telegramRules,
       })
+      const fresh = await getSettings()
+      setSettings(fresh)
       setMessage('Notifications saved')
     } catch {
       setMessage('Failed to save notifications')
