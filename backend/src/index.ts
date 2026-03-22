@@ -6,6 +6,7 @@ import path from 'path'
 import crypto from 'crypto'
 import express from 'express'
 import cors from 'cors'
+import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
 import { logger, sanitizeForLog } from './logger'
 import { loadConfig, getConfig, ensureConfigYaml } from './config'
@@ -142,7 +143,32 @@ async function initializeSecrets(): Promise<void> {
 
 const app = express()
 
-app.use(cors())
+const corsOrigin = process.env.CORS_ORIGIN?.trim()
+app.use(
+  cors(
+    corsOrigin
+      ? { origin: corsOrigin, credentials: true }
+      : undefined
+  )
+)
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'", 'ws:', 'wss:'],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+  })
+)
+
 app.use(express.json())
 
 if ((process.env.LOG_LEVEL ?? 'info').toLowerCase() === 'debug') {
@@ -319,6 +345,11 @@ process.on('SIGTERM', () => {
 
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled Promise rejection', { reason })
+})
+
+process.on('uncaughtException', (err) => {
+  logger.error('Uncaught exception', { err })
+  process.exit(1)
 })
 
 export { app, server }

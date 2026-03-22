@@ -697,6 +697,58 @@ Accettazione letterale:
 - C7: La UI Settings mostra feedback esplicito per stati auth invalid/cooldown/locked (es. reconnect richiesto o retry tra X secondi), evitando errori silenziosi.
 - C8: Build frontend/backend rimane verde dopo l'integrazione della logica auth hardening.
 
+## F-42 Sicurezza API End-to-End
+
+Requisito: "In produzione, ogni singola rotta del backend (tranne il login iniziale e i webhooks strettamente necessari) deve essere protetta. Validare la sicurezza dei WebSocket: anche la connessione WS deve richiedere l'autenticazione iniziale."
+Accettazione letterale:
+- C1: Tutte le rotte API (eccetto `GET /api/auth/*`, `GET /api/ha/callback`, `GET /api/health`) sono protette dal middleware `requireAuth` e restituiscono `401 Unauthorized` se il token JWT è assente o non valido.
+- C2: La connessione WebSocket (`/ws`) richiede un token JWT valido passato come query param `?token=<jwt>`; in assenza di token valido la connessione viene chiusa con codice `1008` (Policy Violation).
+- C3: Il frontend aggiunge automaticamente il token JWT all'URL WebSocket prima di aprire la connessione.
+- C4: Helmet è installato e attivo nel backend; imposta header di sicurezza HTTP standard (X-Content-Type-Options, X-Frame-Options, ecc.) compatibili con il serve dei file statici del frontend.
+- C5: Il CORS è configurato in produzione per accettare richieste solo dall'origine definita in `CORS_ORIGIN`; in sviluppo il CORS rimane aperto.
+- C6: La variabile `CORS_ORIGIN` è documentata nel file `.env.example` della root e nel `backend/.env.example`.
+
+## F-43 Deploy Semplificato Su Proxmox (Docker/Docker Compose)
+
+Requisito: "Preparare un docker-compose.yml ottimizzato per la produzione. Assicurarsi che i volumi per il database SQLite (.db) e per il file di configurazione (config.yaml) siano mappati all'esterno dei container."
+Accettazione letterale:
+- C1: Il `docker-compose.yml` include un healthcheck per il servizio `evload` che verifica `GET /api/health`.
+- C2: Il `docker-compose.yml` mappa un volume named `evload-db` per la directory dati del database SQLite (path container: `/app/backend/data`).
+- C3: Il `docker-compose.yml` mappa un volume named `evload-logs` per i log (path container: `/app/backend/logs`).
+- C4: Il `docker-compose.yml` include binding del file `config.yaml` dalla directory host verso il container in modalità read-write.
+- C5: Il `Dockerfile` include istruzione `HEALTHCHECK` coerente con il docker-compose.
+- C6: Il `docker-compose.yml` espone la variabile `NODE_ENV=production` nel container tramite la sezione `environment`.
+
+## F-44 Script Di Aggiornamento Facile (update.sh)
+
+Requisito: "Creare uno script shell update.sh che esegua automaticamente: pull delle ultime modifiche Git, rebuild dei container Docker, esecuzione automatica delle migrazioni database."
+Accettazione letterale:
+- C1: Il file `update.sh` esiste nella root del progetto ed è eseguibile (`chmod +x`).
+- C2: Lo script esegue `git pull` per scaricare le ultime modifiche.
+- C3: Lo script esegue `docker compose up -d --build` per ricostruire e riavviare i container.
+- C4: Lo script esegue `docker compose exec evload npx prisma migrate deploy` per applicare le migrazioni database.
+- C5: Lo script stampa messaggi di stato chiari in italiano per ogni fase.
+- C6: Lo script termina con codice di uscita non-zero se una delle fasi fallisce (set -e).
+
+## F-45 Robustezza In Produzione (Logging, Crash Handling, ENV)
+
+Requisito: "In produzione i log non devono riempire il disco. Il backend non deve spegnersi se una chiamata a HA o al proxy Tesla va in timeout. Assicurarsi che il passaggio da .env.development a .env.production sia fluido."
+Accettazione letterale:
+- C1: I trasporti file di Winston hanno `maxsize` configurato a 50 MB e `maxFiles: 5` per garantire log rotation automatica.
+- C2: Il backend gestisce `process.on('uncaughtException', ...)` con log dell'errore senza terminare il processo (salvo errori fatali dell'event loop).
+- C3: Il `backend/.env.example` documenta le variabili di produzione raccomandate: `NODE_ENV`, `LOG_LEVEL`, `CORS_ORIGIN`, `DATABASE_URL`, `JWT_SECRET`, `PORT`.
+- C4: Il `docker-compose.yml` passa `NODE_ENV=production` al container tramite la sezione `environment`.
+
+## F-46 Script Di Build Per La Produzione (build-prod.sh)
+
+Requisito: "Creare uno script build-prod.sh che prepari l'intero pacchetto per la produzione. Lo script deve: eseguire type checking, compilare il frontend, compilare il backend, fornire output chiaro su errori bloccanti."
+Accettazione letterale:
+- C1: Il file `build-prod.sh` esiste nella root del progetto ed è eseguibile.
+- C2: Lo script esegue `npm run build --prefix backend` e termina con errore esplicito se fallisce.
+- C3: Lo script esegue `npm run build --prefix frontend` e termina con errore esplicito se fallisce.
+- C4: Lo script stampa messaggi di stato in italiano per ogni fase con indicatori visivi (✅ / ❌).
+- C5: Lo script termina con codice di uscita `0` solo se entrambe le build sono riuscite.
+
 ## Regola Finale Anti-Regressione
 
 Quando un item e' `VERIFIED`, rieseguire i test/build minimi e confermare che non rompe item gia' verificati.

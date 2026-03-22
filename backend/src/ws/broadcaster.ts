@@ -1,11 +1,13 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import { Server } from 'http'
+import { IncomingMessage } from 'http'
 import { logger } from '../logger'
 import { getConfig } from '../config'
 import { getHaState } from '../services/ha.service'
 import { getVehicleState, getSimulatorDebugState, getProxyHealthState } from '../services/proxy.service'
 import { getEngineStatus } from '../engine/charging.engine'
 import { isFailsafeActive, getFailsafeReason } from '../services/failsafe.service'
+import { verifyToken } from '../auth'
 
 const PING_INTERVAL_MS = 30000
 const BROADCAST_INTERVAL_MS = 1000
@@ -21,8 +23,22 @@ interface ExtendedWs extends WebSocket {
 export function initWebSocketServer(server: Server): void {
   wss = new WebSocketServer({ server, path: '/ws' })
 
-  wss.on('connection', (ws: WebSocket) => {
+  wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
     const extWs = ws as ExtendedWs
+
+    const rawUrl = req.url ?? ''
+    const queryStart = rawUrl.indexOf('?')
+    const queryString = queryStart !== -1 ? rawUrl.slice(queryStart + 1) : ''
+    const params = new URLSearchParams(queryString)
+    const token = params.get('token')
+
+    const isTokenValid = token ? await verifyToken(token) : false
+    if (!isTokenValid) {
+      logger.warn('WebSocket connection rejected: invalid or missing token')
+      extWs.close(1008, 'Unauthorized')
+      return
+    }
+
     extWs.isAlive = true
 
     logger.info('WebSocket client connected')
