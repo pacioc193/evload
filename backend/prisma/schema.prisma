@@ -1,0 +1,131 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model AppConfig {
+  // System-wide application configuration stored in database
+  // All fields are optional to support gradual initialization
+  
+  id           Int     @id @default(1)  // Always 1 - single config record
+
+  // ============================================================
+  // SECRETS & CREDENTIALS (stored encrypted in database)
+  // ============================================================
+  
+  // JWT secret key for signing tokens (32+ bytes hex string)
+  jwt_secret          String?
+  
+  // Home Assistant OAuth Client ID
+  ha_client_id        String?
+  
+  // Home Assistant OAuth Client Secret
+  ha_client_secret    String?
+  
+  // Home Assistant access token (legacy, use ha_token_obj instead)
+  ha_token            String?
+  
+  // Home Assistant token object (JSON) with structure:
+  // { access_token, refresh_token, expires_in, issued_at_ms }
+  ha_token_obj        String?
+  
+  // Telegram bot token
+  telegram_bot_token  String?
+  
+  // UI login password hash (bcrypt)
+  password_hash       String?
+  
+  // ============================================================
+  // STATE & PERSISTENCE
+  // ============================================================
+  
+  // Engine restore state (JSON) - used to restore charging state on boot
+  // Structure: { restorePlan?, targetSoc?, targetAmps?, lastCharge? }
+  engine_restore_state String?
+  
+  // Legacy key-value storage (for backward compatibility)
+  key          String?  @unique
+  value        String?
+}
+
+model ChargingSession {
+  id              Int               @id @default(autoincrement())
+  startedAt       DateTime          @default(now())
+  endedAt         DateTime?
+  vehicleId       String
+  locationName    String?
+  targetSoc       Int?
+  targetAmps      Int?
+  energyPriceEurPerKwh Float          @default(0)
+  totalCostEur    Float             @default(0)
+  totalEnergyKwh  Float             @default(0)
+  peakPowerW      Float             @default(0)
+  averageAmps     Float             @default(0)
+  notes           String?
+  telemetry       ChargingTelemetry[]
+}
+
+model ChargingTelemetry {
+  id               Int             @id @default(autoincrement())
+  sessionId        Int
+  recordedAt       DateTime        @default(now())
+  voltageV         Float?
+  currentA         Float?
+  powerW           Float?
+  energyKwh        Float?
+  stateOfCharge    Int?
+  tempBatteryC     Float?
+  tempCabinC       Float?
+  chargerPilotA    Int?
+  chargerActualA   Int?
+  chargerPhases    Int?
+  chargerVoltage   Int?
+  chargerPower     Float?
+  timeToFullCharge Float?
+  session          ChargingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, recordedAt])
+}
+
+model ScheduledCharge {
+  id           Int       @id @default(autoincrement())
+  vehicleId    String
+  scheduleType String    @default("start_at")
+  scheduledAt  DateTime?
+  finishBy     DateTime?
+  startedAt    DateTime?
+  targetSoc    Int
+  targetAmps   Int?
+  enabled      Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model ScheduledClimate {
+  id           Int       @id @default(autoincrement())
+  vehicleId    String
+  scheduleType String    @default("start_at")
+  scheduledAt  DateTime?
+  finishBy     DateTime?
+  startedAt    DateTime?
+  targetTempC  Float
+  enabled      Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model TelegramCommand {
+  id          Int       @id @default(autoincrement())
+  chatId      String
+  command     String
+  args        String?
+  response    String?
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+}

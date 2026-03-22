@@ -1,0 +1,298 @@
+import axios from 'axios'
+import { useAuthStore } from '../store/authStore'
+
+export const api = axios.create({ baseURL: '/api' })
+
+api.interceptors.request.use((config) => {
+  const token = useAuthStore.getState().token
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (axios.isAxiosError(err) && err.response?.status === 401) {
+      useAuthStore.getState().clearToken()
+      window.location.href = '/login'
+    }
+    return Promise.reject(err)
+  }
+)
+
+export async function startCharging(targetSoc: number, targetAmps?: number) {
+  const res = await api.post('/engine/start', { targetSoc, targetAmps })
+  return res.data as { success: boolean }
+}
+
+export async function setPlanMode(targetSoc: number) {
+  const res = await api.post('/engine/mode', { mode: 'plan', targetSoc })
+  return res.data as { success: boolean }
+}
+
+export async function stopCharging() {
+  const res = await api.post('/engine/stop')
+  return res.data as { success: boolean }
+}
+
+export async function wakeVehicle() {
+  const res = await api.post('/engine/wake')
+  return res.data as { success: boolean }
+}
+
+export async function getSessions(page = 1, limit = 20) {
+  const res = await api.get(`/sessions?page=${page}&limit=${limit}`)
+  return res.data as { sessions: unknown[]; total: number; page: number; limit: number }
+}
+
+export async function getSession(id: number) {
+  const res = await api.get(`/sessions/${id}`)
+  return res.data
+}
+
+export async function deleteSession(id: number) {
+  const res = await api.delete(`/sessions/${id}`)
+  return res.data as { success: boolean; id: number }
+}
+
+export async function triggerTestEvent(event: string, payload: Record<string, unknown>) {
+  const res = await api.post('/engine/test-event', { event, payload })
+  return res.data as { success: boolean; delivered: number; matchedRules: string[]; messages: string[] }
+}
+
+export interface NotificationEventSchema {
+  required: string[]
+  fields: Record<string, 'string' | 'number' | 'boolean'>
+}
+
+export async function getHaAuthorizeUrl(returnTo?: string) {
+  const res = await api.get('/ha/authorize', {
+    params: returnTo ? { returnTo } : undefined,
+  })
+  return res.data as { url: string }
+}
+
+export interface HaEntityOption {
+  entityId: string
+  friendlyName: string
+  unit: string | null
+}
+
+export async function getHaEntities(domain = 'sensor') {
+  const res = await api.get('/ha/entities', { params: { domain } })
+  return res.data as { domain: string; entities: HaEntityOption[] }
+}
+
+export interface HaTokenStatus {
+  hasToken: boolean
+  issuedAt: string | null
+  expiresAt: string | null
+  expiresInSec: number | null
+  secondsRemaining: number | null
+  isExpired: boolean
+  refreshWindowSec: number
+}
+
+export async function getHaTokenStatus() {
+  const res = await api.get('/ha/token-status')
+  return res.data as HaTokenStatus
+}
+
+export async function getConfig() {
+  const res = await api.get('/config')
+  return res.data as { content: string }
+}
+
+export async function saveConfig(content: string) {
+  const res = await api.post('/config', { content })
+  return res.data as { success: boolean }
+}
+
+// ─── Structured Settings ─────────────────────────────────────────────────────
+
+export interface AppSettings {
+  demo: boolean
+  haUrl: string
+  haPowerEntityId: string
+  haChargerEntityId: string
+  haMaxHomePowerW: number
+  resumeDelaySec: number
+  proxyUrl: string
+  vehicleId: string
+  vehicleName: string
+  normalPollIntervalMs: number
+  scheduleLeadTimeSec: number
+  rejectUnauthorized: boolean
+  batteryCapacityKwh: number
+  energyPriceEurPerKwh: number
+  defaultAmps: number
+  maxAmps: number
+  minAmps: number
+  stopChargeOnManualStart: boolean
+  rampIntervalSec: number
+  chargeStartRetryMs: number
+  telegramEnabled: boolean
+  telegramBotToken?: string
+  telegramAllowedChatIds: string[]
+  telegramRules: TelegramNotificationRule[]
+}
+
+export interface TelegramNotificationCondition {
+  field: string
+  operator:
+    | 'exists'
+    | 'equals'
+    | 'not_equals'
+    | 'gt'
+    | 'gte'
+    | 'lt'
+    | 'lte'
+    | 'contains'
+    | 'changed'
+    | 'increased_by'
+    | 'decreased_by'
+    | 'mod_step'
+  value?: string | number | boolean
+}
+
+export interface TelegramNotificationRule {
+  id: string
+  name: string
+  enabled: boolean
+  event: string
+  template: string
+  condition?: TelegramNotificationCondition
+}
+
+export async function getSettings() {
+  const res = await api.get('/settings')
+  return res.data as AppSettings
+}
+
+export async function patchSettings(partial: Partial<AppSettings>) {
+  const res = await api.patch('/settings', partial)
+  return res.data as { success: boolean }
+}
+
+export async function sendTelegramTestNotification(input: {
+  event: string
+  template: string
+  payload?: Record<string, unknown>
+}) {
+  const res = await api.post('/settings/telegram/test', input)
+  return res.data as { success: boolean; rendered: string; delivered: boolean; missingPlaceholders?: string[] }
+}
+
+export interface TelegramPlaceholdersResponse {
+  messageSource?: 'user_rules_only' | string
+  events: string[]
+  placeholders: {
+    all: string[]
+    byEvent: Record<string, string[]>
+    descriptions: Record<string, string>
+    presets: Record<string, Record<string, unknown>>
+    schemas: Record<string, NotificationEventSchema>
+  }
+}
+
+export async function getTelegramPlaceholders() {
+  const res = await api.get('/settings/telegram/placeholders')
+  return res.data as TelegramPlaceholdersResponse
+}
+
+// ─── Scheduling ──────────────────────────────────────────────────────────────
+
+export interface ScheduledCharge {
+  id: number
+  vehicleId: string
+  scheduleType: string
+  scheduledAt: string | null
+  finishBy: string | null
+  startedAt?: string | null
+  targetSoc: number
+  targetAmps: number | null
+  enabled: boolean
+  createdAt: string
+}
+
+export interface ScheduledClimate {
+  id: number
+  vehicleId: string
+  scheduleType: string
+  scheduledAt: string | null
+  finishBy: string | null
+  startedAt?: string | null
+  targetTempC: number
+  enabled: boolean
+  createdAt: string
+}
+
+export interface NextPlannedCharge {
+  id: number
+  scheduleType: string
+  targetSoc: number
+  targetAmps: number | null
+  computedStartAt: string
+  finishBy: string | null
+}
+
+export async function getNextPlannedCharge() {
+  const res = await api.get('/schedule/next-charge')
+  return res.data as NextPlannedCharge | null
+}
+
+export async function getScheduledCharges() {
+  const res = await api.get('/schedule/charges')
+  return res.data as ScheduledCharge[]
+}
+
+export async function createScheduledCharge(
+  options:
+    | { scheduleType: 'start_at'; scheduledAt: string; targetSoc: number; targetAmps?: number }
+    | { scheduleType: 'finish_by'; finishBy: string; targetSoc: number; targetAmps?: number }
+    | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetSoc: number; targetAmps?: number }
+    | { scheduleType: 'weekly'; scheduledAt: string; targetSoc: number; targetAmps?: number }
+) {
+  const res = await api.post('/schedule/charges', options)
+  return res.data as ScheduledCharge
+}
+
+export async function deleteScheduledCharge(id: number) {
+  const res = await api.delete(`/schedule/charges/${id}`)
+  return res.data as { success: boolean }
+}
+
+export async function getScheduledClimates() {
+  const res = await api.get('/schedule/climate')
+  return res.data as ScheduledClimate[]
+}
+
+export async function createScheduledClimate(
+  options:
+    | { scheduleType: 'start_at'; scheduledAt: string; targetTempC: number }
+    | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetTempC: number }
+    | { scheduleType: 'weekly'; scheduledAt: string; targetTempC: number }
+) {
+  const res = await api.post('/schedule/climate', options)
+  return res.data as ScheduledClimate
+}
+
+export async function deleteScheduledClimate(id: number) {
+  const res = await api.delete(`/schedule/climate/${id}`)
+  return res.data as { success: boolean }
+}
+
+export async function sendVehicleCommand(cmd: string, body?: Record<string, unknown>) {
+  const res = await api.post(`/vehicle/command/${encodeURIComponent(cmd)}`, body ?? {})
+  return res.data as { success: boolean; result: unknown }
+}
+
+export async function updateVehicleDataRequest(
+  section: 'charge_state' | 'climate_state',
+  payload: Record<string, unknown>
+) {
+  const res = await api.put(`/vehicle/data-request/${section}`, payload)
+  return res.data as { success: boolean; result: unknown }
+}

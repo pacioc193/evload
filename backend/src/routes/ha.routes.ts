@@ -1,0 +1,295 @@
+import { Router } from 'express'
+import axios from 'axios'
+import rateLimit from 'express-rate-limit'
+import { requireAuth } from '../middleware/auth.middleware'
+import {
+  saveHaTokenObj,
+  getHaState,
+  getValidHaAccessToken,
+  getHaTokenValidity,
+  requestHaReconnectAttempt,
+} from '../services/ha.service'
+import { getConfig } from '../config'
+import { logger } from '../logger'
+
+const router = Router()
+
+const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 })
+const entitiesLimiter = rateLimit({ windowMs: 60 * 1000, max: 10 })
+
+const HA_ENTITIES_AUTH_COOLDOWN_MS = 2 * 60_000
+let haEntitiesAuthCooldownUntilMs = 0
+
+const HA_URL = () => getConfig().homeAssistant.url
+const CLIENT_ID = () => process.env.HA_CLIENT_ID ?? ''
+const CLIENT_SECRET = () => process.env.HA_CLIENT_SECRET ?? ''
+const DEFAULT_REDIRECT_URI = 'http://localhost:3001/api/ha/callback'
+
+function getAppUrl(): string {
+  const raw = process.env.APP_URL?.trim() ?? ''
+  return raw.replace(/\/+$/, '')
+}
+
+const REDIRECT_URI = () => {
+  const appUrl = getAppUrl()
+  return appUrl ? `${appUrl}/api/ha/callback` : DEFAULT_REDIRECT_URI
+}
+
+function getOauthClientId(): string {
+  const configuredClientId = CLIENT_ID().trim()
+  if (configuredClientId) {
+    return configuredClientId
+  }
+
+  const appUrl = getAppUrl()
+  if (appUrl) {
+    return appUrl
+  }
+
+  try {
+    return new URL(REDIRECT_URI()).origin
+  } catch {
+    return ''
+  }
+}
+
+function getOauthClientSecret(): string {
+  return CLIENT_SECRET().trim()
+}
+
+function getOauthConfigurationError(): string | null {
+  if (!getOauthClientId()) {
+    return 'Home Assistant OAuth is not configured: set APP_URL or HA_CLIENT_ID in backend/.env before connecting.'
+  }
+  return null
+}
+
+function buildFrontendRedirect(pathAndQuery: string): string {
+  const frontendUrl = (process.env.FRONTEND_URL ?? '').replace(/\/+$/, '')
+  if (!frontendUrl) return pathAndQuery
+  return `${frontendUrl}${pathAndQuery}`
+}
+
+function encodeOauthState(returnTo?: string): string {
+  const payload = {
+    returnTo: returnTo ?? null,
+    issuedAt: Date.now(),
+  }
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+}
+
+function decodeReturnToFromState(stateRaw?: string): string | null {
+  if (!stateRaw) return null
+  try {
+    const parsed = JSON.parse(Buffer.from(stateRaw, 'base64url').toString('utf8')) as { returnTo?: unknown }
+    const candidate = typeof parsed.returnTo === 'string' ? parsed.returnTo.trim() : ''
+    if (!candidate) return null
+    const url = new URL(candidate)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+function appendHaStatus(targetUrl: string, status: 'connected' | 'error'): string {
+  try {
+    const parsed = new URL(targetUrl)
+    parsed.searchParams.set('ha', status)
+    return parsed.toString()
+  } catch {
+    const sep = targetUrl.includes('?') ? '&' : '?'
+    return `${targetUrl}${sep}ha=${status}`
+  }
+}
+
+router.get('/authorize', limiter, requireAuth, (req, res) => {
+  requestHaReconnectAttempt()
+
+  const configError = getOauthConfigurationError()
+  if (configError) {
+    res.status(500).json({ error: configError })
+    return
+  }
+
+  const clientId = getOauthClientId()
+  const redirectUri = REDIRECT_URI()
+  const returnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo.trim() : ''
+  const oauthState = encodeOauthState(returnTo || undefined)
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    state: oauthState,
+  })
+  const authUrl = `${HA_URL()}/auth/authorize?${params.toString()}`
+  
+  logger.info('HA OAuth /authorize requested', {
+    clientId,
+    redirectUri,
+    haUrl: HA_URL(),
+    authUrl,
+  })
+  
+  res.json({ url: authUrl })
+})
+
+router.get('/callback', limiter, async (req, res) => {
+  const { code, state } = req.query as { code?: string; state?: string }
+  if (!code) {
+    logger.warn('HA OAuth callback received without code', { query: req.query })
+    res.status(400).send('Missing authorization code')
+    return
+  }
+
+  logger.info('HA OAuth callback received with code', { code: code.substring(0, 10) + '...' })
+
+  const configError = getOauthConfigurationError()
+  if (configError) {
+    logger.error('HA OAuth callback: config error', { configError })
+    res.status(500).send(configError)
+    return
+  }
+
+  try {
+    const tokenParams = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      client_id: getOauthClientId(),
+      redirect_uri: REDIRECT_URI(),
+    })
+    const clientSecret = getOauthClientSecret()
+    if (clientSecret) {
+      tokenParams.set('client_secret', clientSecret)
+    }
+
+    logger.debug('HA OAuth token exchange', {
+      clientId: getOauthClientId(),
+      redirectUri: REDIRECT_URI(),
+      hasSecret: !!clientSecret,
+    })
+
+    const tokenRes = await axios.post<{ access_token: string; refresh_token: string; expires_in: number }>(
+      `${HA_URL()}/auth/token`,
+      tokenParams,
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    )
+    await saveHaTokenObj(tokenRes.data)
+    requestHaReconnectAttempt()
+    logger.info('HA OAuth token saved successfully')
+    const stateReturnTo = decodeReturnToFromState(state)
+    const successTarget = stateReturnTo
+      ? appendHaStatus(stateReturnTo, 'connected')
+      : buildFrontendRedirect('/settings?ha=connected')
+    res.redirect(successTarget)
+  } catch (err) {
+    logger.error('HA OAuth callback error', { err, code: code.substring(0, 10) + '...' })
+    const stateReturnTo = decodeReturnToFromState(state)
+    const errorTarget = stateReturnTo
+      ? appendHaStatus(stateReturnTo, 'error')
+      : buildFrontendRedirect('/settings?ha=error')
+    res.redirect(errorTarget)
+  }
+})
+
+router.get('/state', limiter, requireAuth, (_req, res) => {
+  res.json(getHaState())
+})
+
+router.get('/token-status', limiter, requireAuth, async (_req, res) => {
+  const validity = await getHaTokenValidity()
+  res.json(validity)
+})
+
+type HaEntityState = {
+  entity_id: string
+  state: string
+  attributes?: {
+    friendly_name?: string
+    unit_of_measurement?: string
+  }
+}
+
+router.get('/entities', entitiesLimiter, requireAuth, async (req, res) => {
+  try {
+    const haState = getHaState()
+    if (haState.requiresManualReconnect) {
+      res.status(429).json({
+        error: 'Home Assistant authorization is locked. Press Connect / Re-authorize to continue.',
+      })
+      return
+    }
+
+    const now = Date.now()
+    if (now < haEntitiesAuthCooldownUntilMs) {
+      const retryAfterSec = Math.max(1, Math.ceil((haEntitiesAuthCooldownUntilMs - now) / 1000))
+      res.setHeader('Retry-After', String(retryAfterSec))
+      res.status(429).json({
+        error: `Home Assistant auth temporarily blocked after repeated 401/403. Retry in ${retryAfterSec}s or reconnect HA.`,
+      })
+      return
+    }
+
+    let token = await getValidHaAccessToken()
+    if (!token) {
+      res.status(400).json({ error: 'Home Assistant is not connected yet' })
+      return
+    }
+
+    const domainRaw = typeof req.query.domain === 'string' ? req.query.domain.trim() : ''
+    const domain = (domainRaw || 'sensor').toLowerCase()
+
+    const fetchStates = (accessToken: string) => axios.get<HaEntityState[]>(`${HA_URL()}/api/states`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: 8000,
+    })
+
+    let statesRes
+    try {
+      statesRes = await fetchStates(token)
+    } catch (firstErr) {
+      const status = axios.isAxiosError(firstErr) ? firstErr.response?.status : undefined
+      if (status === 401 || status === 403) {
+        const refreshed = await getValidHaAccessToken(true)
+        if (refreshed && refreshed !== token) {
+          token = refreshed
+          statesRes = await fetchStates(token)
+        } else {
+          throw firstErr
+        }
+      } else {
+        throw firstErr
+      }
+    }
+
+    const entities = (statesRes.data ?? [])
+      .filter((e) => typeof e.entity_id === 'string' && e.entity_id.startsWith(`${domain}.`))
+      .sort((a, b) => a.entity_id.localeCompare(b.entity_id))
+      .map((e) => ({
+        entityId: e.entity_id,
+        friendlyName: e.attributes?.friendly_name ?? e.entity_id,
+        unit: e.attributes?.unit_of_measurement ?? null,
+      }))
+
+    res.json({ domain, entities })
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      const status = err.response?.status
+      if (status === 401 || status === 403) {
+        haEntitiesAuthCooldownUntilMs = Date.now() + HA_ENTITIES_AUTH_COOLDOWN_MS
+        logger.warn('HA entities auth failed; cooldown activated', {
+          status,
+          cooldownMs: HA_ENTITIES_AUTH_COOLDOWN_MS,
+        })
+        res.status(429).json({
+          error: 'Home Assistant authorization failed (401/403). Reconnect HA and retry after cooldown.',
+        })
+        return
+      }
+    }
+    logger.error('Failed to fetch Home Assistant entities', { err })
+    res.status(502).json({ error: 'Unable to load Home Assistant entities' })
+  }
+})
+
+export default router

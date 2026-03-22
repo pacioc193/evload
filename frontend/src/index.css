@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --ev-bg: #ffffff;
+    --ev-surface: #f3f3f7;
+    --ev-border: #dadbe3;
+    --ev-text: #26263a;
+    --ev-muted: #7e7e90;
+    --ev-accent: #e31937;
+  }
+
+  .dark {
+    --ev-bg: #0f0f0f;
+    --ev-surface: #1a1a1a;
+    --ev-border: #2a2a2a;
+    --ev-text: #f0f0f0;
+    --ev-muted: #888888;
+    --ev-accent: #e31937;
+  }
+}
+
+body {
+  @apply bg-evload-bg text-evload-text transition-colors duration-200;
+  font-family: system-ui, -apple-system, sans-serif;
+}

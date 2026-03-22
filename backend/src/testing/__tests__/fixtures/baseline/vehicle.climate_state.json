@@ -1,0 +1,7 @@
+{
+  "response": {
+    "inside_temp": 21,
+    "outside_temp": 12,
+    "is_climate_on": false
+  }
+}

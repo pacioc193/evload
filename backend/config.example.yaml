@@ -1,0 +1,115 @@
+# ============================================================
+# EVLOAD CONFIGURATION - DEFAULT VALUES
+# ============================================================
+# This is the example configuration file.
+# Copy to config.yaml and customize for your setup.
+# config.yaml is in .gitignore (not committed)
+
+# ============================================================
+# DEMO MODE
+# ============================================================
+demo: false
+
+# ============================================================
+# CHARGING PARAMETERS
+# ============================================================
+charging:
+  # Target state of charge percentage (1-100)
+  defaultTargetSoc: 80
+  
+  # Default charging current in amperes (5-48)
+  defaultAmps: 16
+  
+  # Maximum allowed charging current in amperes (5-48)
+  maxAmps: 32
+  
+  # Minimum allowed charging current in amperes (5-48)
+  minAmps: 5
+  
+  # Battery capacity in kWh (used for charge time estimation)
+  batteryCapacityKwh: 75
+  
+  # Interval in seconds between current adjustments during ramp-up/down
+  rampIntervalSec: 10
+  
+  # Retry timeout in milliseconds for charge start command
+  chargeStartRetryMs: 10000
+  
+  # Energy price in EUR per kWh (used for cost estimation)
+  energyPriceEurPerKwh: 0.30
+  
+  # If true, stops scheduled charging when manually started
+  stopChargeOnManualStart: false
+
+# ============================================================
+# CLIMATE CONTROL PARAMETERS
+# ============================================================
+climate:
+  # Default target temperature in Celsius
+  defaultTempC: 21
+
+# ============================================================
+# HOME ASSISTANT INTEGRATION
+# ============================================================
+homeAssistant:
+  # Home Assistant URL (include scheme and port)
+  url: "http://homeassistant.local:8123"
+  
+  # Entity ID for total home power consumption in watts
+  powerEntityId: "sensor.home_power"
+  
+  # Entity ID for charger power consumption in watts
+  chargerEntityId: "sensor.charger_power"
+  
+  # Maximum available power for home in watts
+  maxHomePowerW: 7000
+  
+  # Delay in seconds before resuming charging after throttling
+  resumeDelaySec: 30
+
+# ============================================================
+# TELEGRAM BOT INTEGRATION
+# ============================================================
+telegram:
+  # Enable Telegram bot notifications and commands
+  enabled: false
+  
+  # List of Telegram chat IDs allowed to control the bot
+  allowedChatIds: []
+  
+  # Notification rules: when to send what message
+  notifications:
+    rules: []
+    
+    # Example rule structure:
+    # - id: rule-unique-id
+    #   name: Charge Complete
+    #   enabled: true
+    #   event: charge_complete
+    #   template: "🔋 Charging complete! SOC: {soc}%"
+    #   condition: "soc >= 80"
+
+# ============================================================
+# PROXY / VEHICLE INTEGRATION  
+# ============================================================
+proxy:
+  # URL of Tesla proxy server (TeslaMate, etc)
+  url: "http://localhost:8080"
+  
+  # Vehicle ID in the proxy system
+  vehicleId: ""
+  
+  # Friendly name for the vehicle
+  vehicleName: ""
+
+  # Polling interval (ms) for vehicle_data status refresh
+  normalPollIntervalMs: 5000
+
+  # Anticipatory wake lead time (sec) - wakes vehicle before scheduled charge execution
+  scheduleLeadTimeSec: 1800
+  
+  # Validate TLS certificate (set false only for development with self-signed certs)
+  rejectUnauthorized: true
+
+  # TLS certificate validation for proxy HTTPS (set false only for self-signed certs in local dev)
+  rejectUnauthorized: true

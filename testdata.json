@@ -1,5 +1,6 @@
-http://192.168.1.111:8080/api/1/vehicles/LRWYGCFS9PC771409/vehicle_data
+api/1/vehicles/{VIN}/vehicle_data
 
+Veicolo sta dormendo
 {
   "response": {
     "result": false,
@@ -9,6 +10,8 @@ http://192.168.1.111:8080/api/1/vehicles/LRWYGCFS9PC771409/vehicle_data
   }
 }
 
+
+Veicolo sveglio
 {
   "response": {
     "result": true,
@@ -115,71 +118,13 @@ http://192.168.1.111:8080/api/1/vehicles/LRWYGCFS9PC771409/vehicle_data
       }
     }
   }
-}
 
-http://192.168.1.111:8080/api/1/vehicles/LRWYGCFS9PC771409/vehicle_data?endpoints=charge_state
-
-{
+  Veicolo non in range ( time out di 25 secondi nella risposta )
+  {
   "response": {
-    "result": true,
-    "reason": "The request was successfully processed.",
-    "vin": "-----------------------",
-    "command": "vehicle_data",
-    "response": {
-      "charge_state": {
-        "timestamp": 1773687509,
-        "charging_state": "Stopped",
-        "charge_limit_soc": 100,
-        "charge_limit_soc_std": 80,
-        "charge_limit_soc_min": 50,
-        "charge_limit_soc_max": 100,
-        "battery_heater_on": false,
-        "not_enough_power_to_heat": false,
-        "max_range_charge_counter": 5,
-        "fast_charger_present": false,
-        "fast_charger_type": "\u003Cnil\u003E",
-        "battery_range": 217.37991,
-        "est_battery_range": 280.17987,
-        "ideal_battery_range": 217.37991,
-        "battery_level": 86,
-        "usable_battery_level": 85,
-        "charge_energy_added": 0,
-        "charge_miles_added_rated": 0,
-        "charge_miles_added_ideal": 0,
-        "charger_voltage": 2,
-        "charger_pilot_current": 16,
-        "charger_actual_current": 0,
-        "charger_power": 0,
-        "trip_charging": false,
-        "charge_rate": 0,
-        "charge_port_door_open": true,
-        "scheduled_charging_mode": "ScheduledChargingModeStartAt",
-        "scheduled_departure_time": 1769932800,
-        "scheduled_departure_time_minutes": 0,
-        "supercharger_session_trip_planner": false,
-        "scheduled_charging_start_time": 1773702000000,
-        "scheduled_charging_pending": true,
-        "user_charge_enable_request": false,
-        "charge_enable_request": false,
-        "charger_phases": 0,
-        "charge_port_latch": "Engaged",
-        "charge_current_request": 16,
-        "charge_current_request_max": 16,
-        "charge_amps": 16,
-        "off_peak_charging_enabled": false,
-        "off_peak_charging_times": "weekdays",
-        "off_peak_hours_end_time": 0,
-        "preconditioning_enabled": false,
-        "preconditioning_times": "all_week",
-        "managed_charging_active": false,
-        "managed_charging_user_canceled": false,
-        "managed_charging_start_time": 0,
-        "charge_port_cold_weather_mode": false,
-        "charge_port_color": "ChargePortColorBlue",
-        "conn_charge_cable": "IEC",
-        "fast_charger_brand": "\u003Cnil\u003E",
-        "minutes_to_full_charge": 0
-      }
-    }
+    "result": false,
+    "reason": "Vehicle is not in range: ble: failed to scan for --------: context deadline exceeded",
+    "vin": "---------",
+    "command": "vehicle_data"
   }
 }

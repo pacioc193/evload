@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  evload:
+    build: .
+    ports:
+      - "${PORT:-3001}:3001"
+    volumes:
+      - evload-data:/app/backend/data
+      - evload-logs:/app/backend/logs
+      - ./config.yaml:/app/backend/config.yaml:ro
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  evload-data:
+  evload-logs:
