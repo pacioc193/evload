@@ -749,6 +749,16 @@ Accettazione letterale:
 - C4: Lo script stampa messaggi di stato in italiano per ogni fase con indicatori visivi (✅ / ❌).
 - C5: Lo script termina con codice di uscita `0` solo se entrambe le build sono riuscite.
 
+## F-47 Durata Sessione JWT Configurabile
+
+Requisito: "Il JWT deve essere generato dopo l'autenticazione e deve scadere dopo un tot di ore configurabile."
+Accettazione letterale:
+- C1: Il JWT viene emesso esclusivamente dopo una verifica password corretta (`POST /api/auth/login` o `POST /api/auth/setup`); le rotte API non autenticate non emettono token.
+- C2: La durata della sessione JWT è configurabile tramite la variabile d'ambiente `SESSION_HOURS` (intero positivo); il valore di default è `24` ore.
+- C3: La variabile `SESSION_HOURS` è documentata in `backend/.env.example` con valore di default e nota sul fallback in caso di valore non valido.
+- C4: Il frontend decodifica il campo `exp` del JWT lato client in `isAuthenticated()`; se il token è scaduto, viene rimosso automaticamente dallo store e l'utente viene reindirizzato al login senza attendere il successivo errore 401.
+- C5: La variabile `SESSION_HOURS` è documentata nella tabella delle variabili d'ambiente di `README.md`.
+
 ## Regola Finale Anti-Regressione
 
 Quando un item e' `VERIFIED`, rieseguire i test/build minimi e confermare che non rompe item gia' verificati.

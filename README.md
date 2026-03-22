@@ -432,6 +432,8 @@ The backend requires environment configuration at startup, typically via a `.env
 | `FRONTEND_URL` | Optional. Useful in dev to redirect OAuth callback to Vite frontend |
 | `PORT` | Optional backend HTTP port (default `3001`) |
 | `LOG_LEVEL` | Optional backend log level (default `info`) |
+| `SESSION_HOURS` | Optional. JWT session duration in hours issued at login (default `24`) |
+| `CORS_ORIGIN` | Optional. Allowed CORS origin in production; leave empty to allow all origins |
 
 ### YAML configuration
 
