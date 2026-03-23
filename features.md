@@ -697,6 +697,85 @@ Accettazione letterale:
 - C7: La UI Settings mostra feedback esplicito per stati auth invalid/cooldown/locked (es. reconnect richiesto o retry tra X secondi), evitando errori silenziosi.
 - C8: Build frontend/backend rimane verde dopo l'integrazione della logica auth hardening.
 
+## F-42 Sicurezza API End-to-End
+
+Requisito: "In produzione, ogni singola rotta del backend (tranne il login iniziale e i webhooks strettamente necessari) deve essere protetta. Validare la sicurezza dei WebSocket: anche la connessione WS deve richiedere l'autenticazione iniziale."
+Accettazione letterale:
+- C1: Tutte le rotte API (eccetto `GET /api/auth/*`, `GET /api/ha/callback`, `GET /api/health`) sono protette dal middleware `requireAuth` e restituiscono `401 Unauthorized` se il token JWT è assente o non valido.
+- C2: La connessione WebSocket (`/ws`) richiede un token JWT valido passato come query param `?token=<jwt>`; in assenza di token valido la connessione viene chiusa con codice `1008` (Policy Violation).
+- C3: Il frontend aggiunge automaticamente il token JWT all'URL WebSocket prima di aprire la connessione.
+- C4: Helmet è installato e attivo nel backend; imposta header di sicurezza HTTP standard (X-Content-Type-Options, X-Frame-Options, ecc.) compatibili con il serve dei file statici del frontend.
+- C5: Il CORS è configurato in produzione per accettare richieste solo dall'origine definita in `CORS_ORIGIN`; in sviluppo il CORS rimane aperto.
+- C6: La variabile `CORS_ORIGIN` è documentata nel file `.env.example` della root e nel `backend/.env.example`.
+
+## F-43 Deploy Semplificato Su Proxmox (Docker/Docker Compose)
+
+Requisito: "Preparare un docker-compose.yml ottimizzato per la produzione. Assicurarsi che i volumi per il database SQLite (.db) e per il file di configurazione (config.yaml) siano mappati all'esterno dei container."
+Accettazione letterale:
+- C1: Il `docker-compose.yml` include un healthcheck per il servizio `evload` che verifica `GET /api/health`.
+- C2: Il `docker-compose.yml` mappa un volume named `evload-db` per la directory dati del database SQLite (path container: `/app/backend/data`).
+- C3: Il `docker-compose.yml` mappa un volume named `evload-logs` per i log (path container: `/app/backend/logs`).
+- C4: Il `docker-compose.yml` include binding del file `config.yaml` dalla directory host verso il container in modalità read-write.
+- C5: Il `Dockerfile` include istruzione `HEALTHCHECK` coerente con il docker-compose.
+- C6: Il `docker-compose.yml` espone la variabile `NODE_ENV=production` nel container tramite la sezione `environment`.
+
+## F-44 Script Di Aggiornamento Facile (update.sh)
+
+Requisito: "Creare uno script shell update.sh che esegua automaticamente: pull delle ultime modifiche Git, rebuild dei container Docker, esecuzione automatica delle migrazioni database."
+Accettazione letterale:
+- C1: Il file `update.sh` esiste nella root del progetto ed è eseguibile (`chmod +x`).
+- C2: Lo script esegue `git pull` per scaricare le ultime modifiche.
+- C3: Lo script esegue `docker compose up -d --build` per ricostruire e riavviare i container.
+- C4: Lo script esegue `docker compose exec evload npx prisma migrate deploy` per applicare le migrazioni database.
+- C5: Lo script stampa messaggi di stato chiari in italiano per ogni fase.
+- C6: Lo script termina con codice di uscita non-zero se una delle fasi fallisce (set -e).
+
+## F-45 Robustezza In Produzione (Logging, Crash Handling, ENV)
+
+Requisito: "In produzione i log non devono riempire il disco. Il backend non deve spegnersi se una chiamata a HA o al proxy Tesla va in timeout. Assicurarsi che il passaggio da .env.development a .env.production sia fluido."
+Accettazione letterale:
+- C1: I trasporti file di Winston hanno `maxsize` configurato a 50 MB e `maxFiles: 5` per garantire log rotation automatica.
+- C2: Il backend gestisce `process.on('uncaughtException', ...)` con log dell'errore senza terminare il processo (salvo errori fatali dell'event loop).
+- C3: Il `backend/.env.example` documenta le variabili di produzione raccomandate: `NODE_ENV`, `LOG_LEVEL`, `CORS_ORIGIN`, `DATABASE_URL`, `JWT_SECRET`, `PORT`.
+- C4: Il `docker-compose.yml` passa `NODE_ENV=production` al container tramite la sezione `environment`.
+
+## F-46 Script Di Build Per La Produzione (build-prod.sh)
+
+Requisito: "Creare uno script build-prod.sh che prepari l'intero pacchetto per la produzione. Lo script deve: eseguire type checking, compilare il frontend, compilare il backend, fornire output chiaro su errori bloccanti."
+Accettazione letterale:
+- C1: Il file `build-prod.sh` esiste nella root del progetto ed è eseguibile.
+- C2: Lo script esegue `npm run build --prefix backend` e termina con errore esplicito se fallisce.
+- C3: Lo script esegue `npm run build --prefix frontend` e termina con errore esplicito se fallisce.
+- C4: Lo script stampa messaggi di stato in italiano per ogni fase con indicatori visivi (✅ / ❌).
+- C5: Lo script termina con codice di uscita `0` solo se entrambe le build sono riuscite.
+
+## F-47 Durata Sessione JWT Configurabile
+
+Requisito: "Il JWT deve essere generato dopo l'autenticazione e deve scadere dopo un tot di ore configurabile."
+Accettazione letterale:
+- C1: Il JWT viene emesso esclusivamente dopo una verifica password corretta (`POST /api/auth/login` o `POST /api/auth/setup`); le rotte API non autenticate non emettono token.
+- C2: La durata della sessione JWT è configurabile tramite la variabile d'ambiente `SESSION_HOURS` (intero positivo); il valore di default è `24` ore.
+- C3: La variabile `SESSION_HOURS` è documentata in `backend/.env.example` con valore di default e nota sul fallback in caso di valore non valido.
+- C4: Il frontend decodifica il campo `exp` del JWT lato client in `isAuthenticated()`; se il token è scaduto, viene rimosso automaticamente dallo store e l'utente viene reindirizzato al login senza attendere il successivo errore 401.
+- C5: La variabile `SESSION_HOURS` è documentata nella tabella delle variabili d'ambiente di `README.md`.
+
+## F-48 Log Verbosi In Produzione + Download Log Da Settings
+
+Requisito: "I log in produzione devono essere il più parlanti possibile; le operazioni critiche (set_amp, start_charge, stop_charge, plan, failsafe, HA throttle) devono essere ben marcate e motivate. Nel pannello Settings, se autenticato, deve essere possibile scaricare i log frontend e backend."
+Accettazione letterale:
+- C1: Ogni operazione critica del motore emette un `logger.info` o `logger.warn` strutturato con tag emoji identificativo e tutti i campi di contesto rilevanti (vehicleId, sessionId, valori prima/dopo, motivo dell'azione).
+- C2: I tag obbligatori sono almeno: `🚀 [START_ENGINE]`, `🏁 [STOP_ENGINE]`, `🔌 [CHARGE_START]`, `🛑 [CHARGE_STOP]`, `⚡ [SET_AMP]`, `🗓️ [PLAN_MODE]`, `⛔ [HA_THROTTLE]`, `🚨 [FAILSAFE]`.
+- C3: `[SET_AMP]` include sempre: vehicleId, sessionId, motivo (`ramp_up`/`ramp_down`/`ha_throttle`), amperaggio precedente, nuovo amperaggio, target, potenza casa corrente.
+- C4: `[START_ENGINE]` include: sessionId, targetSoc, targetAmps, modalità (plan/manual), vehicleId, prezzoEnergia, limiti amp.
+- C5: `[STOP_ENGINE]` include: sessionId, energia totale kWh, costo totale €, SoC finale, forceOff.
+- C6: In Settings esiste un pannello collassabile "Logs" (default: chiuso) visibile solo se autenticato.
+- C7: Il pannello Logs espone pulsanti per scaricare `combined.log` e `error.log` dal backend (endpoint `GET /api/settings/logs/backend?type=combined|error`, autenticato, rate-limited 10/min).
+- C8: Il pannello Logs espone pulsanti per scaricare i log frontend localmente e per caricarli sul server (`POST /api/settings/logs/frontend`) con successivo download (`GET /api/settings/logs/frontend`).
+- C9: Il frontend usa un logger circolare (`flog`) in `src/utils/frontendLogger.ts` con buffer da 2000 entry e cap localStorage a 512 KB; espone `flog.info/warn/error/debug(tag, msg, meta?)`.
+- C10: Il file `frontend.log` lato server non supera 10 MB; al superamento viene ruotato automaticamente con timestamp nel nome.
+- C11: Le azioni utente critiche in Dashboard (start/stop/plan/wake) e in Settings (save, HA connect, change password) emettono entry `flog` con contesto rilevante.
+- C12: Il pannello Logs mostra un'anteprima live delle ultime 20 entry frontend con color-coding per livello (error=rosso, warn=giallo, info/debug=muted).
+
 ## Regola Finale Anti-Regressione
 
 Quando un item e' `VERIFIED`, rieseguire i test/build minimi e confermare che non rompe item gia' verificati.

@@ -38,7 +38,10 @@ async function getJwtSecret(): Promise<string> {
   return cachedJwtSecret
 }
 
-const SESSION_HOURS = 2
+const SESSION_HOURS = (() => {
+  const val = parseInt(process.env.SESSION_HOURS ?? '', 10)
+  return val > 0 ? val : 24
+})()
 
 export async function isFirstLaunch(): Promise<boolean> {
   const rec = await prisma.appConfig.findUnique({ where: { id: 1 } })

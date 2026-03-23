@@ -15,7 +15,7 @@ RUN npm run build
 
 FROM node:20-alpine AS production
 WORKDIR /app
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl wget
 
 COPY --from=backend-builder /app/backend/dist ./backend/dist
 COPY --from=backend-builder /app/backend/node_modules ./backend/node_modules
@@ -27,4 +27,6 @@ WORKDIR /app/backend
 ENV NODE_ENV=production
 
 EXPOSE 3001
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+  CMD wget -qO- http://localhost:3001/api/health || exit 1
 CMD ["node", "dist/index.js"]

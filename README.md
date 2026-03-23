@@ -47,7 +47,8 @@ evload/
 │   └── src/
 │       ├── api/              Axios API client
 │       ├── pages/            Dashboard, schedule, settings, statistics
-│       └── store/            Zustand stores
+│       ├── store/            Zustand stores
+│       └── utils/            Frontend utilities (frontendLogger)
 ├── docker-compose.yml
 ├── Dockerfile
 ├── install.ps1
@@ -145,6 +146,8 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Failsafe protection with automatic reset on proxy reconnect
 - Telegram notifications with dynamic event catalog and configurable rules
 - Demo/simulator mode for development without a real Tesla
+- **Verbose production logging**: every critical engine operation (`charge_start`, `charge_stop`, `set_charging_amps`, engine start/stop, HA throttle, failsafe, plan mode) emits a structured log entry with emoji-prefixed tag, context values (vehicleId, sessionId, before/after amps, reasons, costs) for post-mortem analysis of overnight sessions
+- **Log download from Settings**: authenticated Settings panel lets operators download backend `combined.log` / `error.log` and frontend browser logs directly from the UI
 
 ## Prerequisites
 
@@ -251,6 +254,168 @@ Open:
 
 - `http://localhost:3001`
 
+## Deploying on Proxmox
+
+This section describes how to run evload on a [Proxmox VE](https://www.proxmox.com/) host using an LXC container with Docker inside it.
+
+### Prerequisites
+
+- Proxmox VE 7 or newer installed and running
+- Access to the Proxmox web UI or shell
+- An internet-connected Proxmox node (to pull the container template and Docker images)
+
+### 1. Create an LXC container
+
+In the Proxmox web UI:
+
+1. Click **Create CT** in the top-right corner.
+2. Fill in the **General** tab:
+   - Set a **Hostname** (e.g. `evload`)
+   - Set a root password or upload an SSH public key
+3. **Template** tab: download and select a **Debian 12** (bookworm) or **Ubuntu 24.04** template.
+4. **Disks** tab: allocate at least **8 GB** of disk space.
+5. **CPU** tab: assign at least **1 core** (2 recommended).
+6. **Memory** tab: assign at least **512 MB** RAM (1024 MB recommended).
+7. **Network** tab: configure as needed (DHCP or a static IP on your LAN).
+8. Finish the wizard but **do not start** the container yet.
+
+### 2. Enable nesting for Docker
+
+Docker requires Linux kernel namespaces and cgroups that must be explicitly allowed in LXC. In the Proxmox web UI:
+
+1. Select your new container in the left panel.
+2. Go to **Options** → **Features**.
+3. Enable **Nesting** and **keyctl**.
+4. Click **OK**.
+
+Alternatively, edit the container config directly on the Proxmox host shell:
+
+```bash
+# Replace 100 with your container ID
+echo "features: keyctl=1,nesting=1" >> /etc/pve/lxc/100.conf
+```
+
+Now start the container:
+
+```bash
+pct start 100
+```
+
+### 3. Enter the container and install Docker
+
+Open a shell into the container (Proxmox web UI → container → **Console**, or from the Proxmox host):
+
+```bash
+pct enter 100
+```
+
+Inside the container, install Docker using the official convenience script:
+
+```bash
+apt-get update && apt-get install -y curl
+curl -fsSL https://get.docker.com | sh
+```
+
+Verify the installation:
+
+```bash
+docker --version
+docker compose version
+```
+
+### 4. Clone the repository
+
+```bash
+apt-get install -y git
+git clone https://github.com/pacioc193/evload.git
+cd evload
+```
+
+### 5. Prepare configuration files
+
+Create the required `.env` and `config.yaml` files from the provided examples:
+
+```bash
+cp backend/.env.example .env
+cp backend/config.example.yaml config.yaml
+```
+
+Open `.env` and set at minimum:
+
+```dotenv
+DATABASE_URL=file:/app/backend/data/db.sqlite
+JWT_SECRET=<replace-with-a-long-random-string>
+```
+
+Open `config.yaml` and configure the `proxy` section to point to your [TeslaBleHttpProxy](https://github.com/wimaha/TeslaBleHttpProxy) instance:
+
+```yaml
+proxy:
+  url: http://<proxy-host>:8080
+  vehicleId: <your-vehicle-VIN>
+  vehicleName: My Tesla
+```
+
+Refer to the [Configuration](#configuration) section below for all available options.
+
+### 6. Start the stack
+
+```bash
+docker compose up -d --build
+```
+
+The first build downloads dependencies and compiles the frontend, which may take a few minutes. Subsequent starts are instant.
+
+Check that the container is running and healthy:
+
+```bash
+docker compose ps
+docker compose logs -f
+```
+
+The application is available at:
+
+```
+http://<container-ip>:3001
+```
+
+Find the container IP with:
+
+```bash
+ip addr show eth0
+```
+
+### 7. First launch
+
+Open the application in a browser and follow the on-screen prompt to set the application password.
+
+### 8. Auto-start on Proxmox reboot
+
+The `docker-compose.yml` already sets `restart: unless-stopped`, so evload restarts automatically whenever the LXC container is started.
+
+To also start the container automatically when the Proxmox host boots:
+
+1. In the Proxmox web UI, select the container.
+2. Go to **Options** → **Start at boot** and enable it.
+
+Or from the Proxmox host shell:
+
+```bash
+pct set 100 --onboot 1
+```
+
+### 9. Updating evload
+
+To pull the latest changes and rebuild:
+
+```bash
+cd evload
+git pull
+docker compose up -d --build
+```
+
+Old images are replaced automatically and data volumes are preserved.
+
 ## Configuration
 
 ### Environment variables
@@ -270,6 +435,8 @@ The backend requires environment configuration at startup, typically via a `.env
 | `FRONTEND_URL` | Optional. Useful in dev to redirect OAuth callback to Vite frontend |
 | `PORT` | Optional backend HTTP port (default `3001`) |
 | `LOG_LEVEL` | Optional backend log level (default `info`) |
+| `SESSION_HOURS` | Optional. JWT session duration in hours issued at login (default `24`) |
+| `CORS_ORIGIN` | Optional. Allowed CORS origin in production; leave empty to allow all origins |
 
 ### YAML configuration
 
@@ -297,7 +464,7 @@ Relevant proxy fields:
 
 ## Settings UI
 
-The Settings page exposes four collapsible panels:
+The Settings page exposes five collapsible panels:
 
 **Home Assistant**
 - HA URL, Home Power Entity ID, Charger Power Entity ID
@@ -320,8 +487,18 @@ The Settings page exposes four collapsible panels:
 - Min/Max/Default charging amps, HA Resume Delay
 - Stop Charging On Start toggle: if enabled, a manual start action sends stop instead of start
 
+**Security**
+- Change login password
+
 **YAML**
 - Full raw config.yaml editor for advanced configuration
+
+**Logs** *(requires authentication)*
+- Download backend `combined.log` (all server log output)
+- Download backend `error.log` (errors only)
+- Download frontend log locally (browser-side circular buffer, up to 2 000 entries)
+- Upload frontend log buffer to server and download the consolidated `frontend.log`
+- Live preview of the last 20 frontend log entries with level color-coding
 
 ## Demo Mode And Simulator
 
@@ -390,6 +567,9 @@ Useful endpoints for runtime operations:
 | `GET /api/settings` | Structured settings read |
 | `PATCH /api/settings` | Structured settings write |
 | `GET /api/schedule/next-charge` | Resolve next real planned charge |
+| `GET /api/settings/logs/backend?type=combined\|error` | Download backend log file (auth required) |
+| `POST /api/settings/logs/frontend` | Ingest frontend log buffer on server (auth required) |
+| `GET /api/settings/logs/frontend` | Download accumulated frontend log file (auth required) |
 
 ## Testing
 
@@ -416,6 +596,9 @@ Current repository validation path typically includes:
 - Polling `GET /vehicle_data` is sleep-safe and does not establish a BLE connection when the vehicle is asleep.
 - Commands (charge_start, charge_stop, set_charging_amps) automatically wake the vehicle via the proxy; EVLoad guards against sending them to a sleeping vehicle.
 - The engine log carries over the last 20 lines from the previous session so stop-engine entries remain visible after a new session starts.
+- Every critical engine action emits a structured `logger.info`/`logger.warn` with an emoji-prefixed tag (`🚀`, `🛑`, `🔌`, `⚡`, `🏁`, `🗓️`, `⛔`, `🚨`) and full context (vehicleId, sessionId, before/after values, reasons) to enable post-mortem analysis of overnight sessions.
+- Backend log files are written to the `logs/` directory; they can be downloaded directly from the authenticated Settings → Logs panel.
+- The frontend maintains a circular log buffer (`flog`) that persists to localStorage and can be uploaded to the server or downloaded locally from the same Logs panel.
 
 ## Status And Roadmap Notes
 
