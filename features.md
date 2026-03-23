@@ -759,6 +759,23 @@ Accettazione letterale:
 - C4: Il frontend decodifica il campo `exp` del JWT lato client in `isAuthenticated()`; se il token è scaduto, viene rimosso automaticamente dallo store e l'utente viene reindirizzato al login senza attendere il successivo errore 401.
 - C5: La variabile `SESSION_HOURS` è documentata nella tabella delle variabili d'ambiente di `README.md`.
 
+## F-48 Log Verbosi In Produzione + Download Log Da Settings
+
+Requisito: "I log in produzione devono essere il più parlanti possibile; le operazioni critiche (set_amp, start_charge, stop_charge, plan, failsafe, HA throttle) devono essere ben marcate e motivate. Nel pannello Settings, se autenticato, deve essere possibile scaricare i log frontend e backend."
+Accettazione letterale:
+- C1: Ogni operazione critica del motore emette un `logger.info` o `logger.warn` strutturato con tag emoji identificativo e tutti i campi di contesto rilevanti (vehicleId, sessionId, valori prima/dopo, motivo dell'azione).
+- C2: I tag obbligatori sono almeno: `🚀 [START_ENGINE]`, `🏁 [STOP_ENGINE]`, `🔌 [CHARGE_START]`, `🛑 [CHARGE_STOP]`, `⚡ [SET_AMP]`, `🗓️ [PLAN_MODE]`, `⛔ [HA_THROTTLE]`, `🚨 [FAILSAFE]`.
+- C3: `[SET_AMP]` include sempre: vehicleId, sessionId, motivo (`ramp_up`/`ramp_down`/`ha_throttle`), amperaggio precedente, nuovo amperaggio, target, potenza casa corrente.
+- C4: `[START_ENGINE]` include: sessionId, targetSoc, targetAmps, modalità (plan/manual), vehicleId, prezzoEnergia, limiti amp.
+- C5: `[STOP_ENGINE]` include: sessionId, energia totale kWh, costo totale €, SoC finale, forceOff.
+- C6: In Settings esiste un pannello collassabile "Logs" (default: chiuso) visibile solo se autenticato.
+- C7: Il pannello Logs espone pulsanti per scaricare `combined.log` e `error.log` dal backend (endpoint `GET /api/settings/logs/backend?type=combined|error`, autenticato, rate-limited 10/min).
+- C8: Il pannello Logs espone pulsanti per scaricare i log frontend localmente e per caricarli sul server (`POST /api/settings/logs/frontend`) con successivo download (`GET /api/settings/logs/frontend`).
+- C9: Il frontend usa un logger circolare (`flog`) in `src/utils/frontendLogger.ts` con buffer da 2000 entry e cap localStorage a 512 KB; espone `flog.info/warn/error/debug(tag, msg, meta?)`.
+- C10: Il file `frontend.log` lato server non supera 10 MB; al superamento viene ruotato automaticamente con timestamp nel nome.
+- C11: Le azioni utente critiche in Dashboard (start/stop/plan/wake) e in Settings (save, HA connect, change password) emettono entry `flog` con contesto rilevante.
+- C12: Il pannello Logs mostra un'anteprima live delle ultime 20 entry frontend con color-coding per livello (error=rosso, warn=giallo, info/debug=muted).
+
 ## Regola Finale Anti-Regressione
 
 Quando un item e' `VERIFIED`, rieseguire i test/build minimi e confermare che non rompe item gia' verificati.

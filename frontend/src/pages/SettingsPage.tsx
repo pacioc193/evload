@@ -11,14 +11,18 @@ import {
   patchSettings,
   type AppSettings,
   type HaTokenStatus,
+  downloadBackendLog,
+  downloadFrontendLogFromBackend,
+  uploadFrontendLogs,
 } from '../api/index'
 import { changePassword } from '../api/auth'
-import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock } from 'lucide-react'
+import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useNavigate } from 'react-router-dom'
 import { useWsStore } from '../store/wsStore'
+import { flog, downloadFrontendLogs, serializeLogsForUpload, getLogEntries } from '../utils/frontendLogger'
 
-type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'security' | 'yaml'
+type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'security' | 'yaml' | 'logs'
 
 const SETTINGS_PANEL_STATE_KEY = 'evload.settings.expandedPanels'
 
@@ -28,6 +32,7 @@ const defaultExpandedPanels: Record<PanelKey, boolean> = {
   engine: true,
   security: false,
   yaml: false,
+  logs: false,
 }
 
 function readExpandedPanels(): Record<PanelKey, boolean> {
@@ -41,6 +46,7 @@ function readExpandedPanels(): Record<PanelKey, boolean> {
       engine: typeof parsed.engine === 'boolean' ? parsed.engine : defaultExpandedPanels.engine,
       security: typeof parsed.security === 'boolean' ? parsed.security : defaultExpandedPanels.security,
       yaml: typeof parsed.yaml === 'boolean' ? parsed.yaml : defaultExpandedPanels.yaml,
+      logs: typeof parsed.logs === 'boolean' ? parsed.logs : defaultExpandedPanels.logs,
     }
   } catch {
     return defaultExpandedPanels
@@ -113,6 +119,12 @@ function Field({
   )
 }
 
+function logLevelColor(level: string): string {
+  if (level === 'error') return 'text-evload-error'
+  if (level === 'warn') return 'text-yellow-400'
+  return 'text-evload-muted'
+}
+
 export default function SettingsPage() {
   const [configContent, setConfigContent] = useState('')
   const [saving, setSaving] = useState(false)
@@ -130,6 +142,11 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordMsg, setPasswordMsg] = useState('')
   const [changingPassword, setChangingPassword] = useState(false)
+
+  // Logs panel
+  const [logMsg, setLogMsg] = useState('')
+  const [logError, setLogError] = useState(false)
+  const [logBusy, setLogBusy] = useState(false)
   
   const clearToken = useAuthStore((s) => s.clearToken)
   const navigate = useNavigate()
@@ -235,12 +252,16 @@ export default function SettingsPage() {
     setSaving(true)
     setConfigMessage('')
     try {
+      flog.info('SETTINGS', 'Saving YAML config')
       await saveConfig(configContent)
       setConfigMessage('Config saved successfully')
       const updated = await getSettings()
       setSettings(updated)
+      flog.info('SETTINGS', 'YAML config saved successfully')
     } catch (err: unknown) {
-      setConfigMessage(`Save failed: ${err instanceof Error ? err.message : 'unknown error'}`)
+      const msg = `Save failed: ${err instanceof Error ? err.message : 'unknown error'}`
+      setConfigMessage(msg)
+      flog.error('SETTINGS', 'YAML config save failed', { error: String(err) })
     } finally {
       setSaving(false)
       setTimeout(() => setConfigMessage(''), 4000)
@@ -250,14 +271,18 @@ export default function SettingsPage() {
   const handleHaConnect = async () => {
     setHaAuthMessage('')
     try {
+      flog.info('HA', 'Initiating Home Assistant OAuth flow')
       const returnTo = `${window.location.origin}/settings`
       const { url } = await getHaAuthorizeUrl(returnTo)
+      flog.info('HA', 'Redirecting to HA authorize URL')
       window.location.assign(url)
     } catch (err) {
       const backendMessage = axios.isAxiosError(err)
         ? err.response?.data?.error
         : null
-      setHaAuthMessage(typeof backendMessage === 'string' ? backendMessage : 'Failed to get HA authorization URL')
+      const msg = typeof backendMessage === 'string' ? backendMessage : 'Failed to get HA authorization URL'
+      setHaAuthMessage(msg)
+      flog.error('HA', 'Failed to initiate HA OAuth flow', { error: msg })
     }
   }
 
@@ -265,12 +290,15 @@ export default function SettingsPage() {
     if (!settings) return
     setSettingsMsg('')
     try {
+      flog.info('SETTINGS', 'Saving structured settings', { haUrl: settings.haUrl, proxyUrl: settings.proxyUrl })
       await patchSettings(settings)
       const fresh = await getConfig()
       setConfigContent(fresh.content)
       setSettingsMsg('Settings saved')
-    } catch {
+      flog.info('SETTINGS', 'Structured settings saved successfully')
+    } catch (err) {
       setSettingsMsg('Save failed')
+      flog.error('SETTINGS', 'Structured settings save failed', { error: String(err) })
     } finally {
       setTimeout(() => setSettingsMsg(''), 4000)
     }
@@ -309,17 +337,21 @@ export default function SettingsPage() {
 
     setChangingPassword(true)
     try {
+      flog.info('SECURITY', 'Password change requested')
       await changePassword(currentPassword, newPassword, confirmPassword)
       setPasswordMsg('✅ Password changed successfully')
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
+      flog.info('SECURITY', 'Password changed successfully')
       setTimeout(() => setPasswordMsg(''), 4000)
     } catch (err) {
       if (axios.isAxiosError(err) && err.response?.data?.error) {
         setPasswordMsg(err.response.data.error)
+        flog.warn('SECURITY', 'Password change failed', { error: err.response.data.error })
       } else {
         setPasswordMsg('Failed to change password. Please try again.')
+        flog.error('SECURITY', 'Password change error', { error: String(err) })
       }
     } finally {
       setChangingPassword(false)
@@ -345,6 +377,53 @@ export default function SettingsPage() {
   const tokenRemainingText = haTokenStatus?.secondsRemaining == null
     ? 'Unknown'
     : `${Math.floor(haTokenStatus.secondsRemaining / 60)}m ${haTokenStatus.secondsRemaining % 60}s`
+
+  const handleDownloadBackendLog = async (type: 'combined' | 'error') => {
+    setLogBusy(true)
+    setLogMsg('')
+    setLogError(false)
+    try {
+      flog.info('LOGS', `Backend ${type} log download requested`)
+      await downloadBackendLog(type)
+      flog.info('LOGS', `Backend ${type} log downloaded`)
+      setLogMsg(`Backend ${type} log downloaded`)
+    } catch (err) {
+      const msg = `Download failed: ${err instanceof Error ? err.message : 'unknown error'}`
+      setLogMsg(msg)
+      setLogError(true)
+      flog.error('LOGS', `Backend ${type} log download failed`, { error: String(err) })
+    } finally {
+      setLogBusy(false)
+      setTimeout(() => setLogMsg(''), 5000)
+    }
+  }
+
+  const handleDownloadFrontendLog = () => {
+    flog.info('LOGS', 'Frontend log download requested (local)')
+    downloadFrontendLogs()
+  }
+
+  const handleUploadAndDownloadFrontendLog = async () => {
+    setLogBusy(true)
+    setLogMsg('')
+    setLogError(false)
+    try {
+      flog.info('LOGS', 'Uploading frontend logs to backend for server-side persistence')
+      const serialized = serializeLogsForUpload()
+      await uploadFrontendLogs(serialized)
+      flog.info('LOGS', 'Frontend logs uploaded successfully, downloading from backend')
+      await downloadFrontendLogFromBackend()
+      setLogMsg('Frontend log uploaded and downloaded')
+    } catch (err) {
+      const msg = `Operation failed: ${err instanceof Error ? err.message : 'unknown error'}`
+      setLogMsg(msg)
+      setLogError(true)
+      flog.error('LOGS', 'Frontend log upload/download failed', { error: String(err) })
+    } finally {
+      setLogBusy(false)
+      setTimeout(() => setLogMsg(''), 5000)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -740,6 +819,93 @@ export default function SettingsPage() {
           {configMessage && (
             <p className={`text-sm ${configMessage.includes('failed') || configMessage.includes('Failed') ? 'text-evload-error' : 'text-evload-success'}`}>
               {configMessage}
+            </p>
+          )}
+        </div>
+      </CollapsiblePanel>
+
+      <CollapsiblePanel
+        title="Logs"
+        subtitle="Download backend and frontend logs for diagnostics and troubleshooting."
+        expanded={expandedPanels.logs}
+        onToggle={() => togglePanel('logs')}
+        action={<FileText size={18} className="text-evload-muted" />}
+      >
+        <div className="pt-5 space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Backend logs */}
+            <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4 space-y-3">
+              <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Backend Logs</h4>
+              <p className="text-xs text-evload-muted">Server-side logs including engine operations, charging commands, HA events, and errors.</p>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => handleDownloadBackendLog('combined')}
+                  disabled={logBusy}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
+                >
+                  <FileDown size={14} />Download combined.log
+                </button>
+                <button
+                  onClick={() => handleDownloadBackendLog('error')}
+                  disabled={logBusy}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
+                >
+                  <FileDown size={14} />Download error.log
+                </button>
+              </div>
+            </div>
+
+            {/* Frontend logs */}
+            <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4 space-y-3">
+              <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Frontend Logs</h4>
+              <p className="text-xs text-evload-muted">Browser-side log buffer capturing user actions, settings changes, and client-side errors.</p>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={handleDownloadFrontendLog}
+                  disabled={logBusy}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
+                >
+                  <FileDown size={14} />Download locally ({getLogEntries().length} entries)
+                </button>
+                <button
+                  onClick={handleUploadAndDownloadFrontendLog}
+                  disabled={logBusy}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
+                >
+                  <FileDown size={14} />{logBusy ? 'Working...' : 'Upload & download from server'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent frontend log entries preview */}
+          {expandedPanels.logs && (() => {
+            const entries = getLogEntries().slice(-20).reverse()
+            if (entries.length === 0) return null
+            return (
+              <div className="space-y-2">
+                <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Recent Frontend Events (last 20)</h4>
+                <div className="rounded-lg border border-evload-border bg-evload-bg overflow-hidden">
+                  <div className="max-h-64 overflow-y-auto font-mono text-xs p-3 space-y-0.5">
+                    {entries.map((e, i) => (
+                      <div key={i} className={logLevelColor(e.level)}>
+                        <span className="opacity-60">{new Date(e.ts).toLocaleTimeString()}</span>
+                        {' '}
+                        <span className="font-bold">[{e.tag}]</span>
+                        {' '}
+                        {e.msg}
+                        {e.meta ? <span className="opacity-50"> {JSON.stringify(e.meta)}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
+          {logMsg && (
+            <p className={`text-sm ${logError ? 'text-evload-error' : 'text-evload-success'}`}>
+              {logMsg}
             </p>
           )}
         </div>

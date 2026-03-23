@@ -202,6 +202,54 @@ export async function getTelegramPlaceholders() {
   return res.data as TelegramPlaceholdersResponse
 }
 
+// ─── Logs ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Download the backend combined or error log as a file.
+ * Triggers a browser file download.
+ */
+export async function downloadBackendLog(type: 'combined' | 'error' = 'combined'): Promise<void> {
+  const res = await api.get(`/settings/logs/backend`, {
+    params: { type },
+    responseType: 'blob',
+  })
+  const blob = new Blob([res.data as BlobPart], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  const filename = type === 'error' ? 'evload-backend-error.log' : 'evload-backend-combined.log'
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * Download the persisted frontend log from the backend.
+ * Triggers a browser file download.
+ */
+export async function downloadFrontendLogFromBackend(): Promise<void> {
+  const res = await api.get('/settings/logs/frontend', { responseType: 'blob' })
+  const blob = new Blob([res.data as BlobPart], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'evload-frontend.log'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * Upload the current frontend log buffer to the backend for server-side persistence.
+ */
+export async function uploadFrontendLogs(logs: string): Promise<{ success: boolean }> {
+  const res = await api.post('/settings/logs/frontend', { logs })
+  return res.data as { success: boolean }
+}
+
 // ─── Scheduling ──────────────────────────────────────────────────────────────
 
 export interface ScheduledCharge {
