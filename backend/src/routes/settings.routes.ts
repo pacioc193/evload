@@ -20,6 +20,7 @@ import { getTelegramPrerequisiteStatus, initTelegram } from '../services/telegra
 const CONFIG_PATH = process.env.CONFIG_PATH ?? path.join(process.cwd(), 'config.yaml')
 const ENV_PATH = path.join(process.cwd(), '.env')
 const EXAMPLE_PATH = path.join(__dirname, '../../config.example.yaml')
+const LOG_DIR = path.join(process.cwd(), 'logs')
 
 const router = Router()
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 })
@@ -371,6 +372,111 @@ router.get('/telegram/placeholders', limiter, requireAuth, (_req, res) => {
       schemas: catalog.schemas || {},
     },
   })
+})
+
+// ─── Log Download ─────────────────────────────────────────────────────────────
+
+const logDownloadLimiter = rateLimit({ windowMs: 60 * 1000, max: 10 })
+
+router.get('/logs/backend', logDownloadLimiter, requireAuth, (req, res) => {
+  const type = (req.query.type as string) === 'error' ? 'error' : 'combined'
+  const filename = type === 'error' ? 'error.log' : 'combined.log'
+  const logPath = path.join(LOG_DIR, filename)
+
+  if (!fs.existsSync(logPath)) {
+    res.status(404).json({ error: `Log file '${filename}' not found` })
+    return
+  }
+
+  const stat = fs.statSync(logPath)
+  logger.info('📥 [LOGS] Backend log download requested', {
+    type,
+    filename,
+    sizeBytes: stat.size,
+    remoteIp: req.ip,
+  })
+
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+  res.setHeader('Content-Length', stat.size)
+
+  const stream = fs.createReadStream(logPath)
+  stream.on('error', (err) => {
+    logger.error('Failed to stream backend log file', { err, filename })
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to read log file' })
+    }
+  })
+  stream.pipe(res)
+})
+
+router.post('/logs/frontend', logDownloadLimiter, requireAuth, (req, res) => {
+  const { logs } = req.body as { logs?: string }
+  if (!logs || typeof logs !== 'string') {
+    res.status(400).json({ error: 'logs string is required' })
+    return
+  }
+
+  const frontendLogPath = path.join(LOG_DIR, 'frontend.log')
+  const MAX_FRONTEND_LOG_SIZE = 10 * 1024 * 1024 // 10 MB
+
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true })
+
+    // Rotate if the file exceeds the size limit
+    if (fs.existsSync(frontendLogPath)) {
+      const stat = fs.statSync(frontendLogPath)
+      if (stat.size >= MAX_FRONTEND_LOG_SIZE) {
+        const rotatedPath = path.join(LOG_DIR, `frontend.log.${Date.now()}.bak`)
+        fs.renameSync(frontendLogPath, rotatedPath)
+        logger.info('📋 [LOGS] frontend.log rotated due to size limit', {
+          sizeBytes: stat.size,
+          rotatedTo: rotatedPath,
+        })
+      }
+    }
+
+    const timestamp = new Date().toISOString()
+    const header = `\n\n===== Frontend log upload at ${timestamp} =====\n`
+    fs.appendFileSync(frontendLogPath, header + logs + '\n', 'utf8')
+    logger.info('📋 [LOGS] Frontend logs ingested and appended', {
+      timestamp,
+      remoteIp: req.ip,
+      sizeBytes: logs.length,
+    })
+    res.json({ success: true })
+  } catch (err) {
+    logger.error('Failed to save frontend logs', { err })
+    res.status(500).json({ error: 'Failed to save frontend logs' })
+  }
+})
+
+router.get('/logs/frontend', logDownloadLimiter, requireAuth, (req, res) => {
+  const frontendLogPath = path.join(LOG_DIR, 'frontend.log')
+
+  if (!fs.existsSync(frontendLogPath)) {
+    res.status(404).json({ error: 'Frontend log file not found' })
+    return
+  }
+
+  const stat = fs.statSync(frontendLogPath)
+  logger.info('📥 [LOGS] Frontend log download requested', {
+    sizeBytes: stat.size,
+    remoteIp: req.ip,
+  })
+
+  res.setHeader('Content-Disposition', 'attachment; filename="frontend.log"')
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+  res.setHeader('Content-Length', stat.size)
+
+  const stream = fs.createReadStream(frontendLogPath)
+  stream.on('error', (err) => {
+    logger.error('Failed to stream frontend log file', { err })
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to read frontend log file' })
+    }
+  })
+  stream.pipe(res)
 })
 
 export default router

@@ -3,6 +3,7 @@ import { useWsStore } from '../store/wsStore'
 import { startCharging, stopCharging, setPlanMode, wakeVehicle, getNextPlannedCharge, NextPlannedCharge } from '../api/index'
 import { WifiOff, Car, Clock3, Home, Zap as ZapIcon, ChevronDown, ChevronRight } from 'lucide-react'
 import { clsx } from 'clsx'
+import { flog } from '../utils/frontendLogger'
 
 type ChargeMode = 'off' | 'plan' | 'on'
 
@@ -485,12 +486,33 @@ export default function DashboardPage() {
     setLoading(true)
     try {
       if (mode === 'off') {
+        flog.info('SESSION', 'Stopping charge (user action)', {
+          previousMode: chargeMode,
+          currentSoc: vehicle?.stateOfCharge,
+        })
         await stopCharging()
+        flog.info('SESSION', 'Charge stopped successfully')
       } else if (mode === 'plan') {
-        await setPlanMode(nextCharge?.targetSoc ?? Math.max(1, manualTargetSoc))
+        const targetSoc = nextCharge?.targetSoc ?? Math.max(1, manualTargetSoc)
+        flog.info('SESSION', 'Setting plan mode (user action)', {
+          targetSoc,
+          scheduledAt: nextCharge?.computedStartAt,
+        })
+        await setPlanMode(targetSoc)
+        flog.info('SESSION', 'Plan mode set successfully', { targetSoc })
       } else {
-        await startCharging(Math.max(1, manualTargetSoc))
+        const targetSoc = Math.max(1, manualTargetSoc)
+        flog.info('SESSION', 'Starting charge immediately (user action)', {
+          targetSoc,
+          currentSoc: vehicle?.stateOfCharge,
+          vehicleConnected: vehicle?.connected,
+          vehiclePluggedIn: vehicle?.pluggedIn,
+        })
+        await startCharging(targetSoc)
+        flog.info('SESSION', 'Charge start command sent', { targetSoc })
       }
+    } catch (err) {
+      flog.error('SESSION', `Failed to apply mode '${mode}'`, { error: String(err) })
     } finally {
       setLoading(false)
     }
@@ -508,7 +530,14 @@ export default function DashboardPage() {
     if (waking) return
     setWaking(true)
     try {
+      flog.info('SESSION', 'Wake vehicle requested', {
+        sleepStatus: vehicle?.vehicleSleepStatus,
+        chargingState: vehicle?.chargingState,
+      })
       await wakeVehicle()
+      flog.info('SESSION', 'Wake vehicle command sent')
+    } catch (err) {
+      flog.error('SESSION', 'Wake vehicle failed', { error: String(err) })
     } finally {
       setWaking(false)
     }
