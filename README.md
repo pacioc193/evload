@@ -47,7 +47,8 @@ evload/
 │   └── src/
 │       ├── api/              Axios API client
 │       ├── pages/            Dashboard, schedule, settings, statistics
-│       └── store/            Zustand stores
+│       ├── store/            Zustand stores
+│       └── utils/            Frontend utilities (frontendLogger)
 ├── docker-compose.yml
 ├── Dockerfile
 ├── install.ps1
@@ -145,6 +146,8 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Failsafe protection with automatic reset on proxy reconnect
 - Telegram notifications with dynamic event catalog and configurable rules
 - Demo/simulator mode for development without a real Tesla
+- **Verbose production logging**: every critical engine operation (`charge_start`, `charge_stop`, `set_charging_amps`, engine start/stop, HA throttle, failsafe, plan mode) emits a structured log entry with emoji-prefixed tag, context values (vehicleId, sessionId, before/after amps, reasons, costs) for post-mortem analysis of overnight sessions
+- **Log download from Settings**: authenticated Settings panel lets operators download backend `combined.log` / `error.log` and frontend browser logs directly from the UI
 
 ## Prerequisites
 
@@ -461,7 +464,7 @@ Relevant proxy fields:
 
 ## Settings UI
 
-The Settings page exposes four collapsible panels:
+The Settings page exposes five collapsible panels:
 
 **Home Assistant**
 - HA URL, Home Power Entity ID, Charger Power Entity ID
@@ -484,8 +487,18 @@ The Settings page exposes four collapsible panels:
 - Min/Max/Default charging amps, HA Resume Delay
 - Stop Charging On Start toggle: if enabled, a manual start action sends stop instead of start
 
+**Security**
+- Change login password
+
 **YAML**
 - Full raw config.yaml editor for advanced configuration
+
+**Logs** *(requires authentication)*
+- Download backend `combined.log` (all server log output)
+- Download backend `error.log` (errors only)
+- Download frontend log locally (browser-side circular buffer, up to 2 000 entries)
+- Upload frontend log buffer to server and download the consolidated `frontend.log`
+- Live preview of the last 20 frontend log entries with level color-coding
 
 ## Demo Mode And Simulator
 
@@ -554,6 +567,9 @@ Useful endpoints for runtime operations:
 | `GET /api/settings` | Structured settings read |
 | `PATCH /api/settings` | Structured settings write |
 | `GET /api/schedule/next-charge` | Resolve next real planned charge |
+| `GET /api/settings/logs/backend?type=combined\|error` | Download backend log file (auth required) |
+| `POST /api/settings/logs/frontend` | Ingest frontend log buffer on server (auth required) |
+| `GET /api/settings/logs/frontend` | Download accumulated frontend log file (auth required) |
 
 ## Testing
 
@@ -580,6 +596,9 @@ Current repository validation path typically includes:
 - Polling `GET /vehicle_data` is sleep-safe and does not establish a BLE connection when the vehicle is asleep.
 - Commands (charge_start, charge_stop, set_charging_amps) automatically wake the vehicle via the proxy; EVLoad guards against sending them to a sleeping vehicle.
 - The engine log carries over the last 20 lines from the previous session so stop-engine entries remain visible after a new session starts.
+- Every critical engine action emits a structured `logger.info`/`logger.warn` with an emoji-prefixed tag (`🚀`, `🛑`, `🔌`, `⚡`, `🏁`, `🗓️`, `⛔`, `🚨`) and full context (vehicleId, sessionId, before/after values, reasons) to enable post-mortem analysis of overnight sessions.
+- Backend log files are written to the `logs/` directory; they can be downloaded directly from the authenticated Settings → Logs panel.
+- The frontend maintains a circular log buffer (`flog`) that persists to localStorage and can be uploaded to the server or downloaded locally from the same Logs panel.
 
 ## Status And Roadmap Notes
 
