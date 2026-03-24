@@ -100,6 +100,24 @@ export async function getHaTokenStatus() {
   return res.data as HaTokenStatus
 }
 
+export interface VersionHistoryEntry {
+  version: string
+  releasedAt: string
+  summary: string
+}
+
+export interface VersionInfoResponse {
+  current: string
+  latest?: string
+  needsUpdate: boolean
+  history: VersionHistoryEntry[]
+}
+
+export async function getVersionInfo() {
+  const res = await api.get('/version')
+  return res.data as VersionInfoResponse
+}
+
 export async function getConfig() {
   const res = await api.get('/config')
   return res.data as { content: string }

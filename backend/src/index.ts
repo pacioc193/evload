@@ -19,6 +19,7 @@ import sessionRoutes from './routes/sessions.routes'
 import configRoutes from './routes/config.routes'
 import scheduleRoutes from './routes/schedule.routes'
 import settingsRoutes from './routes/settings.routes'
+import versionRoutes from './routes/version.routes'
 import { startHaPoll } from './services/ha.service'
 import { startProxyPoll } from './services/proxy.service'
 import { startFleetSimulator, stopFleetSimulator } from './services/fleet-simulator.service'
@@ -232,6 +233,7 @@ app.use('/api/sessions', sessionRoutes)
 app.use('/api/config', configRoutes)
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/settings', settingsRoutes)
+app.use('/api/version', versionRoutes)
 
 const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
 

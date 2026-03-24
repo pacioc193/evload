@@ -69,6 +69,9 @@ export interface EngineStatus {
   phase: 'idle' | 'charging' | 'balancing' | 'complete' | 'paused'
   message: string
   haThrottled: boolean
+  accumulatedSessionEnergyKwh: number
+  vehicleBatteryEnergyKwh: number
+  chargingEfficiencyPct: number | null
   debugLog: string[]
 }
 

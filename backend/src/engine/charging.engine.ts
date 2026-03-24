@@ -23,6 +23,9 @@ export interface EngineStatus {
   phase: 'idle' | 'charging' | 'balancing' | 'complete' | 'paused'
   message: string
   haThrottled: boolean
+  accumulatedSessionEnergyKwh: number
+  vehicleBatteryEnergyKwh: number
+  chargingEfficiencyPct: number | null
   debugLog: string[]
 }
 
@@ -39,6 +42,9 @@ let status: EngineStatus = {
   phase: 'idle',
   message: 'Engine idle',
   haThrottled: false,
+  accumulatedSessionEnergyKwh: 0,
+  vehicleBatteryEnergyKwh: 0,
+  chargingEfficiencyPct: null,
   debugLog: [],
 }
 
@@ -51,6 +57,7 @@ let lastRampUpMs = 0
 let lastSetpointSentMs = 0
 let sessionEnergyPriceEurPerKwh = 0
 let planArmed = false
+let lastEnergySampleAtMs: number | null = null
 
 interface PersistedEngineRestoreState {
   restorePlan: boolean
@@ -111,6 +118,9 @@ export async function initializeEngineState(): Promise<void> {
       phase: 'idle',
       message: 'Plan restored after restart',
       haThrottled: false,
+      accumulatedSessionEnergyKwh: 0,
+      vehicleBatteryEnergyKwh: 0,
+      chargingEfficiencyPct: null,
       debugLog: [],
     }
   } catch {
@@ -182,9 +192,13 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     setpointAmps: requestedAmps,
     phase: 'idle',
     message: planArmed ? 'Planned session started' : 'Engine started',
+    accumulatedSessionEnergyKwh: 0,
+    vehicleBatteryEnergyKwh: 0,
+    chargingEfficiencyPct: null,
     debugLog: prevSessionTail.length > 0 ? [...prevSessionTail, '--- new session ---'] : [],
   }
   sessionEnergyPriceEurPerKwh = cfg.charging.energyPriceEurPerKwh
+  lastEnergySampleAtMs = Date.now()
   haStoppedForLimit = false
   haResumeAfterMs = null
   lastChargeStartAttemptMs = 0
@@ -266,25 +280,35 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
     engineTimer = null
   }
   if (status.sessionId) {
-    const totalEnergyKwh = await getTotalEnergy(status.sessionId)
-    const totalCostEur = Number((totalEnergyKwh * sessionEnergyPriceEurPerKwh).toFixed(4))
+    const meterEnergyKwh = Number(status.accumulatedSessionEnergyKwh.toFixed(6))
+    const vehicleEnergyKwh = Number(status.vehicleBatteryEnergyKwh.toFixed(6))
+    const chargingEfficiencyPct = meterEnergyKwh > 0
+      ? Number(((vehicleEnergyKwh / meterEnergyKwh) * 100).toFixed(2))
+      : null
+    const totalCostEur = Number((meterEnergyKwh * sessionEnergyPriceEurPerKwh).toFixed(4))
     await prisma.chargingSession.update({
       where: { id: status.sessionId },
       data: {
         endedAt: new Date(),
-        totalEnergyKwh,
+        totalEnergyKwh: meterEnergyKwh,
+        meterEnergyKwh,
+        vehicleEnergyKwh,
+        chargingEfficiencyPct,
         totalCostEur,
       },
     })
     logger.info('🏁 [STOP_ENGINE] Charging session ended', {
       sessionId: status.sessionId,
-      totalEnergyKwh,
+      totalEnergyKwh: meterEnergyKwh,
+      meterEnergyKwh,
+      vehicleEnergyKwh,
+      chargingEfficiencyPct,
       totalCostEur,
       energyPriceEurPerKwh: sessionEnergyPriceEurPerKwh,
       finalSoc: vState.stateOfCharge,
       forceOff,
     })
-    pushEngineLog(`session ${status.sessionId} ended: energy=${totalEnergyKwh.toFixed(3)}kWh cost=${totalCostEur}€ forceOff=${forceOff}`)
+    pushEngineLog(`session ${status.sessionId} ended: energy=${meterEnergyKwh.toFixed(3)}kWh cost=${totalCostEur}€ forceOff=${forceOff}`)
     dispatchTelegramNotificationEvent('stop_charging', { reason: 'user_or_scheduler' }).catch(() => {})
     dispatchTelegramNotificationEvent('engine_stopped', { sessionId: status.sessionId }).catch(() => {})
   }
@@ -299,6 +323,9 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
     balancingStartedAt: null,
     haThrottled: false,
     setpointAmps: status.targetAmps,
+    accumulatedSessionEnergyKwh: 0,
+    vehicleBatteryEnergyKwh: 0,
+    chargingEfficiencyPct: null,
   }
   haStoppedForLimit = false
   haResumeAfterMs = null
@@ -306,16 +333,57 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
   lastRampUpMs = 0
   lastSetpointSentMs = 0
   sessionEnergyPriceEurPerKwh = 0
+  lastEnergySampleAtMs = null
   await persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
   engineEvents.emit('stopped', status)
 }
 
-async function getTotalEnergy(sessionId: number): Promise<number> {
-  const result = await prisma.chargingTelemetry.aggregate({
-    where: { sessionId },
-    _sum: { energyKwh: true },
-  })
-  return result._sum.energyKwh ?? 0
+function parseVehicleBatteryEnergyKwh(vState: ReturnType<typeof getVehicleState>): number | null {
+  const raw = vState.rawChargeState?.['charge_energy_added']
+  const value = typeof raw === 'number'
+    ? raw
+    : (typeof raw === 'string' ? Number(raw) : NaN)
+  if (!Number.isFinite(value) || value < 0) return null
+  return value
+}
+
+function resolveMeterPowerW(vState: ReturnType<typeof getVehicleState>): number {
+  const haChargerW = getHaState().chargerW
+  if (typeof haChargerW === 'number' && Number.isFinite(haChargerW) && haChargerW > 0) {
+    return haChargerW
+  }
+  if (typeof vState.chargeRateKw === 'number' && Number.isFinite(vState.chargeRateKw) && vState.chargeRateKw > 0) {
+    return vState.chargeRateKw * 1000
+  }
+  return 0
+}
+
+function updateSessionEnergyCounters(vState: ReturnType<typeof getVehicleState>): { meterDeltaKwh: number; meterPowerW: number } {
+  const nowMs = Date.now()
+  const meterPowerW = resolveMeterPowerW(vState)
+  let meterDeltaKwh = 0
+
+  if (lastEnergySampleAtMs != null && nowMs > lastEnergySampleAtMs && meterPowerW > 0) {
+    const deltaHours = (nowMs - lastEnergySampleAtMs) / 3600000
+    if (deltaHours > 0 && deltaHours < 1) {
+      meterDeltaKwh = (meterPowerW / 1000) * deltaHours
+      status.accumulatedSessionEnergyKwh = Number((status.accumulatedSessionEnergyKwh + meterDeltaKwh).toFixed(6))
+    }
+  }
+  lastEnergySampleAtMs = nowMs
+
+  const vehicleBatteryEnergyKwh = parseVehicleBatteryEnergyKwh(vState)
+  if (vehicleBatteryEnergyKwh != null) {
+    // Keep the highest value observed in-session to avoid temporary counter resets from the vehicle API.
+    status.vehicleBatteryEnergyKwh = Math.max(status.vehicleBatteryEnergyKwh, vehicleBatteryEnergyKwh)
+  }
+
+  status.chargingEfficiencyPct =
+    status.accumulatedSessionEnergyKwh > 0 && status.vehicleBatteryEnergyKwh > 0
+      ? Number(((status.vehicleBatteryEnergyKwh / status.accumulatedSessionEnergyKwh) * 100).toFixed(2))
+      : null
+
+  return { meterDeltaKwh, meterPowerW }
 }
 
 async function runEngineStep(): Promise<void> {
@@ -350,7 +418,8 @@ async function runEngineStep(): Promise<void> {
     const soc = vState.stateOfCharge ?? 0
     const actualAmps = vState.chargerActualCurrent ?? 0
 
-    await recordTelemetry(vState)
+    const energySample = updateSessionEnergyCounters(vState)
+    await recordTelemetry(vState, energySample)
 
     status.currentAmps = actualAmps
     pushEngineLog(`tick: soc=${soc}% actual=${actualAmps}A state=${vState.chargingState ?? 'unknown'} home=${getHaState().powerW ?? 0}W`)
@@ -679,7 +748,10 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
   }
 }
 
-async function recordTelemetry(vState: ReturnType<typeof getVehicleState>): Promise<void> {
+async function recordTelemetry(
+  vState: ReturnType<typeof getVehicleState>,
+  energySample: { meterDeltaKwh: number; meterPowerW: number }
+): Promise<void> {
   if (!status.sessionId) return
   try {
     await prisma.chargingTelemetry.create({
@@ -687,8 +759,8 @@ async function recordTelemetry(vState: ReturnType<typeof getVehicleState>): Prom
         sessionId: status.sessionId,
         voltageV: vState.chargerVoltage,
         currentA: vState.chargerActualCurrent,
-        powerW: vState.chargeRateKw ? vState.chargeRateKw * 1000 : null,
-        energyKwh: vState.chargeRateKw ? vState.chargeRateKw / 3600 : null,
+        powerW: energySample.meterPowerW > 0 ? energySample.meterPowerW : null,
+        energyKwh: energySample.meterDeltaKwh > 0 ? energySample.meterDeltaKwh : null,
         stateOfCharge: vState.stateOfCharge,
         tempCabinC: vState.insideTempC,
         chargerPilotA: vState.chargerPilotCurrent,

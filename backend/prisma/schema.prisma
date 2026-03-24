@@ -65,6 +65,9 @@ model ChargingSession {
   energyPriceEurPerKwh Float          @default(0)
   totalCostEur    Float             @default(0)
   totalEnergyKwh  Float             @default(0)
+  meterEnergyKwh  Float             @default(0)
+  vehicleEnergyKwh Float            @default(0)
+  chargingEfficiencyPct Float?
   peakPowerW      Float             @default(0)
   averageAmps     Float             @default(0)
   notes           String?

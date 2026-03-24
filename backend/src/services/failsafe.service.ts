@@ -2,7 +2,7 @@ import { EventEmitter } from 'events'
 import { logger } from '../logger'
 import { dispatchTelegramNotificationEvent } from './notification-rules.service'
 import { haEvents } from './ha.service'
-import { vehicleEvents } from './proxy.service'
+import { proxyEvents } from './proxy.service'
 import { getConfig } from '../config'
 
 export const failsafeEvents = new EventEmitter()
@@ -61,13 +61,13 @@ export function initFailsafe(): void {
     }
   })
 
-  vehicleEvents.on('disconnected', () => {
+  proxyEvents.on('disconnected', () => {
     activateFailsafe('Vehicle proxy disconnected').catch((err) =>
       logger.error('Failsafe activation error', { err })
     )
   })
 
-  vehicleEvents.on('connected', () => {
+  proxyEvents.on('connected', () => {
     if (failsafeActive && failsafeReason.includes('Vehicle')) {
       resetFailsafe().catch((err) => logger.error('Failsafe reset error', { err }))
     }

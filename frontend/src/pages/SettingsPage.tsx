@@ -7,6 +7,8 @@ import {
   getHaAuthorizeUrl,
   getHaEntities,
   getHaTokenStatus,
+  getVersionInfo,
+  type VersionInfoResponse,
   getSettings,
   patchSettings,
   type AppSettings,
@@ -16,13 +18,13 @@ import {
   uploadFrontendLogs,
 } from '../api/index'
 import { changePassword } from '../api/auth'
-import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText } from 'lucide-react'
+import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useNavigate } from 'react-router-dom'
 import { useWsStore } from '../store/wsStore'
 import { flog, downloadFrontendLogs, serializeLogsForUpload, getLogEntries } from '../utils/frontendLogger'
 
-type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'security' | 'yaml' | 'logs'
+type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'versioning' | 'security' | 'yaml' | 'logs'
 
 const SETTINGS_PANEL_STATE_KEY = 'evload.settings.expandedPanels'
 
@@ -30,6 +32,7 @@ const defaultExpandedPanels: Record<PanelKey, boolean> = {
   homeAssistant: true,
   proxy: true,
   engine: true,
+  versioning: true,
   security: false,
   yaml: false,
   logs: false,
@@ -44,6 +47,7 @@ function readExpandedPanels(): Record<PanelKey, boolean> {
       homeAssistant: typeof parsed.homeAssistant === 'boolean' ? parsed.homeAssistant : defaultExpandedPanels.homeAssistant,
       proxy: typeof parsed.proxy === 'boolean' ? parsed.proxy : defaultExpandedPanels.proxy,
       engine: typeof parsed.engine === 'boolean' ? parsed.engine : defaultExpandedPanels.engine,
+      versioning: typeof parsed.versioning === 'boolean' ? parsed.versioning : defaultExpandedPanels.versioning,
       security: typeof parsed.security === 'boolean' ? parsed.security : defaultExpandedPanels.security,
       yaml: typeof parsed.yaml === 'boolean' ? parsed.yaml : defaultExpandedPanels.yaml,
       logs: typeof parsed.logs === 'boolean' ? parsed.logs : defaultExpandedPanels.logs,
@@ -133,6 +137,7 @@ export default function SettingsPage() {
   const [haEntities, setHaEntities] = useState<string[]>([])
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [haTokenStatus, setHaTokenStatus] = useState<HaTokenStatus | null>(null)
+  const [versionInfo, setVersionInfo] = useState<VersionInfoResponse | null>(null)
   const [settingsMsg, setSettingsMsg] = useState('')
   const [settingsMsgPanel, setSettingsMsgPanel] = useState('')
   const [expandedPanels, setExpandedPanels] = useState<Record<PanelKey, boolean>>(() => readExpandedPanels())
@@ -211,6 +216,7 @@ export default function SettingsPage() {
     getConfig().then((d) => setConfigContent(d.content)).catch(console.error)
     getSettings().then(setSettings).catch(console.error)
     loadHaTokenStatus()
+    getVersionInfo().then(setVersionInfo).catch(() => setVersionInfo(null))
   }, [])
 
   useEffect(() => {
@@ -845,6 +851,52 @@ export default function SettingsPage() {
 
         </div>
       )}
+
+      <CollapsiblePanel
+        title="Versioning"
+        subtitle="Current app version, update availability, and release history."
+        expanded={expandedPanels.versioning}
+        onToggle={() => togglePanel('versioning')}
+        action={<GitBranch size={18} className="text-evload-muted" />}
+      >
+        <div className="pt-5 space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div className="rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
+              <div className="text-xs text-evload-muted uppercase tracking-wide">Current</div>
+              <div className="mt-1 text-xl font-semibold text-evload-text">{versionInfo?.current ?? '—'}</div>
+            </div>
+            <div className="rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
+              <div className="text-xs text-evload-muted uppercase tracking-wide">Latest</div>
+              <div className="mt-1 text-xl font-semibold text-evload-text">{versionInfo?.latest ?? 'Unknown'}</div>
+            </div>
+            <div className="rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
+              <div className="text-xs text-evload-muted uppercase tracking-wide">Update Status</div>
+              <div className={`mt-1 text-xl font-semibold ${versionInfo?.needsUpdate ? 'text-yellow-400' : 'text-evload-success'}`}>
+                {versionInfo == null ? 'Unknown' : versionInfo.needsUpdate ? 'Update available' : 'Up to date'}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4">
+            <div className="text-xs uppercase tracking-wider text-evload-muted font-semibold mb-3">Version History</div>
+            {(versionInfo?.history?.length ?? 0) === 0 ? (
+              <div className="text-sm text-evload-muted">No tracked releases yet.</div>
+            ) : (
+              <div className="space-y-2">
+                {versionInfo?.history.map((entry) => (
+                  <div key={`${entry.version}-${entry.releasedAt}`} className="rounded-md border border-evload-border bg-evload-surface px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-semibold text-evload-text">{entry.version}</span>
+                      <span className="text-xs text-evload-muted">{new Date(entry.releasedAt).toLocaleDateString()}</span>
+                    </div>
+                    <div className="text-xs text-evload-muted mt-1">{entry.summary}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </CollapsiblePanel>
 
       <CollapsiblePanel
         title="Security"

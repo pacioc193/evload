@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom'
 import { Zap, Car, Thermometer, BarChart2, Settings, Wifi, WifiOff, Calendar, Bell, Moon, Sun, SlidersHorizontal, X } from 'lucide-react'
 import { useWsStore } from '../store/wsStore'
 import { clsx } from 'clsx'
-import { sendVehicleCommand, updateVehicleDataRequest } from '../api/index'
+import { sendVehicleCommand, updateVehicleDataRequest, getVersionInfo } from '../api/index'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -37,7 +37,14 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
   const [outsideTempInput, setOutsideTempInput] = React.useState('12')
   const [climateOn, setClimateOn] = React.useState(false)
   const [pluggedIn, setPluggedIn] = React.useState(true)
+  const [currentVersion, setCurrentVersion] = React.useState<string | null>(null)
   const hydratedDraftKeyRef = React.useRef<string | null>(null)
+
+  React.useEffect(() => {
+    getVersionInfo()
+      .then((info) => setCurrentVersion(info.current))
+      .catch(() => setCurrentVersion(null))
+  }, [])
 
   const hydrateManualStateFromVehicle = React.useCallback(() => {
     if (!vehicle) return
@@ -294,6 +301,9 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
         <div className="flex items-center gap-2">
           <Zap className="text-evload-accent" size={24} />
           <span className="text-xl font-bold">evload</span>
+          <span className="ml-1 rounded border border-evload-border bg-evload-bg px-1.5 py-0.5 text-[10px] font-semibold text-evload-muted">
+            {currentVersion ? `v${currentVersion}` : 'v—'}
+          </span>
           {isDemo && (
             <span className="ml-2 px-2 py-0.5 text-xs font-bold bg-evload-warning/20 text-evload-warning border border-evload-warning rounded">
               DEMO

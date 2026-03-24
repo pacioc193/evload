@@ -112,6 +112,7 @@ EVLoad leverages this to poll safely at all times and only sends commands when t
 - `proxy.connected`: HTTP reachability of the proxy process
 - `vehicle.connected`: car reachability from `vehicle_data.response.result`
 - `response.reason` is always surfaced to Dashboard and Settings for diagnostics
+- failsafe proxy handling is scoped to real proxy connectivity transitions, not to temporary `vehicle.connected=false` states
 
 ### Command Guard For Sleeping Vehicle
 
@@ -139,7 +140,10 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
   - while charging: vehicle ETA if hardware setpoint is below software setpoint, otherwise EVLoad average charging power
   - while not charging: estimate from max current x 220V
 - Dashboard vehicle details panel with current/voltage/power/energy/efficiency and current-vs-limit check
-- Charging efficiency persisted to local storage and surfaced in Statistics (last/average/sample count)
+- Session energy split persisted in backend: meter energy (grid/charger side) and vehicle battery energy (`charge_energy_added`)
+- Charging efficiency persisted per session in backend and surfaced in Dashboard and Statistics
+- Dashboard normal view uses backend meter energy; Vehicle Details -> Vehicle Charged Energy uses vehicle battery energy
+- Version visibility in UI: current version in header and release history panel in Settings
 - Expand/collapse state persisted for Dashboard diagnostic panels, Notifications sections, and Settings panels
 - Statistics sessions can be deleted from the UI with a two-step confirmation flow
 - Engine live log rendered newest-first (latest line on top)
@@ -148,7 +152,7 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Climate schedules: `start_at`, `start_end`, `weekly`
 - Schedule lead wake support through `scheduleLeadTimeSec`
 - Proxy diagnostics in Settings and raw proxy payload inspection in Dashboard
-- Failsafe protection with automatic reset on proxy reconnect
+- Failsafe protection with automatic reset on proxy reconnect, without latching on transient vehicle reachability drops
 - Telegram notifications with dynamic event catalog and configurable rules
 - Demo/simulator mode for development without a real Tesla
 - **Verbose production logging**: every critical engine operation (`charge_start`, `charge_stop`, `set_charging_amps`, engine start/stop, HA throttle, failsafe, plan mode) emits a structured log entry with emoji-prefixed tag, context values (vehicleId, sessionId, before/after amps, reasons, costs) for post-mortem analysis of overnight sessions

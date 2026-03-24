@@ -76,6 +76,7 @@ export interface ProxyHealthState {
 }
 
 export const vehicleEvents = new EventEmitter()
+export const proxyEvents = new EventEmitter()
 
 let vehicleState: VehicleState = {
   connected: false,
@@ -184,6 +185,7 @@ function debugEnabled(): boolean {
 }
 
 function markProxySuccess(url: string): void {
+  const wasConnected = proxyHealthState.connected
   const endpointKey = endpointKeyFromUrl(url)
   proxyHealthState = {
     connected: true,
@@ -191,9 +193,14 @@ function markProxySuccess(url: string): void {
     lastEndpoint: endpointKey,
     error: null,
   }
+  if (!wasConnected) {
+    proxyEvents.emit('connected', proxyHealthState)
+  }
+  proxyEvents.emit('state', proxyHealthState)
 }
 
 function markProxyError(url: string, err: unknown): void {
+  const wasConnected = proxyHealthState.connected
   const endpointKey = endpointKeyFromUrl(url)
   proxyHealthState = {
     ...proxyHealthState,
@@ -201,6 +208,10 @@ function markProxyError(url: string, err: unknown): void {
     lastEndpoint: endpointKey ?? proxyHealthState.lastEndpoint,
     error: String(err),
   }
+  if (wasConnected) {
+    proxyEvents.emit('disconnected', proxyHealthState)
+  }
+  proxyEvents.emit('state', proxyHealthState)
 }
 
 async function proxyGet<T>(url: string, options?: { timeoutMs?: number }): Promise<T> {

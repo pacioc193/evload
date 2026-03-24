@@ -3,6 +3,21 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Aggiornamenti Recenti (2026-03-24)
+
+- Energy semantics allineata end-to-end:
+	- Dashboard principale mostra energia da contatore calcolata lato backend.
+	- Vehicle Details -> Vehicle Charged Energy mostra energia immessa in batteria dal veicolo.
+	- Entrambi i valori sono persistiti in `ChargingSession` con efficienza di ricarica (`chargingEfficiencyPct`).
+- Failsafe recovery hardening:
+	- attivazione/reset failsafe su reale stato di connettivita del proxy (non su semplici transizioni `vehicle.connected`).
+	- risolto blocco della ripartenza manuale in modalita ON dopo timeout brevi del proxy.
+- ETA/average power stabilization:
+	- media EVLoad calcolata su finestra sessione con warmup minimo per evitare valori instabili nei primi secondi.
+- Version tracking in UI:
+	- versione corrente visibile nell'header.
+	- pannello Versioning in Settings con latest release check e storico versioni.
+
 ## Regole Obbligatorie
 
 1. Verifica letterale, non interpretativa.

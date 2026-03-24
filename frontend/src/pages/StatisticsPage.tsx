@@ -6,19 +6,14 @@ import {
 import { deleteSession, getSessions, getSession } from '../api/index'
 import { BarChart2, Zap, Battery, Clock, Trash2 } from 'lucide-react'
 
-const EFFICIENCY_STORAGE_KEY = 'evload.vehicleEfficiencyPct'
-const EFFICIENCY_HISTORY_STORAGE_KEY = 'evload.statistics.efficiencyHistory'
-
-interface EfficiencyHistorySample {
-  ts: string
-  valuePct: number
-}
-
 interface Session {
   id: number
   startedAt: string
   endedAt: string | null
   totalEnergyKwh: number
+  meterEnergyKwh?: number
+  vehicleEnergyKwh?: number
+  chargingEfficiencyPct?: number | null
   totalCostEur: number
   energyPriceEurPerKwh: number
   _count?: { telemetry: number }
@@ -37,6 +32,9 @@ interface SessionDetail {
   startedAt: string
   endedAt: string | null
   totalEnergyKwh: number
+  meterEnergyKwh?: number
+  vehicleEnergyKwh?: number
+  chargingEfficiencyPct?: number | null
   totalCostEur: number
   energyPriceEurPerKwh: number
   telemetry: TelemetryPoint[]
@@ -58,9 +56,6 @@ export default function StatisticsPage() {
   const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<number | null>(null)
   const [sessionMessage, setSessionMessage] = useState('')
-  const [lastEfficiencyPct, setLastEfficiencyPct] = useState<number | null>(null)
-  const [avgEfficiencyPct, setAvgEfficiencyPct] = useState<number | null>(null)
-  const [efficiencySamplesCount, setEfficiencySamplesCount] = useState(0)
 
   const loadSessions = async () => {
     const data = await getSessions(1, 20)
@@ -71,34 +66,6 @@ export default function StatisticsPage() {
     loadSessions()
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [])
-
-  useEffect(() => {
-    const rawHistory = window.localStorage.getItem(EFFICIENCY_HISTORY_STORAGE_KEY)
-    const parsed = rawHistory ? JSON.parse(rawHistory) : []
-    const history = Array.isArray(parsed)
-      ? parsed.filter((item): item is EfficiencyHistorySample => {
-        if (!item || typeof item !== 'object') return false
-        const candidate = item as Partial<EfficiencyHistorySample>
-        return typeof candidate.ts === 'string' && typeof candidate.valuePct === 'number' && Number.isFinite(candidate.valuePct)
-      })
-      : []
-
-    if (history.length > 0) {
-      const avg = history.reduce((sum, sample) => sum + sample.valuePct, 0) / history.length
-      const last = history[history.length - 1]
-      setAvgEfficiencyPct(avg)
-      setLastEfficiencyPct(last.valuePct)
-      setEfficiencySamplesCount(history.length)
-      return
-    }
-
-    const legacy = Number(window.localStorage.getItem(EFFICIENCY_STORAGE_KEY))
-    if (Number.isFinite(legacy) && legacy > 0) {
-      setLastEfficiencyPct(legacy)
-      setAvgEfficiencyPct(legacy)
-      setEfficiencySamplesCount(1)
-    }
   }, [])
 
   const loadSession = async (id: number) => {
@@ -152,6 +119,14 @@ export default function StatisticsPage() {
   const avgEnergy = sessions.length ? totalEnergy / sessions.length : 0
   const totalCost = sessions.reduce((sum, s) => sum + (s.totalCostEur ?? 0), 0)
   const avgCost = sessions.length ? totalCost / sessions.length : 0
+  const efficiencyValues = sessions
+    .map((s) => s.chargingEfficiencyPct)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+  const avgEfficiencyPct = efficiencyValues.length > 0
+    ? efficiencyValues.reduce((sum, value) => sum + value, 0) / efficiencyValues.length
+    : null
+  const lastEfficiencyPct = sessions.find((s) => typeof s.chargingEfficiencyPct === 'number' && Number.isFinite(s.chargingEfficiencyPct) && (s.chargingEfficiencyPct ?? 0) > 0)?.chargingEfficiencyPct ?? null
+  const efficiencySamplesCount = efficiencyValues.length
 
   return (
     <div className="space-y-6">
@@ -221,8 +196,16 @@ export default function StatisticsPage() {
             <>
               <div className="bg-evload-surface border border-evload-border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                 <div>
-                  <div className="text-evload-muted uppercase tracking-wide text-xs">Session Energy</div>
-                  <div className="text-xl font-semibold">{selectedSession.totalEnergyKwh.toFixed(2)} kWh</div>
+                  <div className="text-evload-muted uppercase tracking-wide text-xs">Meter Energy</div>
+                  <div className="text-xl font-semibold">{(selectedSession.meterEnergyKwh ?? selectedSession.totalEnergyKwh).toFixed(2)} kWh</div>
+                </div>
+                <div>
+                  <div className="text-evload-muted uppercase tracking-wide text-xs">Vehicle Battery Energy</div>
+                  <div className="text-xl font-semibold">{(selectedSession.vehicleEnergyKwh ?? 0).toFixed(2)} kWh</div>
+                </div>
+                <div>
+                  <div className="text-evload-muted uppercase tracking-wide text-xs">Charging Efficiency</div>
+                  <div className="text-xl font-semibold">{selectedSession.chargingEfficiencyPct != null ? `${selectedSession.chargingEfficiencyPct.toFixed(2)}%` : '—'}</div>
                 </div>
                 <div>
                   <div className="text-evload-muted uppercase tracking-wide text-xs">Session Cost</div>
