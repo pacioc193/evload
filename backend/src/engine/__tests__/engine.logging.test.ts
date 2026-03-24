@@ -1,3 +1,5 @@
+export {}
+
 const mockSendProxyCommand = jest.fn().mockResolvedValue({})
 const mockRequestWakeMode = jest.fn().mockResolvedValue(undefined)
 const mockDispatchTelegramNotificationEvent = jest.fn().mockResolvedValue({ delivered: 0, matchedRules: [], messages: [] })

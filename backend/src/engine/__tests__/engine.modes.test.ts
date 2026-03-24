@@ -1,3 +1,5 @@
+export {}
+
 const mockSendProxyCommand = jest.fn().mockResolvedValue({})
 const mockRequestWakeMode = jest.fn().mockResolvedValue(undefined)
 let mockEngineRestoreState: string | null = null
