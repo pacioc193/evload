@@ -459,7 +459,20 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (validBackendEnergyKwh == null) return
-    setIntegratedEnergyKwh(validBackendEnergyKwh)
+    // Only trust the backend energy if it's increasing, to avoid resets during Amp changes
+    setIntegratedEnergyKwh((prev) => {
+      if (validBackendEnergyKwh > prev) {
+        return validBackendEnergyKwh
+      }
+      if (validBackendEnergyKwh < prev && validBackendEnergyKwh > 0 && prev > 0) {
+        flog.debug('SESSION', 'Ignored backend energy decrease (potential reset during Amp change)', {
+          backend: validBackendEnergyKwh,
+          current: prev
+        })
+        return prev
+      }
+      return validBackendEnergyKwh
+    })
   }, [validBackendEnergyKwh])
 
   useEffect(() => {
@@ -476,7 +489,11 @@ export default function DashboardPage() {
     if (prevTsMs != null && vehicle?.charging && displayChargePowerKw > 0 && tsMs > prevTsMs) {
       const deltaHours = (tsMs - prevTsMs) / 3600000
       if (deltaHours > 0 && deltaHours < 1) {
-        setIntegratedEnergyKwh((prev) => prev + (displayChargePowerKw * deltaHours))
+        const added = displayChargePowerKw * deltaHours
+        setIntegratedEnergyKwh((prev) => {
+          const next = prev + added
+          return next
+        })
       }
     }
     integrationRef.current.lastTsMs = tsMs
