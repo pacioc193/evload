@@ -20,13 +20,17 @@ The project is designed for home charging scenarios where you want to:
 ## Highlights
 
 - Proxy status driven by `vehicle_data` polling with explicit proxy-vs-car state separation
-- Home Assistant-based dynamic current throttling
+- Home Assistant-based dynamic current throttling with **linear ramp-up algorithm**
 - Manual, planned, and scheduled charging modes
+- **Native Proxmox/Ubuntu deployment** via PowerShell scripts (no Docker required)
+- **Production-hardened routing**: root path intelligently serves React UI or Home Assistant OAuth identity
+- **Sleep-aware and local-safe**: CSP configuration for LAN HTTP usage and sleep-safe proxy polling
 - Plan mode remains armed across scheduled runs until explicitly switched to Off
 - Scheduler starts charging plans only when engine mode is not Off
 - Charging and climate scheduling, including weekly recurrence
 - First-launch password setup and JWT-based session auth
 - WebSocket-driven live dashboard and settings diagnostics
+- **Robust energy tracking**: monotonic Wh counters with session logging to prevent resets during Amp changes
 - Telegram notifications and command hooks
 - Demo mode with simulator parity for proxy endpoints
 
@@ -171,7 +175,7 @@ cd evload
 
 ### 2. Run the install script
 
-Windows PowerShell:
+Windows PowerShell (for local development):
 
 ```powershell
 ./install.ps1
@@ -182,6 +186,12 @@ Unix/macOS:
 ```bash
 ./install.sh
 ```
+
+For **Native Deployment on Ubuntu/Proxmox (no Docker)**:
+
+Use the provided PowerShell scripts from your Windows machine:
+- `Deploy-EvloadNative.ps1`: complete first-time setup on a clean Ubuntu LXC/VM.
+- `Update-EvloadNative.ps1`: pulls latest code, rebuilds, and restarts the service.
 
 The install scripts:
 

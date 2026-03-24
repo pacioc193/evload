@@ -780,6 +780,39 @@ Accettazione letterale:
 - C11: Le azioni utente critiche in Dashboard (start/stop/plan/wake) e in Settings (save, HA connect, change password) emettono entry `flog` con contesto rilevante.
 - C12: Il pannello Logs mostra un'anteprima live delle ultime 20 entry frontend con color-coding per livello (error=rosso, warn=giallo, info/debug=muted).
 
+## F-49 Native Ubuntu/Proxmox Deployment Scripts
+Requisito: "Fornire script per il deploy nativo su Ubuntu senza Docker, gestendo automaticamente installazione, build e servizio systemd."
+Accettazione letterale:
+- C1: Script `Deploy-EvloadNative.ps1` automatizza setup Node.js, clone repo, install, build e systemd.
+- C2: Script `Update-EvloadNative.ps1` automatizza pull, migration, build e restart.
+- C3: Gli script gestiscono automaticamente il problema del BOM di Windows e delle newline CRLF.
+- C4: Integrazione GitHub CLI (`gh`) per gestire repository privati con autenticazione web.
+- C5: Gestione automatica della memoria Node.js (`--max-old-space-size=1024`) per build su container con poca RAM.
+
+## F-50 Raffinamento Algoritmo Ramp-Up Lineare
+Requisito: "L'algoritmo di aumento potenza deve essere lineare e reattivo, evitando stalli dovuti a bassi consumi domestici."
+Accettazione letterale:
+- C1: Rimozione della formula basata sulla potenza residua per il ramp-up (che causava arrotondamenti a zero).
+- C2: Implementazione incremento lineare a gradini di +1A per ogni intervallo configurato.
+- C3: Il ramp-down resta immediato per protezione sovraccarico.
+- C4: L'algoritmo rispetta sempre il `maxPossible` calcolato dinamicamente da HA.
+
+## F-51 Tracciamento Energia Monotòno e Log di Sessione
+Requisito: "Il contatore di energia Wh deve essere stabile e non resettarsi durante i cambi di amperaggio; separare energia auto da energia contatore."
+Accettazione letterale:
+- C1: Implementazione logica monotona nel frontend: il contatore Wh non può tornare indietro durante una sessione.
+- C2: Aggiunta di log `flog` (SESSION) per tracciare i tentativi di reset o cali improvvisi di energia riportati dal proxy.
+- C3: Dashboard mostra l'energia calcolata (contatore) in primo piano e l'energia riportata dall'auto nei dettagli veicolo.
+- C4: Corretto il bug del reset durante il cambio `set_charging_amps`.
+
+## F-52 Routing di Produzione e Identità OAuth
+Requisito: "La root path deve servire l'app React ai browser e la pagina OAuth a Home Assistant senza conflitti."
+Accettazione letterale:
+- C1: Middleware intelligente su `/` che analizza lo User-Agent.
+- C2: I browser ricevono `index.html` (Frontend React) per default.
+- C3: Client Home Assistant (aiohttp) ricevono la pagina di identità OAuth Client.
+- C4: Disabilitata direttiva `upgradeInsecureRequests` in Helmet per permettere il caricamento via HTTP in rete locale.
+
 ## Regola Finale Anti-Regressione
 
 Quando un item e' `VERIFIED`, rieseguire i test/build minimi e confermare che non rompe item gia' verificati.
