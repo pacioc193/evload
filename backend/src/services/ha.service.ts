@@ -83,6 +83,10 @@ function normalizeHaFailureReason(reason: string, statusCode?: number): string {
   return reason
 }
 
+function isHaAuthStatus(statusCode?: number): boolean {
+  return statusCode === 400 || statusCode === 401 || statusCode === 403
+}
+
 function registerHaSuccess(): void {
   const wasConnected = haState.connected
   haConsecutiveFailures = 0
@@ -141,6 +145,34 @@ function registerHaFailure(reason: string, statusCode?: number): void {
   })
 }
 
+function registerHaEntityFailure(reason: string, statusCode?: number): void {
+  const prevConnected = haState.connected
+  const normalizedReason = normalizeHaFailureReason(reason, statusCode)
+
+  // Entity/value failures must not mutate token retry counters.
+  haState = {
+    ...haState,
+    connected: false,
+    powerW: null,
+    chargerW: null,
+    lastUpdated: new Date(),
+    lastError: normalizedReason,
+    error: `HA entity read failed: ${normalizedReason}`,
+  }
+
+  if (prevConnected) {
+    haEvents.emit('disconnected', haState)
+  }
+  haEvents.emit('state', haState)
+
+  logger.warn('HA entity/state read failed', {
+    statusCode,
+    reason,
+    failureCount: haState.failureCount,
+    requiresManualReconnect: haState.requiresManualReconnect,
+  })
+}
+
 function markHaManualReconnectRequired(reason: string): void {
   const prevConnected = haState.connected
   haConsecutiveFailures = HA_MAX_FAILURES_BEFORE_MANUAL_RECONNECT
@@ -175,9 +207,15 @@ export function requestHaReconnectAttempt(): void {
     failureCount: 0,
     maxFailuresBeforeManualReconnect: HA_MAX_FAILURES_BEFORE_MANUAL_RECONNECT,
     requiresManualReconnect: false,
+    lastError: null,
     error: undefined,
   }
   logger.info('HA reconnect attempt requested by user; retry lock cleared')
+}
+
+export async function triggerHaHealthCheckNow(): Promise<HaState> {
+  await pollHaOnce()
+  return haState
 }
 
 async function getHaToken(): Promise<string | null> {
@@ -293,6 +331,26 @@ export async function saveHaTokenObj(obj: HaTokenObj): Promise<void> {
   logger.info('HA token object saved')
 }
 
+async function clearHaTokenState(reason: string): Promise<void> {
+  try {
+    await prisma.appConfig.upsert({
+      where: { id: 1 },
+      update: {
+        ha_token: null,
+        ha_token_obj: null,
+      },
+      create: {
+        id: 1,
+        ha_token: null,
+        ha_token_obj: null,
+      },
+    })
+    logger.warn('HA token state cleared', { reason })
+  } catch (err) {
+    logger.error('Failed to clear HA token state', { err, reason })
+  }
+}
+
 async function refreshHaAccessToken(tokenObj: HaTokenObj): Promise<string | null> {
   if (!tokenObj.refresh_token) return tokenObj.access_token || null
   if (haTokenRefreshPromise) return haTokenRefreshPromise
@@ -328,8 +386,9 @@ async function refreshHaAccessToken(tokenObj: HaTokenObj): Promise<string | null
     } catch (err) {
       logger.error('HA access token refresh failed', { err })
       const statusCode = axios.isAxiosError(err) ? err.response?.status : undefined
-      const isHardAuthFailure = statusCode === 400 || statusCode === 401 || statusCode === 403
+      const isHardAuthFailure = isHaAuthStatus(statusCode)
       if (isHardAuthFailure) {
+        await clearHaTokenState(`refresh-failed-${statusCode ?? 'unknown'}`)
         markHaManualReconnectRequired(`HA token refresh rejected (status ${statusCode})`)
       }
       return null
@@ -445,7 +504,14 @@ async function pollHaOnce(): Promise<void> {
       const reason = powerRes.status === 'rejected'
         ? String(powerRes.reason)
         : `Invalid numeric state for ${cfg.homeAssistant.powerEntityId}`
-      registerHaFailure(reason, powerFailureStatus)
+
+      if (isHaAuthStatus(powerFailureStatus)) {
+        await clearHaTokenState(`poll-failed-${powerFailureStatus}`)
+        registerHaFailure(reason, powerFailureStatus)
+        return
+      }
+
+      registerHaEntityFailure(reason, powerFailureStatus)
       return
     }
 
@@ -462,7 +528,12 @@ async function pollHaOnce(): Promise<void> {
   } catch (err) {
     logger.error('HA poll error', { err })
     const statusCode = axios.isAxiosError(err) ? err.response?.status : undefined
-    registerHaFailure(String(err), statusCode)
+    if (isHaAuthStatus(statusCode)) {
+      await clearHaTokenState(`poll-exception-${statusCode}`)
+      registerHaFailure(String(err), statusCode)
+      return
+    }
+    registerHaEntityFailure(String(err), statusCode)
   } finally {
     pollLock = false
   }

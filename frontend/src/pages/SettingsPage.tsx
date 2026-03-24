@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, type ReactNode } from 'react'
+﻿import { useEffect, useState, type ReactNode } from 'react'
 import axios from 'axios'
 import Editor from '@monaco-editor/react'
 import {
@@ -134,6 +134,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [haTokenStatus, setHaTokenStatus] = useState<HaTokenStatus | null>(null)
   const [settingsMsg, setSettingsMsg] = useState('')
+  const [settingsMsgPanel, setSettingsMsgPanel] = useState('')
   const [expandedPanels, setExpandedPanels] = useState<Record<PanelKey, boolean>>(() => readExpandedPanels())
   
   // Security / Password Change
@@ -154,12 +155,22 @@ export default function SettingsPage() {
   const proxy = useWsStore((s) => s.proxy)
   const vehicle = useWsStore((s) => s.vehicle)
   const haConnected = ha?.connected ?? false
-  const hasLoadedHaEntitiesRef = useRef(false)
+  const haServiceError = ha?.error ?? null
 
-  const loadHaEntities = () => {
+  const loadHaEntities = (source: 'auto' | 'oauth-callback' | 'ha-connected' | 'settings-saved' = 'auto') => {
+    flog.info('HA', 'Loading Home Assistant entities', {
+      source,
+      haUrl: settings?.haUrl ?? null,
+      hasToken: haTokenStatus?.hasToken ?? false,
+    })
     getHaEntities('sensor')
       .then((res) => {
         setHaEntities(res.entities.map((entity) => entity.entityId))
+        setHaAuthMessage(`Home Assistant entities loaded (${res.entities.length}).`)
+        flog.info('HA', 'Home Assistant entities loaded', {
+          source,
+          count: res.entities.length,
+        })
       })
       .catch((err) => {
         setHaEntities([])
@@ -171,6 +182,7 @@ export default function SettingsPage() {
 
           if (status === 429 && Number.isFinite(retryAfter)) {
             setHaAuthMessage(`Home Assistant temporarily in cooldown. Retry in ${retryAfter}s.`)
+            flog.warn('HA', 'HA entities cooldown active', { source, status, retryAfter })
             return
           }
 
@@ -180,9 +192,12 @@ export default function SettingsPage() {
                 ? backendMessage
                 : 'Home Assistant authorization is invalid or locked. Reconnect / Re-authorize.'
             )
+            flog.warn('HA', 'HA entities fetch blocked by auth/cooldown', { source, status, backendMessage })
             return
           }
         }
+        setHaAuthMessage('Unable to load Home Assistant entities. Check HA URL and entity IDs.')
+        flog.error('HA', 'HA entities fetch failed', { source, error: String(err) })
       })
   }
 
@@ -200,10 +215,14 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!haConnected) return
-    if (hasLoadedHaEntitiesRef.current) return
-    hasLoadedHaEntitiesRef.current = true
-    loadHaEntities()
+    loadHaEntities('ha-connected')
   }, [haConnected])
+
+  useEffect(() => {
+    if (!haTokenStatus?.hasToken) return
+    if (!settings?.haUrl) return
+    loadHaEntities('auto')
+  }, [haTokenStatus?.hasToken, settings?.haUrl])
 
   useEffect(() => {
     const pollTokenStatus = () => loadHaTokenStatus()
@@ -211,11 +230,14 @@ export default function SettingsPage() {
     const refreshInterval = setInterval(pollTokenStatus, 30_000)
     const countdownInterval = setInterval(() => {
       setHaTokenStatus((prev) => {
-        if (!prev || prev.secondsRemaining == null) return prev
+        if (!prev || !prev.hasToken || !prev.expiresAt) return prev
+        const expiresAtMs = Date.parse(prev.expiresAt)
+        if (!Number.isFinite(expiresAtMs)) return prev
+        const nextSecondsRemaining = Math.max(0, Math.floor((expiresAtMs - Date.now()) / 1000))
         return {
           ...prev,
-          secondsRemaining: Math.max(0, prev.secondsRemaining - 1),
-          isExpired: prev.secondsRemaining - 1 <= 0,
+          secondsRemaining: nextSecondsRemaining,
+          isExpired: nextSecondsRemaining <= 0,
         }
       })
     }, 1000)
@@ -226,14 +248,21 @@ export default function SettingsPage() {
   }, [])
 
   useEffect(() => {
+    if (!ha) return
+    if (ha.requiresManualReconnect || !ha.connected) {
+      loadHaTokenStatus()
+    }
+  }, [ha?.connected, ha?.requiresManualReconnect, ha?.lastError])
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const haStatus = params.get('ha')
     if (!haStatus) return
 
     if (haStatus === 'connected') {
       setHaAuthMessage('Home Assistant connected. Sensor list refreshed.')
-      hasLoadedHaEntitiesRef.current = true
-      loadHaEntities()
+      loadHaTokenStatus()
+      loadHaEntities('oauth-callback')
     } else if (haStatus === 'error') {
       setHaAuthMessage('Home Assistant authorization failed.')
     }
@@ -286,21 +315,25 @@ export default function SettingsPage() {
     }
   }
 
-  const handleSettingsSave = async () => {
+  const handleSettingsSave = async (panel: string) => {
     if (!settings) return
     setSettingsMsg('')
+    setSettingsMsgPanel(panel)
     try {
       flog.info('SETTINGS', 'Saving structured settings', { haUrl: settings.haUrl, proxyUrl: settings.proxyUrl })
       await patchSettings(settings)
       const fresh = await getConfig()
       setConfigContent(fresh.content)
       setSettingsMsg('Settings saved')
+      if (haTokenStatus?.hasToken) {
+        loadHaEntities('settings-saved')
+      }
       flog.info('SETTINGS', 'Structured settings saved successfully')
     } catch (err) {
       setSettingsMsg('Save failed')
       flog.error('SETTINGS', 'Structured settings save failed', { error: String(err) })
     } finally {
-      setTimeout(() => setSettingsMsg(''), 4000)
+      setTimeout(() => { setSettingsMsg(''); setSettingsMsgPanel('') }, 4000)
     }
   }
 
@@ -363,7 +396,50 @@ export default function SettingsPage() {
   const haFailureCount = Math.min(ha?.failureCount ?? 0, ha?.maxFailuresBeforeManualReconnect ?? 3)
   const haMaxFailures = ha?.maxFailuresBeforeManualReconnect ?? 3
   const haRequiresManualReconnect = ha?.requiresManualReconnect ?? false
+  const haAuthorized = haTokenStatus?.hasToken ?? false
+  const haEntitiesLoaded = haEntities.length > 0
   const haLastError = ha?.lastError ?? null
+  const hasEntityReadProblem = !!haServiceError && haServiceError.startsWith('HA entity read failed:')
+  const haStatusMode: 'live' | 'entities' | 'authorized' | 'locked' | 'offline' = (() => {
+    if (haConnected) return 'live'
+    if (haEntitiesLoaded) return 'entities'
+    if (haAuthorized && !haRequiresManualReconnect) return 'authorized'
+    if (haRequiresManualReconnect) return 'locked'
+    return 'offline'
+  })()
+  const haStatusOk = haStatusMode !== 'locked' && haStatusMode !== 'offline'
+  const haBadgeText = haStatusMode === 'live'
+    ? 'LIVE'
+    : haStatusMode === 'entities'
+      ? 'ENTITIES'
+      : haStatusMode === 'authorized'
+        ? 'AUTHORIZED'
+        : haStatusMode === 'locked'
+          ? 'AUTH LOCK'
+          : 'OFFLINE'
+  const haStatusTitle = haStatusMode === 'live'
+    ? 'Home Assistant connected'
+    : haStatusMode === 'entities'
+      ? 'Home Assistant entities reachable'
+      : haStatusMode === 'authorized'
+        ? 'Home Assistant authorized (waiting live data)'
+        : haStatusMode === 'locked'
+          ? 'Home Assistant authorization locked'
+          : 'Home Assistant offline'
+  const haStatusHint = haStatusMode === 'entities'
+    ? 'Token is valid and HA API is reachable, but at least one configured entity does not provide valid live data.'
+    : haStatusMode === 'locked'
+      ? 'Token is no longer valid (401/403). Re-authorize Home Assistant to restore the session.'
+      : haStatusMode === 'authorized'
+        ? 'Token is valid but no live sample has been received yet; verify HA URL and entity IDs.'
+        : haStatusMode === 'offline'
+          ? 'No valid token or HA connection is unavailable.'
+          : 'Live polling is active and data is available.'
+  const configuredHomePowerEntityId = settings?.haPowerEntityId?.trim() ?? ''
+  const configuredChargerPowerEntityId = settings?.haChargerEntityId?.trim() ?? ''
+  const homePowerEntityExists = configuredHomePowerEntityId.length > 0 && haEntities.includes(configuredHomePowerEntityId)
+  const chargerPowerEntityExists = configuredChargerPowerEntityId.length > 0 && haEntities.includes(configuredChargerPowerEntityId)
+  const canEvaluateEntityExistence = haEntitiesLoaded
   const proxyConnected = proxy?.connected ?? false
   const vehicleInGarage = vehicle?.connected ?? false
   const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
@@ -439,10 +515,6 @@ export default function SettingsPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-lg flex items-center gap-2"><Settings size={18} />Configuration Panels</h2>
-            <button onClick={handleSettingsSave}
-              className="flex items-center gap-2 px-4 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-sm">
-              <Save size={14} />Save Settings
-            </button>
           </div>
 
           <CollapsiblePanel
@@ -452,22 +524,26 @@ export default function SettingsPage() {
             onToggle={() => togglePanel('homeAssistant')}
             action={
               <div className="flex items-center gap-2 ml-auto">
-                <button onClick={handleSettingsSave}
+                {settingsMsg && settingsMsgPanel === 'ha' && (
+                  <span className={`text-xs ${settingsMsg.includes('failed') ? 'text-evload-error' : 'text-evload-success'}`}>{settingsMsg}</span>
+                )}
+                <button onClick={() => handleSettingsSave('ha')}
                   className="flex items-center gap-2 px-3 py-1.5 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-xs">
                   <Save size={12} />Save
                 </button>
-                <span className={`w-2 h-2 rounded-full ${haConnected ? 'bg-evload-success' : 'bg-evload-error'}`} />
-                <span className="text-[10px] uppercase font-bold text-evload-muted">{haConnected ? 'LIVE' : 'OFFLINE'}</span>
+                <span className={`w-2 h-2 rounded-full ${haStatusOk ? 'bg-evload-success' : 'bg-evload-error'}`} />
+                <span className="text-[10px] uppercase font-bold text-evload-muted">{haBadgeText}</span>
               </div>
             }
           >
             <div className="pt-5 space-y-4">
-              <div className={`rounded-lg border px-4 py-3 text-sm ${haConnected
+              <div className={`rounded-lg border px-4 py-3 text-sm ${haStatusOk
                 ? 'border-evload-success/30 bg-evload-success/10 text-evload-text'
                 : 'border-evload-error/30 bg-evload-error/10 text-evload-text'}`}>
                 <div className="font-medium">
-                  {haConnected ? 'Home Assistant connected' : 'Home Assistant offline'}
+                  {haStatusTitle}
                 </div>
+                <div className="mt-1 text-xs text-evload-muted">{haStatusHint}</div>
                 <div className="mt-1 text-xs text-evload-muted">
                   Attempts: {haFailureCount}/{haMaxFailures}
                 </div>
@@ -482,7 +558,12 @@ export default function SettingsPage() {
                     Token expires at: {new Date(haTokenStatus.expiresAt).toLocaleString()}
                   </div>
                 )}
-                {haRequiresManualReconnect && (
+                {hasEntityReadProblem && (
+                  <div className="mt-2 text-xs text-yellow-400 font-semibold">
+                    Entity validation issue: make sure Home Power Entity ID and Charger Power Entity ID exist in Home Assistant and return numeric values.
+                  </div>
+                )}
+                {haRequiresManualReconnect && haStatusMode === 'locked' && (
                   <div className="mt-2 text-xs text-evload-error font-semibold">
                     Retry stopped after {haMaxFailures} failures. Press Connect / Re-authorize to retry.
                   </div>
@@ -506,7 +587,17 @@ export default function SettingsPage() {
                     description="Total home power consumption entity in watts."
                     listId="ha-sensor-entity-ids"
                   />
-                  {haConnected && <span className="absolute right-3 top-9 text-[10px] text-evload-success font-mono">{(haPower / 1000).toFixed(2)}kW</span>}
+                  <div className={`mt-2 rounded-md border px-2 py-1 text-[11px] ${!canEvaluateEntityExistence
+                    ? 'border-evload-border bg-evload-bg text-evload-muted'
+                    : homePowerEntityExists
+                      ? 'border-evload-success/40 bg-evload-success/10 text-evload-text'
+                      : 'border-evload-error/40 bg-evload-error/10 text-evload-text'}`}>
+                    {!canEvaluateEntityExistence
+                      ? 'Entity check pending (load entities first).'
+                      : homePowerEntityExists
+                        ? `Entity found${haConnected ? ` • live ${(haPower / 1000).toFixed(2)}kW` : ''}`
+                        : 'Entity not found in Home Assistant.'}
+                  </div>
                 </div>
                 <div className="relative">
                   <Field
@@ -517,7 +608,17 @@ export default function SettingsPage() {
                     description="Charger power entity in watts for realtime verification in Settings."
                     listId="ha-sensor-entity-ids"
                   />
-                  {haConnected && settings.haChargerEntityId && <span className="absolute right-3 top-9 text-[10px] text-evload-success font-mono">{(haCharger / 1000).toFixed(2)}kW</span>}
+                  <div className={`mt-2 rounded-md border px-2 py-1 text-[11px] ${!canEvaluateEntityExistence
+                    ? 'border-evload-border bg-evload-bg text-evload-muted'
+                    : chargerPowerEntityExists
+                      ? 'border-evload-success/40 bg-evload-success/10 text-evload-text'
+                      : 'border-evload-error/40 bg-evload-error/10 text-evload-text'}`}>
+                    {!canEvaluateEntityExistence
+                      ? 'Entity check pending (load entities first).'
+                      : chargerPowerEntityExists
+                        ? `Entity found${haConnected ? ` • live ${(haCharger / 1000).toFixed(2)}kW` : ''}`
+                        : 'Entity not found in Home Assistant.'}
+                  </div>
                 </div>
               </div>
               <datalist id="ha-sensor-entity-ids">
@@ -544,7 +645,10 @@ export default function SettingsPage() {
             onToggle={() => togglePanel('proxy')}
             action={
               <div className="flex items-center gap-2 ml-auto">
-                <button onClick={handleSettingsSave}
+                {settingsMsg && settingsMsgPanel === 'proxy' && (
+                  <span className={`text-xs ${settingsMsg.includes('failed') ? 'text-evload-error' : 'text-evload-success'}`}>{settingsMsg}</span>
+                )}
+                <button onClick={() => handleSettingsSave('proxy')}
                   className="flex items-center gap-2 px-3 py-1.5 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-xs">
                   <Save size={12} />Save
                 </button>
@@ -633,10 +737,15 @@ export default function SettingsPage() {
             expanded={expandedPanels.engine}
             onToggle={() => togglePanel('engine')}
             action={
-              <button onClick={handleSettingsSave}
-                className="flex items-center gap-2 px-3 py-1.5 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-xs">
-                <Save size={12} />Save
-              </button>
+              <div className="flex items-center gap-2 ml-auto">
+                {settingsMsg && settingsMsgPanel === 'engine' && (
+                  <span className={`text-xs ${settingsMsg.includes('failed') ? 'text-evload-error' : 'text-evload-success'}`}>{settingsMsg}</span>
+                )}
+                <button onClick={() => handleSettingsSave('engine')}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-xs">
+                  <Save size={12} />Save
+                </button>
+              </div>
             }
           >
             <div className="pt-5 space-y-4">
@@ -734,9 +843,6 @@ export default function SettingsPage() {
             </div>
           </CollapsiblePanel>
 
-          {settingsMsg && (
-            <p className={`text-sm ${settingsMsg.includes('failed') ? 'text-evload-error' : 'text-evload-success'}`}>{settingsMsg}</p>
-          )}
         </div>
       )}
 

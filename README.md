@@ -124,8 +124,9 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Command guard: commands to the vehicle are skipped when it is sleeping or unreachable
 - Engine log preserved across session restarts (last 20 lines carried forward)
 - Home Assistant OAuth with same-tab flow, mobile-safe dynamic `returnTo` via base64url state
-- Home Assistant anti-hammer: exponential backoff + manual-reconnect lock after 3 consecutive failures
-- HA diagnostics panel in Settings: retry count, last error, manual reconnect warning
+- Home Assistant anti-hammer: exponential backoff + manual-reconnect lock after 3 consecutive auth failures (400/401/403)
+- HA diagnostics panel in Settings with explicit status modes: LIVE, ENTITIES, AUTHORIZED, AUTH LOCK, OFFLINE
+- Token validity and entity validity are tracked separately: missing/invalid entities do not increment token retry lock counters
 - Dashboard EV power prefers HA charger entity (`ha.chargerW`) with vehicle telemetry as fallback
 - Sleep state label: Dashboard shows "Sleeping" instead of "Not in garage" for sleeping vehicle
 - Engine mode selector remains available even when car is sleeping/offline (blocked only by loading/failsafe)
@@ -470,7 +471,9 @@ The Settings page exposes five collapsible panels:
 - HA URL, Home Power Entity ID, Charger Power Entity ID
 - OAuth flow (same-tab, mobile-safe)
 - Live entity value readout
-- Diagnostics card: connection status, retry count (X/3), last error message, manual reconnect warning
+- Diagnostics card: explicit connection state + explanatory hint, retry count (X/3), last error message, manual reconnect warning
+- Entity-read issues are shown explicitly and do not mark token auth as invalid
+- Per-entity validation card in Settings: red background if entity does not exist in HA, green background with live value when entity exists
 
 **Proxy**
 - Proxy URL, Vehicle ID (VIN), Vehicle Name

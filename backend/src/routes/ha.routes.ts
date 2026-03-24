@@ -8,6 +8,7 @@ import {
   getValidHaAccessToken,
   getHaTokenValidity,
   requestHaReconnectAttempt,
+  triggerHaHealthCheckNow,
 } from '../services/ha.service'
 import { getConfig } from '../config'
 import { logger } from '../logger'
@@ -176,6 +177,7 @@ router.get('/callback', limiter, async (req, res) => {
     )
     await saveHaTokenObj(tokenRes.data)
     requestHaReconnectAttempt()
+    await triggerHaHealthCheckNow()
     logger.info('HA OAuth token saved successfully')
     const stateReturnTo = decodeReturnToFromState(state)
     const successTarget = stateReturnTo
@@ -270,6 +272,12 @@ router.get('/entities', entitiesLimiter, requireAuth, async (req, res) => {
         friendlyName: e.attributes?.friendly_name ?? e.entity_id,
         unit: e.attributes?.unit_of_measurement ?? null,
       }))
+
+    logger.info('HA entities fetched', {
+      domain,
+      count: entities.length,
+      haUrl: HA_URL(),
+    })
 
     res.json({ domain, entities })
   } catch (err) {

@@ -2,13 +2,20 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Run Full Stack (F5)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "Debug Backend (npm)",
       "type": "pwa-node",
       "request": "launch",
       "cwd": "${workspaceFolder}/backend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "console": "externalTerminal",
+      "console": "integratedTerminal",
       "env": {
         "NODE_ENV": "development",
         "NODE_TLS_REJECT_UNAUTHORIZED": "0"

@@ -696,6 +696,10 @@ Accettazione letterale:
 - C6: La pagina Settings non esegue polling periodico della lista sensori HA; la lista viene caricata solo quando HA è connesso o dopo OAuth success.
 - C7: La UI Settings mostra feedback esplicito per stati auth invalid/cooldown/locked (es. reconnect richiesto o retry tra X secondi), evitando errori silenziosi.
 - C8: Build frontend/backend rimane verde dopo l'integrazione della logica auth hardening.
+- C9: Il contatore retry auth (`failureCount`) viene incrementato solo per errori auth hard (400/401/403) e NON per errori di validazione entità (entity mancante/non numerica).
+- C10: In Settings il warning distingue in modo esplicito "token auth non valido" da "entity non valida/non raggiungibile" con messaggi separati.
+- C11: In Settings, per ciascuna entità HA configurata (Home Power, Charger Power), la UI mostra stato esplicito per singola entità: sfondo rosso se l'entità non esiste nel catalogo HA caricato.
+- C12: In Settings, per ciascuna entità HA configurata esistente, la UI mostra sfondo verde e il valore live corrente quando disponibile.
 
 ## F-42 Sicurezza API End-to-End
 

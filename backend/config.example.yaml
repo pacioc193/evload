@@ -108,8 +108,5 @@ proxy:
   # Anticipatory wake lead time (sec) - wakes vehicle before scheduled charge execution
   scheduleLeadTimeSec: 1800
   
-  # Validate TLS certificate (set false only for development with self-signed certs)
-  rejectUnauthorized: true
-
   # TLS certificate validation for proxy HTTPS (set false only for self-signed certs in local dev)
   rejectUnauthorized: true
