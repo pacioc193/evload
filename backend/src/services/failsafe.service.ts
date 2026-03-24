@@ -9,6 +9,7 @@ export const failsafeEvents = new EventEmitter()
 
 let failsafeActive = false
 let failsafeReason = ''
+let failsafeActivatedAtMs: number | null = null
 
 export function isFailsafeActive(): boolean {
   return failsafeActive
@@ -18,15 +19,27 @@ export function getFailsafeReason(): string {
   return failsafeReason
 }
 
-async function activateFailsafe(reason: string): Promise<void> {
+async function activateFailsafe(reason: string, source: 'ha' | 'proxy' | 'manual' | 'unknown' = 'unknown'): Promise<void> {
   if (getConfig().demo) {
     logger.debug(`[DEMO] Failsafe skipped: ${reason}`)
     return
   }
-  if (failsafeActive) return
+  if (failsafeActive) {
+    logger.warn('FAILSAFE_ALREADY_ACTIVE', {
+      source,
+      reason,
+      activeReason: failsafeReason,
+      activeForSec: failsafeActivatedAtMs ? Math.round((Date.now() - failsafeActivatedAtMs) / 1000) : null,
+    })
+    return
+  }
   failsafeActive = true
   failsafeReason = reason
-  logger.error(`FAILSAFE ACTIVATED: ${reason}`)
+  failsafeActivatedAtMs = Date.now()
+  logger.error('FAILSAFE_ACTIVATED', {
+    source,
+    reason,
+  })
   failsafeEvents.emit('activated', { reason })
   await dispatchTelegramNotificationEvent(
     'failsafe_activated',
@@ -35,16 +48,22 @@ async function activateFailsafe(reason: string): Promise<void> {
 }
 
 export async function resetFailsafe(): Promise<void> {
+  const activeForSec = failsafeActivatedAtMs ? Math.round((Date.now() - failsafeActivatedAtMs) / 1000) : null
+  const previousReason = failsafeReason
   failsafeActive = false
   failsafeReason = ''
-  logger.info('Failsafe reset')
+  failsafeActivatedAtMs = null
+  logger.info('FAILSAFE_RESET', {
+    previousReason,
+    activeForSec,
+  })
   failsafeEvents.emit('reset')
   dispatchTelegramNotificationEvent('failsafe_cleared', { reason: 'manual_reset' }).catch(() => {})
 }
 
 export function initFailsafe(): void {
   haEvents.on('disconnected', () => {
-    activateFailsafe('Home Assistant disconnected').catch((err) =>
+    activateFailsafe('Home Assistant disconnected', 'ha').catch((err) =>
       logger.error('Failsafe activation error', { err })
     )
   })
@@ -62,7 +81,7 @@ export function initFailsafe(): void {
   })
 
   proxyEvents.on('disconnected', () => {
-    activateFailsafe('Vehicle proxy disconnected').catch((err) =>
+    activateFailsafe('Vehicle proxy disconnected', 'proxy').catch((err) =>
       logger.error('Failsafe activation error', { err })
     )
   })

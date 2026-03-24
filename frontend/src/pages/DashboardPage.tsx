@@ -438,7 +438,7 @@ export default function DashboardPage() {
   }, [wsLastUpdate, engine?.sessionId])
 
   const applyMode = async (mode: ChargeMode) => {
-    if ((mode === 'on' || mode === 'plan') && timeToTarget.error) return
+    if (mode === 'plan' && timeToTarget.error) return
     setChargeMode(mode)
     setLoading(true)
     try {

@@ -194,6 +194,12 @@ function markProxySuccess(url: string): void {
     error: null,
   }
   if (!wasConnected) {
+    logger.info('PROXY_CONNECTIVITY_TRANSITION', {
+      from: 'disconnected',
+      to: 'connected',
+      endpointKey,
+      url,
+    })
     proxyEvents.emit('connected', proxyHealthState)
   }
   proxyEvents.emit('state', proxyHealthState)
@@ -202,6 +208,8 @@ function markProxySuccess(url: string): void {
 function markProxyError(url: string, err: unknown): void {
   const wasConnected = proxyHealthState.connected
   const endpointKey = endpointKeyFromUrl(url)
+  const statusCode = axios.isAxiosError(err) ? err.response?.status : undefined
+  const errorCode = axios.isAxiosError(err) ? err.code : undefined
   proxyHealthState = {
     ...proxyHealthState,
     connected: false,
@@ -209,8 +217,24 @@ function markProxyError(url: string, err: unknown): void {
     error: String(err),
   }
   if (wasConnected) {
+    logger.warn('PROXY_CONNECTIVITY_TRANSITION', {
+      from: 'connected',
+      to: 'disconnected',
+      endpointKey,
+      url,
+      statusCode,
+      errorCode,
+      error: String(err),
+    })
     proxyEvents.emit('disconnected', proxyHealthState)
   }
+  logger.warn('PROXY_REQUEST_FAILURE', {
+    endpointKey,
+    url,
+    statusCode,
+    errorCode,
+    error: String(err),
+  })
   proxyEvents.emit('state', proxyHealthState)
 }
 

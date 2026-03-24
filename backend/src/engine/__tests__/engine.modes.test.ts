@@ -1,6 +1,6 @@
 const mockSendProxyCommand = jest.fn().mockResolvedValue({})
 const mockRequestWakeMode = jest.fn().mockResolvedValue(undefined)
-const mockAppConfigStore = new Map<string, string>()
+let mockEngineRestoreState: string | null = null
 
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn().mockImplementation(() => ({
@@ -13,15 +13,13 @@ jest.mock('@prisma/client', () => ({
       aggregate: jest.fn().mockResolvedValue({ _sum: { energyKwh: 0 } }),
     },
     appConfig: {
-      findUnique: jest.fn().mockImplementation(({ where }: { where: { key: string } }) => {
-        const value = mockAppConfigStore.get(where.key)
-        return Promise.resolve(value == null ? null : { key: where.key, value })
+      findUnique: jest.fn().mockImplementation(({ where }: { where: { id: number } }) => {
+        if (where.id !== 1 || mockEngineRestoreState == null) return Promise.resolve(null)
+        return Promise.resolve({ id: 1, engine_restore_state: mockEngineRestoreState })
       }),
-      upsert: jest.fn().mockImplementation(({ where, update, create }: { where: { key: string }; update: { value: string }; create: { key: string; value: string } }) => {
-        const key = where.key ?? create.key
-        const value = update.value ?? create.value
-        mockAppConfigStore.set(key, value)
-        return Promise.resolve({ key, value })
+      upsert: jest.fn().mockImplementation(({ update, create }: { update: { engine_restore_state: string }; create: { id: number; engine_restore_state: string } }) => {
+        mockEngineRestoreState = update.engine_restore_state ?? create.engine_restore_state
+        return Promise.resolve({ id: 1, engine_restore_state: mockEngineRestoreState })
       }),
     },
   })),
@@ -81,7 +79,7 @@ describe('F-18: Plan vs On vs Off distinct engine modes', () => {
   afterEach(async () => {
     const { stopEngine } = await import('../charging.engine')
     await stopEngine({ forceOff: true })
-    mockAppConfigStore.clear()
+    mockEngineRestoreState = null
     jest.resetModules()
   })
 

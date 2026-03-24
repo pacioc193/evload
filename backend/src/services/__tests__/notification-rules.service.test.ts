@@ -165,12 +165,15 @@ describe('notification-rules.service', () => {
   })
 
   test('validates payload schema for each selected event', () => {
-    const invalid = validateNotificationPayload('engine_started', { sessionId: 'not-a-number' })
-    expect(invalid.valid).toBe(false)
-    expect(invalid.missingRequired).toContain('targetSoc')
-    expect(invalid.invalidTypes).toContain('sessionId:number')
+    const invalidEngineStopped = validateNotificationPayload('engine_stopped', { sessionId: 'not-a-number' })
+    expect(invalidEngineStopped.valid).toBe(false)
+    expect(invalidEngineStopped.invalidTypes).toContain('sessionId:number')
 
-    const valid = validateNotificationPayload('engine_started', { sessionId: 10, targetSoc: 80 })
+    const invalidPlanStart = validateNotificationPayload('plan_start', { planId: 'plan-1' })
+    expect(invalidPlanStart.valid).toBe(false)
+    expect(invalidPlanStart.missingRequired).toContain('targetSoc')
+
+    const valid = validateNotificationPayload('plan_start', { planId: 'plan-1', targetSoc: 80 })
     expect(valid.valid).toBe(true)
   })
 

@@ -42,6 +42,7 @@ let pollTimer: NodeJS.Timeout | null = null
 let haConsecutiveFailures = 0
 let haBackoffUntilMs = 0
 let haLastBackoffMs = 0
+let lastHaInputQualityWarningAtMs = 0
 
 const HA_AUTH_BACKOFF_BASE_MS = 60_000
 const HA_AUTH_BACKOFF_MAX_MS = 30 * 60_000
@@ -87,6 +88,11 @@ function isHaAuthStatus(statusCode?: number): boolean {
   return statusCode === 400 || statusCode === 401 || statusCode === 403
 }
 
+function isTransientLocalStateError(err: unknown): boolean {
+  const msg = String(err)
+  return msg.includes('P1008') || msg.includes('SQLITE_BUSY') || msg.includes('database is locked')
+}
+
 function registerHaSuccess(): void {
   const wasConnected = haState.connected
   haConsecutiveFailures = 0
@@ -100,6 +106,12 @@ function registerHaSuccess(): void {
     lastError: null,
   }
   if (!wasConnected) {
+    logger.info('HA_CONNECTIVITY_TRANSITION', {
+      from: 'disconnected',
+      to: 'connected',
+      failureCount: haState.failureCount,
+      requiresManualReconnect: haState.requiresManualReconnect,
+    })
     haEvents.emit('connected', haState)
   }
 }
@@ -132,6 +144,14 @@ function registerHaFailure(reason: string, statusCode?: number): void {
   }
 
   if (prevConnected) {
+    logger.warn('HA_CONNECTIVITY_TRANSITION', {
+      from: 'connected',
+      to: 'disconnected',
+      statusCode,
+      reason,
+      failureCount: nextFailureCount,
+      requiresManualReconnect,
+    })
     haEvents.emit('disconnected', haState)
   }
   haEvents.emit('state', haState)
@@ -161,6 +181,15 @@ function registerHaEntityFailure(reason: string, statusCode?: number): void {
   }
 
   if (prevConnected) {
+    logger.warn('HA_CONNECTIVITY_TRANSITION', {
+      from: 'connected',
+      to: 'disconnected',
+      statusCode,
+      reason,
+      failureCount: haState.failureCount,
+      requiresManualReconnect: haState.requiresManualReconnect,
+      category: 'entity_read_failure',
+    })
     haEvents.emit('disconnected', haState)
   }
   haEvents.emit('state', haState)
@@ -516,6 +545,31 @@ async function pollHaOnce(): Promise<void> {
     }
 
     registerHaSuccess()
+    const nowMs = Date.now()
+    if (powerW < 0 || (chargerW != null && chargerW < 0)) {
+      if (nowMs - lastHaInputQualityWarningAtMs >= 30000) {
+        lastHaInputQualityWarningAtMs = nowMs
+        logger.warn('HA_INPUT_QUALITY_ANOMALY', {
+          kind: 'negative_power',
+          powerEntityId: cfg.homeAssistant.powerEntityId,
+          chargerEntityId: cfg.homeAssistant.chargerEntityId,
+          powerW,
+          chargerW,
+        })
+      }
+    }
+    if (chargerW != null && powerW > 0 && chargerW > powerW * 1.2) {
+      if (nowMs - lastHaInputQualityWarningAtMs >= 30000) {
+        lastHaInputQualityWarningAtMs = nowMs
+        logger.warn('HA_INPUT_QUALITY_ANOMALY', {
+          kind: 'charger_exceeds_total_home',
+          powerEntityId: cfg.homeAssistant.powerEntityId,
+          chargerEntityId: cfg.homeAssistant.chargerEntityId,
+          powerW,
+          chargerW,
+        })
+      }
+    }
     haState = {
       ...haState,
       connected: true,
@@ -527,6 +581,10 @@ async function pollHaOnce(): Promise<void> {
     haEvents.emit('state', haState)
   } catch (err) {
     logger.error('HA poll error', { err })
+    if (isTransientLocalStateError(err)) {
+      logger.warn('HA poll transient local-state error ignored (keeping previous HA connectivity state)', { err: String(err) })
+      return
+    }
     const statusCode = axios.isAxiosError(err) ? err.response?.status : undefined
     if (isHaAuthStatus(statusCode)) {
       await clearHaTokenState(`poll-exception-${statusCode}`)

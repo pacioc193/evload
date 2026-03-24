@@ -24,10 +24,6 @@ router.get('/status', engineActionLimiter, requireAuth, (_req, res) => {
 })
 
 router.post('/start', engineActionLimiter, requireAuth, async (req, res) => {
-  if (isFailsafeActive()) {
-    res.status(503).json({ error: 'Failsafe active' })
-    return
-  }
   const { targetSoc, targetAmps } = req.body as { targetSoc?: number; targetAmps?: number }
   if (!targetSoc || targetSoc < 1 || targetSoc > 100) {
     res.status(400).json({ error: 'targetSoc must be 1-100' })
@@ -35,12 +31,40 @@ router.post('/start', engineActionLimiter, requireAuth, async (req, res) => {
   }
   try {
     const cfg = getConfig()
+    logger.info('ENGINE_START_REQUEST', {
+      targetSoc,
+      targetAmps,
+      stopChargeOnManualStart: cfg.charging.stopChargeOnManualStart,
+      failsafeActive: isFailsafeActive(),
+      currentMode: getEngineStatus().mode,
+      currentRunning: getEngineStatus().running,
+    })
     if (cfg.charging.stopChargeOnManualStart) {
+      logger.warn('ENGINE_START_DECISION_INTERRUPTED', {
+        reason: 'stopChargeOnManualStart_enabled',
+        targetSoc,
+        targetAmps,
+      })
       await stopEngine()
       triggerImmediatePoll().catch(() => {})
       res.json({ success: true, interrupted: true, status: getEngineStatus() })
       return
     }
+    if (isFailsafeActive()) {
+      logger.warn('ENGINE_START_DECISION_BLOCKED', {
+        reason: 'failsafe_active',
+        failsafeReason: getFailsafeReason(),
+        targetSoc,
+        targetAmps,
+      })
+      res.status(503).json({ error: 'Failsafe active' })
+      return
+    }
+    logger.info('ENGINE_START_DECISION_ACCEPTED', {
+      reason: 'manual_or_plan_request',
+      targetSoc,
+      targetAmps,
+    })
     await startEngine(targetSoc, targetAmps)
     triggerImmediatePoll().catch(() => {})
     res.json({ success: true, status: getEngineStatus() })

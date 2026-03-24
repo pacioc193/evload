@@ -58,6 +58,7 @@ let lastSetpointSentMs = 0
 let sessionEnergyPriceEurPerKwh = 0
 let planArmed = false
 let lastEnergySampleAtMs: number | null = null
+let lastEngineHealthSnapshotAtMs = 0
 
 interface PersistedEngineRestoreState {
   restorePlan: boolean
@@ -138,6 +139,52 @@ function getCommandVehicleId(cfg: ReturnType<typeof getConfig>): string {
 function pushEngineLog(msg: string): void {
   const line = `${new Date().toISOString()} ${msg}`
   status.debugLog = [...status.debugLog.slice(-119), line]
+}
+
+function setEnginePhase(nextPhase: EngineStatus['phase'], reason: string): void {
+  const previous = status.phase
+  status.phase = nextPhase
+  if (previous !== nextPhase) {
+    logger.info('ENGINE_PHASE_TRANSITION', {
+      sessionId: status.sessionId,
+      from: previous,
+      to: nextPhase,
+      reason,
+      running: status.running,
+      mode: status.mode,
+    })
+    pushEngineLog(`phase: ${previous} -> ${nextPhase} (${reason})`)
+  }
+}
+
+function emitEngineHealthSnapshot(vState: ReturnType<typeof getVehicleState>, meterPowerW: number): void {
+  const now = Date.now()
+  if (lastEngineHealthSnapshotAtMs !== 0 && now - lastEngineHealthSnapshotAtMs < 30000) {
+    return
+  }
+  lastEngineHealthSnapshotAtMs = now
+  logger.info('ENGINE_HEALTH_SNAPSHOT', {
+    sessionId: status.sessionId,
+    phase: status.phase,
+    mode: status.mode,
+    soc: vState.stateOfCharge,
+    chargingState: vState.chargingState,
+    pluggedIn: vState.pluggedIn,
+    connected: vState.connected,
+    actualAmps: vState.chargerActualCurrent,
+    setpointAmps: status.setpointAmps,
+    targetAmps: status.targetAmps,
+    meterPowerW,
+    accumulatedSessionEnergyKwh: status.accumulatedSessionEnergyKwh,
+    vehicleBatteryEnergyKwh: status.vehicleBatteryEnergyKwh,
+    chargingEfficiencyPct: status.chargingEfficiencyPct,
+    haConnected: getHaState().connected,
+    haPowerW: getHaState().powerW,
+    haChargerW: getHaState().chargerW,
+    haThrottled: status.haThrottled,
+    haStoppedForLimit,
+    failsafeActive: isFailsafeActive(),
+  })
 }
 
 export function getEngineStatus(): EngineStatus {
@@ -334,6 +381,7 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
   lastSetpointSentMs = 0
   sessionEnergyPriceEurPerKwh = 0
   lastEnergySampleAtMs = null
+  lastEngineHealthSnapshotAtMs = 0
   await persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
   engineEvents.emit('stopped', status)
 }
@@ -408,7 +456,7 @@ async function runEngineStep(): Promise<void> {
 
     const vState = getVehicleState()
     if (!vState.connected) {
-      status.phase = 'paused'
+      setEnginePhase('paused', 'vehicle_not_connected')
       status.message = 'Vehicle not connected'
       pushEngineLog('paused: vehicle not connected')
       return
@@ -420,6 +468,7 @@ async function runEngineStep(): Promise<void> {
 
     const energySample = updateSessionEnergyCounters(vState)
     await recordTelemetry(vState, energySample)
+    emitEngineHealthSnapshot(vState, energySample.meterPowerW)
 
     status.currentAmps = actualAmps
     pushEngineLog(`tick: soc=${soc}% actual=${actualAmps}A state=${vState.chargingState ?? 'unknown'} home=${getHaState().powerW ?? 0}W`)
@@ -446,7 +495,7 @@ async function runEngineStep(): Promise<void> {
 
       if (nowMs < waitUntil) {
         const remaining = Math.ceil((waitUntil - nowMs) / 1000)
-        status.phase = 'paused'
+        setEnginePhase('paused', 'ha_cooldown_wait')
         status.message = `Paused by HA limit, retry in ${remaining}s`
         status.setpointAmps = 0
         pushEngineLog(`HA cooldown active: ${remaining}s before restart attempt`)
@@ -455,7 +504,7 @@ async function runEngineStep(): Promise<void> {
       }
 
       if (haThrottleAmps === null || haThrottleAmps < cfg.charging.minAmps) {
-        status.phase = 'paused'
+        setEnginePhase('paused', 'ha_restart_blocked')
         status.message = 'Paused by HA limit, waiting power margin'
         status.setpointAmps = 0
         pushEngineLog(`HA restart blocked: allowed=${haThrottleAmps ?? 'n/a'}A min=${cfg.charging.minAmps}A`)
@@ -536,7 +585,7 @@ async function runEngineStep(): Promise<void> {
             }
           ).catch(() => {})
         }
-        status.phase = 'paused'
+        setEnginePhase('paused', 'ha_hard_limit')
         status.message = `Paused by HA: home power ${getHaState().powerW?.toFixed(0)}W, retry in ${cfg.homeAssistant.resumeDelaySec}s`
         status.setpointAmps = 0
         engineEvents.emit('tick', status)
@@ -601,7 +650,7 @@ async function runEngineStep(): Promise<void> {
       case 'continue_charging':
         if (vState.charging) {
           lastChargeStartAttemptMs = 0
-          status.phase = 'charging'
+          setEnginePhase('charging', 'vehicle_is_charging')
           status.message = `Charging ${actualAmps}A (setpoint ${status.setpointAmps}A), SoC: ${soc}%${status.haThrottled ? ' (HA throttled)' : ''}`
           await adjustAmps(cfg)
         } else {
@@ -624,17 +673,17 @@ async function runEngineStep(): Promise<void> {
                 logger.error('🚨 [CHARGE_START] charge_start failed', { err, vehicleId: vid, sessionId: status.sessionId })
               )
               lastChargeStartAttemptMs = now
-              status.phase = 'paused'
+              setEnginePhase('paused', 'charge_start_pending_state_update')
               status.message = 'Sent charge_start, waiting vehicle state update'
               pushEngineLog(`charge_start sent: state=${vState.chargingState} soc=${soc}%`)
             } else {
-              status.phase = 'paused'
+              setEnginePhase('paused', 'missing_vehicle_id')
               status.message = 'Vehicle ID not configured'
               pushEngineLog('cannot send charge_start: no vehicleId configured')
             }
           } else {
             const nextInMs = Math.max(0, retryMs - (now - lastChargeStartAttemptMs))
-            status.phase = 'paused'
+            setEnginePhase('paused', 'charge_start_retry_backoff')
             status.message = `Not charging (state: ${vState.chargingState}), retry in ${Math.ceil(nextInMs / 1000)}s`
             pushEngineLog(`paused: vehicle state=${vState.chargingState}, next charge_start retry in ${Math.ceil(nextInMs / 1000)}s`)
           }
