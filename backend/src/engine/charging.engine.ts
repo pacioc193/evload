@@ -2,7 +2,7 @@ import { EventEmitter } from 'events'
 import { logger } from '../logger'
 import { getConfig } from '../config'
 import { prisma } from '../prisma'
-import { getVehicleState, sendProxyCommand, requestWakeMode } from '../services/proxy.service'
+import { getVehicleState, sendProxyCommand, requestWakeMode, vehicleEvents } from '../services/proxy.service'
 import { getHaState } from '../services/ha.service'
 import { isFailsafeActive } from '../services/failsafe.service'
 import { notificationEvents, dispatchTelegramNotificationEvent } from '../services/notification-rules.service'
@@ -874,4 +874,58 @@ async function recordTelemetry(
   } catch (err) {
     logger.error('Failed to record telemetry', { err })
   }
+}
+
+export function initExternalChargeGuard(): void {
+  vehicleEvents.on('charging_started', async (data: {
+    vehicleId: string
+    chargingState: string
+    soc: number | null
+    chargerActualCurrent: number | null
+    chargerVoltage: number | null
+  }) => {
+    if (status.running) {
+      logger.debug('EXTERNAL_CHARGE_GUARD: charging started — engine is running, evload is in control, no action', {
+        vehicleId: data.vehicleId,
+        chargingState: data.chargingState,
+        sessionId: status.sessionId,
+      })
+      return
+    }
+
+    const cfg = getConfig()
+    if (!cfg.charging.stopChargeOnManualStart) {
+      logger.info('\u2139\ufe0f  [EXTERNAL_CHARGE_GUARD] External charge detected while engine idle — stopChargeOnManualStart=false, managing power only', {
+        vehicleId: data.vehicleId,
+        chargingState: data.chargingState,
+        soc: data.soc,
+        chargerActualCurrent: data.chargerActualCurrent,
+      })
+      return
+    }
+
+    const vid = getCommandVehicleId(cfg)
+    if (!vid) {
+      logger.warn('EXTERNAL_CHARGE_GUARD: External charge detected but no vehicleId configured — cannot stop', {
+        vehicleId: data.vehicleId,
+      })
+      return
+    }
+
+    logger.warn('\u26a1 [EXTERNAL_CHARGE_GUARD] External charge detected while engine is idle — stopChargeOnManualStart=true, sending charge_stop', {
+      vehicleId: vid,
+      chargingState: data.chargingState,
+      soc: data.soc,
+      chargerActualCurrent: data.chargerActualCurrent,
+      chargerVoltage: data.chargerVoltage,
+      engineMode: status.mode,
+    })
+    pushEngineLog(`ext-charge guard: charge_stop sent (engine idle, stopChargeOnManualStart=true, state=${data.chargingState})`)
+
+    await sendProxyCommand(vid, 'charge_stop', {}).catch((err) =>
+      logger.error('\ud83d\udea8 [EXTERNAL_CHARGE_GUARD] charge_stop failed', { err, vehicleId: vid })
+    )
+  })
+
+  logger.info('External charge guard initialized (stopChargeOnManualStart listener active)')
 }

@@ -27,7 +27,7 @@ import { initTelegram, registerTelegramCommand } from './services/telegram.servi
 import { initFailsafe } from './services/failsafe.service'
 import { startScheduler } from './services/scheduler.service'
 import { initWebSocketServer, stopWebSocketServer } from './ws/broadcaster'
-import { startEngine, stopEngine, getEngineStatus, initializeEngineState } from './engine/charging.engine'
+import { startEngine, stopEngine, getEngineStatus, initializeEngineState, initExternalChargeGuard } from './engine/charging.engine'
 import { isFailsafeActive } from './services/failsafe.service'
 import { notificationEvents, dispatchTelegramNotificationEvent } from './services/notification-rules.service'
 
@@ -336,6 +336,7 @@ async function bootstrap(): Promise<void> {
 
   // Restore engine state from previous session
   await initializeEngineState()
+  initExternalChargeGuard()
 
   startHaPoll()
   startFleetSimulator()

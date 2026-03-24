@@ -391,6 +391,7 @@ Accettazione letterale:
 - C4: Opzione visibile e persistente nel pannello Settings -> Engine Options, con descrizione coerente.
 - C5: In entrambi i casi (ON e OFF), il log registra chiaramente: stato rilevato, corrente effettiva, soc, e quale azione è stata intrapresa (`charge_stop` vs `power management only`).
 - C6: Il proxy poll registra ogni transizione `charging false→true` e `charging true→false` con context (stato, corrente, soc), indipendentemente dal motore engine.
+- C7: La rilevazione avviene anche a motore fermo (engine idle/off/plan): quando il poll individua la macchina in carica per la prima volta (`charging_started` event), se `stopChargeOnManualStart=true` e il motore non è in esecuzione, viene inviato immediatamente `charge_stop` senza attendere un successivo avvio manuale o schedulato.
 
 ### F-25 Coerenza Lingua UI E Selettore Engine Sempre Disponibile
 Requisito: "La UI deve restare in inglese coerente e lo stato engine deve essere selezionabile anche con auto sleep/offline."

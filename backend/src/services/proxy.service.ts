@@ -593,7 +593,13 @@ async function pollProxyOnce(): Promise<void> {
           cd?.charger_voltage ?? null,
           cd?.charger_power ?? null
         ),
-        note: 'evload did not start this charge — may be external (Tesla app / scheduled charging)',
+      })
+      vehicleEvents.emit('charging_started', {
+        vehicleId: vid,
+        chargingState,
+        soc: nextSoc,
+        chargerActualCurrent: cd?.charger_actual_current ?? null,
+        chargerVoltage: cd?.charger_voltage ?? null,
       })
     } else if (prevCharging && !charging) {
       logger.info('🔋 [PROXY_POLL] Vehicle left Charging state (detected via poll)', {

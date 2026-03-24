@@ -5,10 +5,12 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import yaml from 'js-yaml'
+import { EventEmitter } from 'events'
 
 // ─── Module-level shared state ────────────────────────────────────────────────
 const mockSendProxyCommand = jest.fn().mockResolvedValue({})
 const mockRequestWakeMode = jest.fn().mockResolvedValue(undefined)
+const mockVehicleEvents = new EventEmitter()
 let mockPluggedIn = false
 let mockPowerW = 2000
 let mockCarChargeKw = 0
@@ -120,7 +122,7 @@ jest.mock('../../../src/services/proxy.service', () => ({
   }),
   sendProxyCommand: mockSendProxyCommand,
   requestWakeMode: mockRequestWakeMode,
-  vehicleEvents: { on: jest.fn(), emit: jest.fn() },
+  vehicleEvents: mockVehicleEvents,
 }), { virtual: true })
 
 jest.mock('../../../src/services/ha.service', () => ({
@@ -458,5 +460,85 @@ describe('Demo mode toggle — persists to config.yaml', () => {
     applySettingsPatch(configPath, { demo: true })
     const updated = yaml.load(fs.readFileSync(configPath, 'utf8')) as { demo: boolean }
     expect(updated.demo).toBe(true)
+  })
+})
+
+// ─── Test: initExternalChargeGuard — poll-level external charge detection ─────
+
+describe('initExternalChargeGuard — poll-level stop', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let eng: any
+
+  beforeAll(async () => {
+    eng = await import('../../engine/charging.engine')
+    eng.initExternalChargeGuard()
+  })
+
+  beforeEach(async () => {
+    await eng.stopEngine({ forceOff: true })
+    mockSendProxyCommand.mockClear()
+    mockStopChargeOnManualStart = false
+    mockPluggedIn = false
+  })
+
+  afterEach(async () => {
+    await eng.stopEngine({ forceOff: true })
+  })
+
+  test('flag=true + engine idle: charge_stop sent when charging_started event fires', async () => {
+    mockStopChargeOnManualStart = true
+
+    mockVehicleEvents.emit('charging_started', {
+      vehicleId: 'vid1',
+      chargingState: 'Charging',
+      soc: 67,
+      chargerActualCurrent: 16,
+      chargerVoltage: 212,
+    })
+
+    // Allow async handler to complete
+    await new Promise((r) => setTimeout(r, 50))
+
+    const stopCalls = mockSendProxyCommand.mock.calls.filter((c: unknown[]) => c[1] === 'charge_stop')
+    expect(stopCalls.length).toBeGreaterThan(0)
+  })
+
+  test('flag=false + engine idle: charge_stop NOT sent when charging_started event fires', async () => {
+    mockStopChargeOnManualStart = false
+
+    mockVehicleEvents.emit('charging_started', {
+      vehicleId: 'vid1',
+      chargingState: 'Charging',
+      soc: 67,
+      chargerActualCurrent: 16,
+      chargerVoltage: 212,
+    })
+
+    await new Promise((r) => setTimeout(r, 50))
+
+    const stopCalls = mockSendProxyCommand.mock.calls.filter((c: unknown[]) => c[1] === 'charge_stop')
+    expect(stopCalls).toHaveLength(0)
+  })
+
+  test('flag=true + engine RUNNING: charge_stop NOT sent (evload owns the charge)', async () => {
+    mockStopChargeOnManualStart = true
+    mockPluggedIn = true
+
+    await eng.startEngine(80, 16)
+
+    mockSendProxyCommand.mockClear()
+
+    mockVehicleEvents.emit('charging_started', {
+      vehicleId: 'vid1',
+      chargingState: 'Charging',
+      soc: 67,
+      chargerActualCurrent: 16,
+      chargerVoltage: 212,
+    })
+
+    await new Promise((r) => setTimeout(r, 50))
+
+    const stopCalls = mockSendProxyCommand.mock.calls.filter((c: unknown[]) => c[1] === 'charge_stop')
+    expect(stopCalls).toHaveLength(0)
   })
 })
