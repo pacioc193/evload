@@ -86,7 +86,7 @@ describe('engine routes start decisions', () => {
     mockLoggerError.mockClear()
   })
 
-  test('interrupts manual start when stopChargeOnManualStart is enabled', async () => {
+  test('does not change manual /start behavior when stopChargeOnManualStart is enabled', async () => {
     mockStopChargeOnManualStart = true
     const app = await createApp()
 
@@ -96,9 +96,8 @@ describe('engine routes start decisions', () => {
       .expect(200)
 
     expect(res.body.success).toBe(true)
-    expect(res.body.interrupted).toBe(true)
-    expect(mockStopEngine).toHaveBeenCalledWith()
-    expect(mockStartEngine).not.toHaveBeenCalled()
+    expect(mockStopEngine).not.toHaveBeenCalled()
+    expect(mockStartEngine).toHaveBeenCalledWith(80, 16)
     expect(mockTriggerImmediatePoll).toHaveBeenCalled()
     expect(mockLoggerInfo).toHaveBeenCalledWith('ENGINE_START_REQUEST', expect.objectContaining({
       targetSoc: 80,
@@ -106,8 +105,10 @@ describe('engine routes start decisions', () => {
       stopChargeOnManualStart: true,
       failsafeActive: false,
     }))
-    expect(mockLoggerWarn).toHaveBeenCalledWith('ENGINE_START_DECISION_INTERRUPTED', expect.objectContaining({
-      reason: 'stopChargeOnManualStart_enabled',
+    expect(mockLoggerInfo).toHaveBeenCalledWith('ENGINE_START_DECISION_ACCEPTED', expect.objectContaining({
+      reason: 'manual_or_plan_request',
+      targetSoc: 80,
+      targetAmps: 16,
     }))
   })
 

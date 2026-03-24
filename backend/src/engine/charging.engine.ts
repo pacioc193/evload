@@ -226,6 +226,39 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
 
   await requestWakeMode(false)
 
+  // ── External charge detection ─────────────────────────────────────────────
+  // If the vehicle is already charging (detected via polling) but evload did not
+  // start that session, apply the stopChargeOnManualStart policy:
+  //   flag=ON  → stop the external charge immediately and take full control
+  //   flag=OFF → leave the charge running; only perform HA power management
+  //              (amp adjustments / hard-limit stop) to protect the home breaker
+  const currentVState = getVehicleState()
+  const vid = getCommandVehicleId(cfg)
+  if (currentVState.charging) {
+    if (cfg.charging.stopChargeOnManualStart) {
+      logger.warn('⚡ [START_ENGINE] External charge detected — stopChargeOnManualStart=true, stopping before evload takeover', {
+        vehicleId: vid,
+        chargingState: currentVState.chargingState,
+        soc: currentVState.stateOfCharge,
+        chargerActualCurrent: currentVState.chargerActualCurrent,
+      })
+      if (vid) {
+        await sendProxyCommand(vid, 'charge_stop', {}).catch((err) =>
+          logger.error('🚨 [START_ENGINE] charge_stop for external charge takeover failed', { err, vehicleId: vid })
+        )
+      }
+      pushEngineLog('external charge stopped: stopChargeOnManualStart=true, evload taking over')
+    } else {
+      logger.info('ℹ️  [START_ENGINE] External charge detected — stopChargeOnManualStart=false, power management only', {
+        vehicleId: vid,
+        chargingState: currentVState.chargingState,
+        soc: currentVState.stateOfCharge,
+        chargerActualCurrent: currentVState.chargerActualCurrent,
+      })
+      pushEngineLog('external charge detected: stopChargeOnManualStart=false, managing amps only to protect breaker')
+    }
+  }
+
   const requestedAmps = targetAmps ?? cfg.charging.maxAmps
 
   // Keep last 20 lines from previous session so charge_stop / session-end entries stay visible
@@ -649,6 +682,24 @@ async function runEngineStep(): Promise<void> {
     switch (action.type) {
       case 'continue_charging':
         if (vState.charging) {
+          // If evload never sent charge_start in this session (lastChargeStartAttemptMs === 0)
+          // the charge was already in progress when the engine started (external charge).
+          // Log once on the first tick where we hit this path to make it observable in logs.
+          if (lastChargeStartAttemptMs === 0 && status.phase !== 'charging') {
+            const cfg2 = getConfig()
+            logger.info('ℹ️  [ENGINE_TICK] Vehicle found charging without evload charge_start — external charge in progress', {
+              sessionId: status.sessionId,
+              vehicleId: cfg.proxy.vehicleId,
+              chargingState: vState.chargingState,
+              soc,
+              actualAmps,
+              stopChargeOnManualStart: cfg2.charging.stopChargeOnManualStart,
+              note: cfg2.charging.stopChargeOnManualStart
+                ? 'external charge was stopped at session start per stopChargeOnManualStart=true'
+                : 'managing amps only — stopChargeOnManualStart=false',
+            })
+            pushEngineLog(`ext-charge observed on first tick: state=${vState.chargingState} actual=${actualAmps}A stopOnManual=${cfg2.charging.stopChargeOnManualStart}`)
+          }
           lastChargeStartAttemptMs = 0
           setEnginePhase('charging', 'vehicle_is_charging')
           status.message = `Charging ${actualAmps}A (setpoint ${status.setpointAmps}A), SoC: ${soc}%${status.haThrottled ? ' (HA throttled)' : ''}`

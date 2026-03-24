@@ -383,12 +383,14 @@ Accettazione letterale:
 - C4: La UI mostra stato modalita coerente con backend in runtime.
 
 ### F-24 Interrompi Ricarica Allo Start
-Requisito: "Se abilitata, una partenza manuale dal pannello engine deve interrompere la ricarica invece di avviarla."
+Requisito: "Se abilitata, una ricarica partita dallo scheduler interno Tesla deve essere interrotta quando parte uno schedule di EVload, cosi l'engine mantiene il controllo esclusivo."
 Accettazione letterale:
 - C1: Esiste configurazione `stopChargeOnManualStart` in settings/config.
-- C2: Con toggle attivo, `POST /api/engine/start` esegue stop e non start.
-- C3: Con toggle disattivo, `POST /api/engine/start` mantiene comportamento standard di avvio.
-- C4: Opzione visibile e persistente nel pannello Settings -> Engine Options.
+- C2: Con toggle attivo (ON), qualsiasi avvio engine (schedulato o manuale) controlla se la macchina è già sotto carica; se sì manda `charge_stop` prima di prendere il controllo.
+- C3: Con toggle disattivo (OFF), se la macchina è già sotto carica al momento dello start engine, evload non la stoppa ma gestisce solo la potenza (throttle/stop HA) per evitare il distacco del contatore.
+- C4: Opzione visibile e persistente nel pannello Settings -> Engine Options, con descrizione coerente.
+- C5: In entrambi i casi (ON e OFF), il log registra chiaramente: stato rilevato, corrente effettiva, soc, e quale azione è stata intrapresa (`charge_stop` vs `power management only`).
+- C6: Il proxy poll registra ogni transizione `charging false→true` e `charging true→false` con context (stato, corrente, soc), indipendentemente dal motore engine.
 
 ### F-25 Coerenza Lingua UI E Selettore Engine Sempre Disponibile
 Requisito: "La UI deve restare in inglese coerente e lo stato engine deve essere selezionabile anche con auto sleep/offline."

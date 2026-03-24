@@ -469,7 +469,8 @@ async function pollProxyOnce(): Promise<void> {
     const prevConnected = vehicleState.connected
     const nextConnected = vehicleReachable
     const prevPluggedIn = vehicleState.pluggedIn
-    
+    const prevCharging = vehicleState.charging
+
     if (!prevConnected && nextConnected) {
       vehicleEvents.emit('connected', vehicleState)
       dispatchTelegramNotificationEvent('vehicle_connected', { vehicleId: vid }).catch(() => {})
@@ -576,6 +577,32 @@ async function pollProxyOnce(): Promise<void> {
     }
 
     vehicleEvents.emit('state', vehicleState)
+
+    // ── Charging state transition logs ────────────────────────────────────────
+    // These fire on every poll cycle; they are the canonical record of charging
+    // activity observed via the proxy regardless of who started the charge.
+    if (!prevCharging && charging) {
+      logger.info('🔌 [PROXY_POLL] Vehicle entered Charging state (detected via poll)', {
+        vehicleId: vid,
+        chargingState,
+        soc: nextSoc,
+        chargerActualCurrent: cd?.charger_actual_current ?? null,
+        chargerVoltage: cd?.charger_voltage ?? null,
+        chargeRateKw: computeChargeRateKw(
+          cd?.charger_actual_current ?? null,
+          cd?.charger_voltage ?? null,
+          cd?.charger_power ?? null
+        ),
+        note: 'evload did not start this charge — may be external (Tesla app / scheduled charging)',
+      })
+    } else if (prevCharging && !charging) {
+      logger.info('🔋 [PROXY_POLL] Vehicle left Charging state (detected via poll)', {
+        vehicleId: vid,
+        chargingState,
+        soc: nextSoc,
+        chargerActualCurrent: cd?.charger_actual_current ?? null,
+      })
+    }
 
     // Detect and emit garage state changes
     if (!prevPluggedIn && pluggedIn) {

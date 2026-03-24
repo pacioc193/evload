@@ -502,7 +502,9 @@ The Settings page exposes five collapsible panels:
 - Demo mode toggle
 - Max Home Power, Ramp Interval, Battery Capacity, Energy Price per kWh
 - Min/Max/Default charging amps, HA Resume Delay
-- Stop Charging On Start toggle: if enabled, a manual start action sends stop instead of start
+- Stop Charging On Start toggle:
+  - **ON** — when evload starts the engine (manually or via scheduler), if the car is already charging from an external source (Tesla app, car's internal scheduler), evload sends `charge_stop` immediately and takes full exclusive control of the session.
+  - **OFF** — evload does not interrupt the ongoing external charge; it only manages amps (throttling / hard-limit stop) to protect the home breaker. The external charge continues under HA power management.
 
 **Security**
 - Change login password

@@ -31,25 +31,16 @@ router.post('/start', engineActionLimiter, requireAuth, async (req, res) => {
   }
   try {
     const cfg = getConfig()
+    const engineStatus = getEngineStatus()
+
     logger.info('ENGINE_START_REQUEST', {
       targetSoc,
       targetAmps,
       stopChargeOnManualStart: cfg.charging.stopChargeOnManualStart,
       failsafeActive: isFailsafeActive(),
-      currentMode: getEngineStatus().mode,
-      currentRunning: getEngineStatus().running,
+      currentMode: engineStatus.mode,
+      currentRunning: engineStatus.running,
     })
-    if (cfg.charging.stopChargeOnManualStart) {
-      logger.warn('ENGINE_START_DECISION_INTERRUPTED', {
-        reason: 'stopChargeOnManualStart_enabled',
-        targetSoc,
-        targetAmps,
-      })
-      await stopEngine()
-      triggerImmediatePoll().catch(() => {})
-      res.json({ success: true, interrupted: true, status: getEngineStatus() })
-      return
-    }
     if (isFailsafeActive()) {
       logger.warn('ENGINE_START_DECISION_BLOCKED', {
         reason: 'failsafe_active',

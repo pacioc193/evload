@@ -15,6 +15,18 @@ let mockCarChargeKw = 0
 let mockSoc = 50
 let mockIsDemo = false
 let mockMaxHomePowerW = 7000
+let mockStopChargeOnManualStart = false
+let mockScheduledCharges: Array<{
+  id: number
+  vehicleId: string
+  scheduledAt: Date | null
+  finishBy?: Date | null
+  scheduleType: 'start_at' | 'weekly' | 'start_end' | 'finish_by'
+  enabled: boolean
+  targetSoc: number
+  targetAmps?: number | null
+  startedAt?: Date | null
+}> = []
 let mockScheduledClimates: Array<{
   id: number; vehicleId: string; scheduledAt: Date; targetTempC: number; enabled: boolean
 }> = []
@@ -33,9 +45,40 @@ jest.mock('@prisma/client', () => ({
       create: jest.fn(),
     },
     scheduledCharge: {
-      findMany: jest.fn().mockResolvedValue([]),
+      findMany: jest.fn().mockImplementation(({ where }: { where?: Record<string, unknown> }) => {
+        const matches = mockScheduledCharges.filter((charge) => {
+          if (where?.enabled !== undefined && charge.enabled !== where.enabled) return false
+          const scheduleType = where?.scheduleType
+          if (typeof scheduleType === 'string' && charge.scheduleType !== scheduleType) return false
+          if (scheduleType && typeof scheduleType === 'object' && 'in' in scheduleType) {
+            const allowed = (scheduleType as { in: string[] }).in
+            if (!allowed.includes(charge.scheduleType)) return false
+          }
+          if (where?.startedAt === null && charge.startedAt != null) return false
+          if (where?.startedAt && typeof where.startedAt === 'object' && 'not' in where.startedAt) {
+            if (charge.startedAt == null) return false
+          }
+          if (where?.scheduledAt && typeof where.scheduledAt === 'object' && 'lte' in where.scheduledAt) {
+            if (!charge.scheduledAt || charge.scheduledAt > (where.scheduledAt as { lte: Date }).lte) return false
+          }
+          if (where?.scheduledAt && typeof where.scheduledAt === 'object' && 'gt' in where.scheduledAt) {
+            if (!charge.scheduledAt || charge.scheduledAt <= (where.scheduledAt as { gt: Date }).gt) return false
+          }
+          if (where?.finishBy && typeof where.finishBy === 'object' && 'lte' in where.finishBy) {
+            if (!charge.finishBy || charge.finishBy > (where.finishBy as { lte: Date }).lte) return false
+          }
+          if (where?.finishBy && typeof where.finishBy === 'object' && 'gte' in where.finishBy) {
+            if (!charge.finishBy || charge.finishBy < (where.finishBy as { gte: Date }).gte) return false
+          }
+          return true
+        })
+        return Promise.resolve(matches)
+      }),
       findFirst: jest.fn().mockResolvedValue(null),
-      update: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockImplementation(({ where, data }: { where: { id: number }; data: Record<string, unknown> }) => {
+        mockScheduledCharges = mockScheduledCharges.map((charge) => charge.id === where.id ? { ...charge, ...data } : charge)
+        return Promise.resolve({})
+      }),
       create: jest.fn(),
     },
     chargingSession: {
@@ -93,7 +136,7 @@ jest.mock('../../../src/services/ha.service', () => ({
 jest.mock('../../../src/config', () => ({
   getConfig: () => ({
     demo: mockIsDemo,
-    charging: { defaultAmps: 16, maxAmps: 32, minAmps: 5, batteryCapacityKwh: 75 },
+    charging: { defaultAmps: 16, maxAmps: 32, minAmps: 5, batteryCapacityKwh: 75, stopChargeOnManualStart: mockStopChargeOnManualStart },
     homeAssistant: { url: '', powerEntityId: '', maxHomePowerW: mockMaxHomePowerW },
     proxy: { vehicleId: 'vid1', url: '', scheduleLeadTimeSec: 1800 },
   }),
@@ -191,8 +234,10 @@ describe('Climate scheduler — plugged_in guard', () => {
 
   beforeEach(() => {
     mockScheduledClimates = []
+    mockScheduledCharges = []
     mockSendProxyCommand.mockClear()
     mockIsDemo = false
+    mockStopChargeOnManualStart = false
   })
 
   test('does NOT send climate command when vehicle is NOT plugged in', async () => {
@@ -233,6 +278,90 @@ describe('Climate scheduler — plugged_in guard', () => {
       (c: unknown[]) => c[1] === 'auto_conditioning_start' || c[1] === 'set_temps'
     )
     expect(climateCmds.length).toBeGreaterThan(0)
+  })
+
+  test('stops external charge via startEngine when flag=true and car is already charging (scheduled path)', async () => {
+    mockPluggedIn = true
+    mockStopChargeOnManualStart = true
+    mockScheduledCharges = [
+      {
+        id: 77,
+        vehicleId: 'vid1',
+        scheduledAt: new Date(Date.now() - 60_000),
+        scheduleType: 'start_at',
+        enabled: true,
+        targetSoc: 80,
+        targetAmps: 16,
+        startedAt: null,
+      },
+    ]
+
+    const { setPlanMode } = await import('../../engine/charging.engine')
+    setPlanMode(80)
+
+    startScheduler()
+    await new Promise((r) => setTimeout(r, 200))
+    stopScheduler()
+
+    const chargeStopCalls = mockSendProxyCommand.mock.calls.filter((c: unknown[]) => c[1] === 'charge_stop')
+    expect(chargeStopCalls.length).toBeGreaterThan(0)
+  })
+})
+
+// ─── Test: stopChargeOnManualStart via direct startEngine() ──────────────────
+
+describe('stopChargeOnManualStart — direct engine start', () => {
+  let stopEngine: (options?: { forceOff?: boolean }) => Promise<void>
+  let startEngine: (targetSoc: number, targetAmps?: number) => Promise<void>
+
+  beforeAll(async () => {
+    const eng = await import('../../engine/charging.engine')
+    stopEngine = eng.stopEngine
+    startEngine = eng.startEngine
+  })
+
+  beforeEach(async () => {
+    // Force-stop any engine leftover from previous test suites before each test
+    const eng = await import('../../engine/charging.engine')
+    await eng.stopEngine({ forceOff: true })
+    mockScheduledCharges = []
+    mockSendProxyCommand.mockClear()
+    mockStopChargeOnManualStart = false
+  })
+
+  afterEach(async () => {
+    await stopEngine({ forceOff: true })
+  })
+
+  test('flag=true: sends charge_stop to vehicle already charging when startEngine is called', async () => {
+    mockPluggedIn = true        // getVehicleState().charging = true
+    mockStopChargeOnManualStart = true
+
+    await startEngine(80, 16)
+
+    const stopCalls = mockSendProxyCommand.mock.calls.filter((c: unknown[]) => c[1] === 'charge_stop')
+    expect(stopCalls.length).toBeGreaterThan(0)
+  })
+
+  test('flag=false: does NOT send charge_stop when car is already charging on startEngine', async () => {
+    mockPluggedIn = true        // getVehicleState().charging = true
+    mockStopChargeOnManualStart = false
+
+    await startEngine(80, 16)
+
+    // No charge_stop at engine start — evload only manages amps (HA protection)
+    const stopCalls = mockSendProxyCommand.mock.calls.filter((c: unknown[]) => c[1] === 'charge_stop')
+    expect(stopCalls).toHaveLength(0)
+  })
+
+  test('flag=true: does NOT send charge_stop when car is NOT charging on startEngine', async () => {
+    mockPluggedIn = false       // getVehicleState().charging = false
+    mockStopChargeOnManualStart = true
+
+    await startEngine(80, 16)
+
+    const stopCalls = mockSendProxyCommand.mock.calls.filter((c: unknown[]) => c[1] === 'charge_stop')
+    expect(stopCalls).toHaveLength(0)
   })
 })
 

@@ -837,7 +837,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
                 <div>
                   <div className="font-medium text-sm">Stop Charging On Start</div>
-                  <div className="text-xs text-evload-muted">If enabled, a manual start from the engine panel sends stop instead of start.</div>
+                  <div className="text-xs text-evload-muted">If enabled, EVload stops charging started by the car's internal scheduler before a scheduled EVload session takes control.</div>
                 </div>
                 <button
                   onClick={() => setSettings((prev) => prev ? { ...prev, stopChargeOnManualStart: !prev.stopChargeOnManualStart } : prev)}

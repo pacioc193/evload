@@ -9,8 +9,10 @@ import { prisma } from '../prisma'
 let schedulerTimer: NodeJS.Timeout | null = null
 let lastLeadWakeKey: string | null = null
 
-async function startEngineWithWake(targetSoc: number, targetAmps?: number): Promise<void> {
+async function startEngineWithWake(scheduleId: number, vehicleId: string, targetSoc: number, targetAmps?: number): Promise<void> {
+  logger.debug('Scheduler: startEngineWithWake', { scheduleId, vehicleId, targetSoc, targetAmps })
   await requestWakeMode(true)
+  // External charge takeover (stopChargeOnManualStart logic) is handled inside startEngine()
   await startEngine(targetSoc, targetAmps)
 }
 
@@ -59,7 +61,7 @@ async function runSchedulerTick(): Promise<void> {
     if (!isFailsafeActive() && !getEngineStatus().running) {
       try {
         dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
-        await startEngineWithWake(sc.targetSoc, sc.targetAmps ?? undefined)
+        await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, sc.targetAmps ?? undefined)
       } catch (err) {
         logger.error(`Scheduled charge id=${sc.id} failed to start engine`, { err })
       }
@@ -83,7 +85,7 @@ async function runSchedulerTick(): Promise<void> {
     if (!isFailsafeActive() && !getEngineStatus().running) {
       try {
         dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
-        await startEngineWithWake(sc.targetSoc, sc.targetAmps ?? undefined)
+        await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, sc.targetAmps ?? undefined)
       } catch (err) {
         logger.error(`Weekly charge id=${sc.id} failed to start engine`, { err })
       }
@@ -105,7 +107,7 @@ async function runSchedulerTick(): Promise<void> {
         const started = new Date()
         await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { startedAt: started } })
         dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
-        await startEngineWithWake(sc.targetSoc, sc.targetAmps ?? undefined)
+        await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, sc.targetAmps ?? undefined)
       } catch (err) {
         logger.error(`Scheduled start_end charge id=${sc.id} failed to start engine`, { err })
       }
@@ -145,7 +147,7 @@ async function runSchedulerTick(): Promise<void> {
       if (!isFailsafeActive() && !getEngineStatus().running) {
         try {
           dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
-          await startEngineWithWake(sc.targetSoc, amps)
+          await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, amps)
         } catch (err) {
           logger.error(`Finish-by charge id=${sc.id} failed to start engine`, { err })
         }
