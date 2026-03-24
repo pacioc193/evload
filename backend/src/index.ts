@@ -164,6 +164,7 @@ app.use(
         fontSrc: ["'self'"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
+        upgradeInsecureRequests: null,
       },
     },
   })
