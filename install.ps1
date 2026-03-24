@@ -88,7 +88,7 @@ npm --prefix frontend install
 
 Write-Host "[*] Running Prisma generate in backend (if applicable)..."
 try {
-    npx --prefix backend prisma generate --ignore-existing
+    npx --prefix backend prisma generate
 } catch {
     Write-Host "[!] Prisma generate failed or not present; continuing..."
 }

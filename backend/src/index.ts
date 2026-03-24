@@ -237,13 +237,26 @@ const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
 // HA IndieAuth / OAuth client identity page.
 // HA fetches the client_id URL to validate the OAuth app and look for <link rel="redirect_uri">.
 // APP_URL must be reachable by the HA server — use the evload machine LAN IP, e.g. http://192.168.1.X:3001.
-app.get('/', (req, res) => {
+app.get('/', (req, res, next) => {
+  const userAgent = req.get('user-agent') || ''
+  
+  // Only intercept the root route for HA validation.
+  // Home Assistant user agent typically includes "HomeAssistant" or "aiohttp"
+  // If it's a standard browser request, pass it to express.static (the frontend)
+  if (!userAgent.toLowerCase().includes('homeassistant') && !userAgent.toLowerCase().includes('aiohttp') && !req.accepts('html')) {
+     return next()
+  }
+
+  // Also check if it's explicitly asking for text/html from a generic client but allow browsers through
+  if(req.accepts('html') && userAgent.toLowerCase().includes('mozilla') && !userAgent.toLowerCase().includes('homeassistant')) {
+     return next()
+  }
+
   const appUrl = (process.env.APP_URL ?? 'http://localhost:3001').replace(/\/+$/, '')
   const redirectUri = `${appUrl}/api/ha/callback`
   
   logger.debug('GET / requested (likely HA OAuth validation)', {
     userAgent: req.get('user-agent'),
-    remoteAddr: req.ip,
     appUrl,
     redirectUri,
   })

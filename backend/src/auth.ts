@@ -16,7 +16,7 @@ async function getJwtSecret(): Promise<string> {
     const config = await prisma.appConfig.findUnique({ where: { id: 1 } })
     if (config?.jwt_secret) {
       cachedJwtSecret = config.jwt_secret
-      return cachedJwtSecret
+      return cachedJwtSecret as string
     }
   } catch (err) {
     logger.error('Failed to load JWT secret from database', { err })

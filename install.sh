@@ -62,7 +62,7 @@ npm --prefix frontend install --no-audit --no-fund
 
 echo "[*] Running Prisma generate in backend (if applicable)..."
 if command -v npx >/dev/null 2>&1; then
-  npx --prefix backend prisma generate --ignore-existing || true
+  npx --prefix backend prisma generate || true
 fi
 
 echo "[*] Install complete. To start development: npm run dev"
