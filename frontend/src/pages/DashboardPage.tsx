@@ -401,6 +401,7 @@ export default function DashboardPage() {
     ? 0
     : (usableEvloadAveragePowerKw != null ? remainingEnergyKwh / usableEvloadAveragePowerKw : null)
   const maxCurrentWhenIdleA = [
+    isPlanMode ? nextCharge?.targetAmps : null,
     vehicle?.chargeCurrentRequestMax,
     vehicle?.chargerPilotCurrent,
     engine?.targetAmps,
@@ -422,10 +423,18 @@ export default function DashboardPage() {
   const etaToChargeEnd = formatHoursToEta(etaHours)
   const etaSourceLabel = vehicle?.charging
     ? (shouldUseCarEta ? 'Source: vehicle ETA (hardware-limited)' : 'Source: evload average charging power')
-    : 'Source: max current x 220V'
+    : (isPlanMode && nextCharge?.targetAmps ? 'Source: planned amps x 220V' : 'Source: max current x 220V')
 
   const nextChargeStartTime = nextCharge?.computedStartAt
-    ? new Date(nextCharge.computedStartAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    ? (() => {
+        const d = new Date(nextCharge.computedStartAt)
+        const isToday = new Date().toDateString() === d.toDateString()
+        const isTomorrow = new Date(Date.now() + 86400000).toDateString() === d.toDateString()
+        const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        if (isToday) return timeStr
+        if (isTomorrow) return `Tomorrow ${timeStr}`
+        return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeStr}`
+      })()
     : null
   const enginePhaseLabelMap: Record<string, string> = {
     idle: 'Idle',

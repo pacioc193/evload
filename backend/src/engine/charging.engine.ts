@@ -635,12 +635,13 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
     // Only ramp if the vehicle has had time to respond to the last setpoint change
     const settleMs = Math.max(rampIntervalMs, 3000)
     if (now - lastSetpointSentMs >= settleMs) {
-      const residualPowerW = homeTotalPowerW - chargerPowerW
-      const deltaAmps = residualPowerW / vehicleVoltageV
-      const actualAmps = vState.chargerActualCurrent ?? 0
-      desired = Math.round(actualAmps + deltaAmps)
+      const actualAmps = vState.chargerActualCurrent ?? status.setpointAmps
+      // Ramp up gently towards maxPossible (e.g. +1A or +2A at a time to avoid huge spikes)
+      // Since maxPossible is already calculated based on available HA power, we just step towards it.
+      const step = 1 // 1 Amp per interval
+      desired = Math.min(actualAmps + step, maxPossible)
       lastRampUpMs = now
-      pushEngineLog(`ramp: homeTotalPowerW=${homeTotalPowerW}W chargerPowerW=${Math.round(chargerPowerW)}W residualPowerW=${Math.round(residualPowerW)}W deltaAmps=${deltaAmps.toFixed(2)} candidate=${desired}A`)
+      pushEngineLog(`ramp: homeTotalPowerW=${homeTotalPowerW}W chargerPowerW=${Math.round(chargerPowerW)}W maxPossible=${maxPossible}A candidate=${desired}A`)
     } else {
       pushEngineLog(`ramp skipped: waiting settle (${Math.ceil((settleMs - (now - lastSetpointSentMs)) / 1000)}s)`)
     }
