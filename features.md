@@ -3,6 +3,26 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Aggiornamenti Recenti (2026-03-25)
+
+- Vehicle energy baseline al session start:
+	- `charge_energy_added` letto dal proxy Tesla non viene sempre azzerato tra sessioni.
+	- Al primo campionamento di ogni sessione, il valore viene catturato come baseline e sottratto da tutti i campioni successivi.
+	- `vehicleBatteryEnergyKwh` in `EngineStatus` è sempre relativo all'avvio sessione → efficienza corretta.
+	- `vehicleBatteryEnergyRawKwh` espone il valore grezzo del proxy (informativo).
+- Dual vehicle energy nella Dashboard Vehicle Details:
+	- Tile "Vehicle Energy (da partenza sessione)": mostra `vehicleBatteryEnergyKwh` (baseline-corrected), usata per efficienza.
+	- Tile "Vehicle Energy (raw Tesla proxy)": mostra `vehicleBatteryEnergyRawKwh` (charge_energy_added diretto dal proxy).
+	- Efficienza calcolata sempre su valore sessione-relativo.
+- Nuovo parametro `charging.startAmps` (default 8 A):
+	- Al primo comando in sessione, l'engine usa `startAmps` invece del default del veicolo.
+	- Il ramp-up incrementa di +1A per `rampIntervalSec` partendo dal setpoint comandato (`setpointAmps`), non dall'ampere effettivo riportato dal veicolo (che può essere in ritardo).
+	- `setpointAmps` inizializzato a 0 all'avvio sessione come sentinel per il primo comando.
+	- Aggiornati `config.yaml`, `config.example.yaml` e schema Zod.
+- YAML editor standalone (no CDN):
+	- Rimosso `@monaco-editor/react` da Settings: Monaco carica worker JS da CDN jsdelivr.net, inutilizzabile in ambienti LAN senza internet.
+	- Sostituito con `<textarea>` styled dark (stesso aspetto, nessuna dipendenza esterna).
+
 ## Aggiornamenti Recenti (2026-03-24)
 
 - Energy semantics allineata end-to-end:

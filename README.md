@@ -31,6 +31,10 @@ The project is designed for home charging scenarios where you want to:
 - First-launch password setup and JWT-based session auth
 - WebSocket-driven live dashboard and settings diagnostics
 - **Robust energy tracking**: monotonic Wh counters with session logging to prevent resets during Amp changes
+- **Vehicle energy baseline correction**: `charge_energy_added` from Tesla proxy is captured at session start and used as zero-point, so sessions that begin with a non-zero counter report correct session energy and efficiency
+- **Dual vehicle energy display**: Dashboard Vehicle Details shows both the session-relative energy (used for efficiency) and the raw `charge_energy_added` value from the proxy for comparison
+- **Configurable start amps** (`charging.startAmps`): first charging command jumps to `startAmps` instead of the vehicle default; ramp-up continues from there incrementing one amp per `rampIntervalSec` until `targetAmps`
+- **Offline-safe YAML editor**: Settings YAML panel uses a native textarea instead of Monaco Editor (which requires CDN access), ensuring the config editor works on isolated LAN deployments
 - Telegram notifications and command hooks
 - Demo mode with simulator parity for proxy endpoints
 
@@ -141,8 +145,12 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
   - while not charging: estimate from max current x 220V
 - Dashboard vehicle details panel with current/voltage/power/energy/efficiency and current-vs-limit check
 - Session energy split persisted in backend: meter energy (grid/charger side) and vehicle battery energy (`charge_energy_added`)
+- Vehicle energy baseline correction at session start: non-zero `charge_energy_added` values are offset so session-relative energy is always accurate
+- Dual vehicle energy tiles in Dashboard Vehicle Details: session-relative energy (for efficiency) and raw proxy value side by side
 - Charging efficiency persisted per session in backend and surfaced in Dashboard and Statistics
-- Dashboard normal view uses backend meter energy; Vehicle Details -> Vehicle Charged Energy uses vehicle battery energy
+- Configurable `startAmps`: first charging current command uses `charging.startAmps` (default 8 A); ramp then steps +1 A per `rampIntervalSec` from the commanded setpoint (not vehicle actual amps)
+- Dashboard normal view uses backend meter energy; Vehicle Details → Vehicle Charged Energy uses vehicle battery energy
+- Settings YAML editor is a native textarea — works offline and on isolated LAN without CDN dependency
 - Version visibility in UI: current version in header and release history panel in Settings
 - Expand/collapse state persisted for Dashboard diagnostic panels, Notifications sections, and Settings panels
 - Statistics sessions can be deleted from the UI with a two-step confirmation flow
