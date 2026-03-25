@@ -1,6 +1,5 @@
 ﻿import { useEffect, useState, type ReactNode } from 'react'
 import axios from 'axios'
-import Editor from '@monaco-editor/react'
 import {
   getConfig,
   saveConfig,
@@ -969,10 +968,15 @@ export default function SettingsPage() {
       >
         <div className="pt-5 space-y-4">
           <div className="rounded-lg overflow-hidden border border-evload-border" style={{ height: '400px' }}>
-            <Editor height="400px" defaultLanguage="yaml" value={configContent}
-              onChange={(val) => setConfigContent(val ?? '')}
-              theme="vs-dark"
-              options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', scrollBeyondLastLine: false, tabSize: 2 }} />
+            <textarea
+              className="w-full h-full bg-[#1e1e1e] text-[#d4d4d4] font-mono text-[13px] p-3 resize-none outline-none border-none leading-5"
+              value={configContent}
+              onChange={(e) => setConfigContent(e.target.value)}
+              spellCheck={false}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+            />
           </div>
           {configMessage && (
             <p className={`text-sm ${configMessage.includes('failed') || configMessage.includes('Failed') ? 'text-evload-error' : 'text-evload-success'}`}>

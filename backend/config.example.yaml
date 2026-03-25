@@ -26,6 +26,9 @@ charging:
   # Minimum allowed charging current in amperes (5-48)
   minAmps: 5
   
+  # Initial charging current when a session starts (ramp begins from here, then climbs to defaultAmps)
+  startAmps: 8
+  
   # Battery capacity in kWh (used for charge time estimation)
   batteryCapacityKwh: 75
   

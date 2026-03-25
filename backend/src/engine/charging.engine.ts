@@ -25,6 +25,7 @@ export interface EngineStatus {
   haThrottled: boolean
   accumulatedSessionEnergyKwh: number
   vehicleBatteryEnergyKwh: number
+  vehicleBatteryEnergyRawKwh: number
   chargingEfficiencyPct: number | null
   debugLog: string[]
 }
@@ -44,6 +45,7 @@ let status: EngineStatus = {
   haThrottled: false,
   accumulatedSessionEnergyKwh: 0,
   vehicleBatteryEnergyKwh: 0,
+  vehicleBatteryEnergyRawKwh: 0,
   chargingEfficiencyPct: null,
   debugLog: [],
 }
@@ -59,6 +61,7 @@ let sessionEnergyPriceEurPerKwh = 0
 let planArmed = false
 let lastEnergySampleAtMs: number | null = null
 let lastEngineHealthSnapshotAtMs = 0
+let vehicleBatteryEnergyBaselineKwh: number | null = null
 
 interface PersistedEngineRestoreState {
   restorePlan: boolean
@@ -269,16 +272,18 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     mode: planArmed ? 'plan' : 'on',
     targetSoc,
     targetAmps: requestedAmps,
-    setpointAmps: requestedAmps,
+    setpointAmps: 0,  // will be sent as startAmps on the first adjustAmps call
     phase: 'idle',
     message: planArmed ? 'Planned session started' : 'Engine started',
     accumulatedSessionEnergyKwh: 0,
     vehicleBatteryEnergyKwh: 0,
+    vehicleBatteryEnergyRawKwh: 0,
     chargingEfficiencyPct: null,
     debugLog: prevSessionTail.length > 0 ? [...prevSessionTail, '--- new session ---'] : [],
   }
   sessionEnergyPriceEurPerKwh = cfg.charging.energyPriceEurPerKwh
   lastEnergySampleAtMs = Date.now()
+  vehicleBatteryEnergyBaselineKwh = null
   haStoppedForLimit = false
   haResumeAfterMs = null
   lastChargeStartAttemptMs = 0
@@ -405,6 +410,7 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
     setpointAmps: status.targetAmps,
     accumulatedSessionEnergyKwh: 0,
     vehicleBatteryEnergyKwh: 0,
+    vehicleBatteryEnergyRawKwh: 0,
     chargingEfficiencyPct: null,
   }
   haStoppedForLimit = false
@@ -415,6 +421,7 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
   sessionEnergyPriceEurPerKwh = 0
   lastEnergySampleAtMs = null
   lastEngineHealthSnapshotAtMs = 0
+  vehicleBatteryEnergyBaselineKwh = null
   await persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
   engineEvents.emit('stopped', status)
 }
@@ -455,8 +462,25 @@ function updateSessionEnergyCounters(vState: ReturnType<typeof getVehicleState>)
 
   const vehicleBatteryEnergyKwh = parseVehicleBatteryEnergyKwh(vState)
   if (vehicleBatteryEnergyKwh != null) {
-    // Keep the highest value observed in-session to avoid temporary counter resets from the vehicle API.
-    status.vehicleBatteryEnergyKwh = Math.max(status.vehicleBatteryEnergyKwh, vehicleBatteryEnergyKwh)
+    // On first reading, capture current value as baseline — Tesla sometimes does not reset
+    // charge_energy_added to zero at the start of a new session.
+    if (vehicleBatteryEnergyBaselineKwh === null) {
+      vehicleBatteryEnergyBaselineKwh = vehicleBatteryEnergyKwh
+      logger.info('ENGINE_VEHICLE_ENERGY_BASELINE_CAPTURED', {
+        sessionId: status.sessionId,
+        baselineKwh: vehicleBatteryEnergyKwh,
+        note: vehicleBatteryEnergyKwh > 0
+          ? 'non-zero baseline detected — using as zero-point for this session'
+          : 'zero baseline — no offset needed',
+      })
+      pushEngineLog(`vehicle energy baseline: ${vehicleBatteryEnergyKwh.toFixed(3)} kWh (zero-point)`)
+    }
+    // Expose raw proxy value (informational — may include energy from before this evload session)
+    status.vehicleBatteryEnergyRawKwh = vehicleBatteryEnergyKwh
+    // Compute session energy relative to baseline, clamped to >= 0
+    const sessionEnergyKwh = Math.max(0, vehicleBatteryEnergyKwh - vehicleBatteryEnergyBaselineKwh)
+    // Keep highest observed value to guard against transient Tesla API counter dips
+    status.vehicleBatteryEnergyKwh = Math.max(status.vehicleBatteryEnergyKwh, sessionEnergyKwh)
   }
 
   status.chargingEfficiencyPct =
@@ -795,22 +819,26 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
   const chargerPowerW = haS.chargerW ?? ((vState.chargeRateKw ?? 0) * 1000)
   const vehicleVoltageV = vState.chargerVoltage ?? DEFAULT_VEHICLE_VOLTAGE_V
 
+  // First command in session: jump to startAmps instead of leaving the vehicle at its own default
+  const isFirstCommand = lastSetpointSentMs === 0 && status.setpointAmps === 0
   let desired = status.setpointAmps
 
-  if (desired > maxPossible) {
+  if (isFirstCommand) {
+    desired = cfg.charging.startAmps
+    pushEngineLog(`first command: startAmps=${cfg.charging.startAmps}A`)
+  } else if (desired > maxPossible) {
     desired = maxPossible
     lastRampUpMs = now
   } else if (homeTotalPowerW !== null && now - lastRampUpMs >= rampIntervalMs) {
     // Only ramp if the vehicle has had time to respond to the last setpoint change
     const settleMs = Math.max(rampIntervalMs, 3000)
     if (now - lastSetpointSentMs >= settleMs) {
-      const actualAmps = vState.chargerActualCurrent ?? status.setpointAmps
-      // Ramp up gently towards maxPossible (e.g. +1A or +2A at a time to avoid huge spikes)
-      // Since maxPossible is already calculated based on available HA power, we just step towards it.
+      // Use setpointAmps (last commanded value) as ramp base — not actualAmps —
+      // so ramp always continues from the commanded setpoint even when the vehicle lags
       const step = 1 // 1 Amp per interval
-      desired = Math.min(actualAmps + step, maxPossible)
+      desired = Math.min(status.setpointAmps + step, maxPossible)
       lastRampUpMs = now
-      pushEngineLog(`ramp: homeTotalPowerW=${homeTotalPowerW}W chargerPowerW=${Math.round(chargerPowerW)}W maxPossible=${maxPossible}A candidate=${desired}A`)
+      pushEngineLog(`ramp: homeTotalPowerW=${homeTotalPowerW}W chargerPowerW=${Math.round(chargerPowerW)}W base=${status.setpointAmps}A maxPossible=${maxPossible}A candidate=${desired}A`)
     } else {
       pushEngineLog(`ramp skipped: waiting settle (${Math.ceil((settleMs - (now - lastSetpointSentMs)) / 1000)}s)`)
     }

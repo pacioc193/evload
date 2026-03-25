@@ -305,8 +305,13 @@ export default function DashboardPage() {
   const meterEnergyKwh = engine?.accumulatedSessionEnergyKwh != null && Number.isFinite(engine.accumulatedSessionEnergyKwh)
     ? Math.max(0, engine.accumulatedSessionEnergyKwh)
     : null
-  const vehicleChargedEnergyKwh = engine?.vehicleBatteryEnergyKwh != null && Number.isFinite(engine.vehicleBatteryEnergyKwh)
-    ? Math.max(engine.vehicleBatteryEnergyKwh, vehicleEnergyFromAutoKwh ?? 0)
+  // Session-relative energy: raw − baseline captured at session start (correct for efficiency)
+  const vehicleChargedEnergyKwh = engine?.vehicleBatteryEnergyKwh != null && Number.isFinite(engine.vehicleBatteryEnergyKwh) && engine.vehicleBatteryEnergyKwh > 0
+    ? engine.vehicleBatteryEnergyKwh
+    : null
+  // Raw proxy value (Tesla charge_energy_added, may include pre-session energy)
+  const vehicleChargedEnergyRawKwh = engine?.vehicleBatteryEnergyRawKwh != null && Number.isFinite(engine.vehicleBatteryEnergyRawKwh) && engine.vehicleBatteryEnergyRawKwh > 0
+    ? engine.vehicleBatteryEnergyRawKwh
     : vehicleEnergyFromAutoKwh
   const chargedEnergyWh = meterEnergyKwh != null
     ? Math.round(meterEnergyKwh * 1000)
@@ -327,7 +332,7 @@ export default function DashboardPage() {
   const autoPowerKw = autoVoltageV != null && autoActualCurrentA != null
     ? (autoVoltageV * autoActualCurrentA) / 1000
     : chargePowerKw
-  // Efficiency = battery energy from vehicle / energy measured at the meter.
+  // Efficiency = battery energy from vehicle (session-relative) / energy measured at the meter.
   const vehicleEfficiencyPct = engine?.chargingEfficiencyPct != null && Number.isFinite(engine.chargingEfficiencyPct)
     ? engine.chargingEfficiencyPct
     : (
@@ -750,8 +755,15 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
-                  <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Charged Energy</div>
+                  <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Energy (da partenza sessione)</div>
                   <div className="mt-1 text-sm font-semibold text-evload-text">{vehicleChargedEnergyKwh != null ? `${vehicleChargedEnergyKwh.toFixed(2)} kWh` : '—'}</div>
+                  <div className="mt-1 text-[11px] text-evload-muted">charge_energy_added − baseline avvio sessione</div>
+                </div>
+
+                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                  <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Energy (raw Tesla proxy)</div>
+                  <div className="mt-1 text-sm font-semibold text-evload-text">{vehicleChargedEnergyRawKwh != null ? `${vehicleChargedEnergyRawKwh.toFixed(2)} kWh` : '—'}</div>
+                  <div className="mt-1 text-[11px] text-evload-muted">charge_energy_added diretto dal proxy</div>
                 </div>
 
                 <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
@@ -765,7 +777,7 @@ export default function DashboardPage() {
                     {vehicleEfficiencyPct != null ? `${vehicleEfficiencyPct.toFixed(2)}%` : '—'}
                   </div>
                   <div className="mt-1 text-[11px] text-evload-muted">
-                    Formula: vehicle battery energy / meter energy
+                    (energia sessione Tesla / contatore) × 100
                   </div>
                 </div>
 

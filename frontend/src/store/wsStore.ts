@@ -71,6 +71,7 @@ export interface EngineStatus {
   haThrottled: boolean
   accumulatedSessionEnergyKwh: number
   vehicleBatteryEnergyKwh: number
+  vehicleBatteryEnergyRawKwh: number
   chargingEfficiencyPct: number | null
   debugLog: string[]
 }
