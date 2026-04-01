@@ -344,7 +344,7 @@ export default function SettingsPage() {
 
   const numberFields = new Set<keyof AppSettings>([
     'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
-    'normalPollIntervalMs', 'scheduleLeadTimeSec',
+    'normalPollIntervalMs', 'idlePollIntervalMs', 'scheduleLeadTimeSec',
   ])
 
   const upd = (key: keyof AppSettings) => (val: string) =>
@@ -710,7 +710,15 @@ export default function SettingsPage() {
                 onChange={upd('normalPollIntervalMs')}
                 type="number"
                 unit="ms"
-                description="Polling interval for full vehicle_data refresh while the car is awake."
+                description="Refresh interval while charging or active (e.g. 5000ms)."
+              />
+              <Field
+                label="Idle Poll Interval"
+                value={settings.idlePollIntervalMs}
+                onChange={upd('idlePollIntervalMs')}
+                type="number"
+                unit="ms"
+                description="Slow refresh interval when engine is idle to allow vehicle sleep (e.g. 60000ms)."
               />
               <Field
                 label="Schedule Lead Time"

@@ -108,6 +108,9 @@ proxy:
   # Polling interval (ms) for vehicle_data status refresh
   normalPollIntervalMs: 5000
 
+  # Polling interval (ms) when vehicle is not charging and engine is idle
+  idlePollIntervalMs: 60000
+
   # Anticipatory wake lead time (sec) - wakes vehicle before scheduled charge execution
   scheduleLeadTimeSec: 1800
   

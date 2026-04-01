@@ -4,6 +4,7 @@ import { EventEmitter } from 'events'
 import { logger, sanitizeForLog } from '../logger'
 import { getConfig } from '../config'
 import { dispatchTelegramNotificationEvent } from './notification-rules.service'
+import { getEngineStatus } from '../engine/charging.engine'
 
 export type VehicleSleepStatus = 'VEHICLE_SLEEP_STATUS_AWAKE' | 'VEHICLE_SLEEP_STATUS_ASLEEP' | 'VEHICLE_SLEEP_STATUS_UNKNOWN'
 
@@ -662,7 +663,13 @@ export async function triggerImmediatePoll(): Promise<void> {
 function scheduleNextPoll(): void {
   if (pollTimer) clearTimeout(pollTimer)
 
-  const interval = getConfig().proxy.normalPollIntervalMs
+  const cfg = getConfig()
+  const isCharging = vehicleState.charging
+  const engineRunning = getEngineStatus().running
+  
+  const interval = (isCharging || engineRunning)
+    ? cfg.proxy.normalPollIntervalMs 
+    : cfg.proxy.idlePollIntervalMs
 
   pollTimer = setTimeout(async () => {
     try {

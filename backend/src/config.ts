@@ -71,6 +71,7 @@ const ConfigSchema = z.object({
     vehicleId: z.string().default(''),
     vehicleName: z.string().default(''),
     normalPollIntervalMs: z.number().min(1000).default(5000),
+    idlePollIntervalMs: z.number().min(1000).default(60000),
     scheduleLeadTimeSec: z.number().min(0).default(1800),
     rejectUnauthorized: z.boolean().default(true),
   }).default({}),

@@ -39,6 +39,7 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     vehicleId: cfg.proxy.vehicleId,
     vehicleName: cfg.proxy.vehicleName,
     normalPollIntervalMs: cfg.proxy.normalPollIntervalMs,
+    idlePollIntervalMs: cfg.proxy.idlePollIntervalMs,
     scheduleLeadTimeSec: cfg.proxy.scheduleLeadTimeSec,
     rejectUnauthorized: cfg.proxy.rejectUnauthorized,
     batteryCapacityKwh: cfg.charging.batteryCapacityKwh,
@@ -68,6 +69,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     vehicleId: string
     vehicleName: string
     normalPollIntervalMs: number
+    idlePollIntervalMs: number
     scheduleLeadTimeSec: number
     rejectUnauthorized: boolean
     batteryCapacityKwh: number
@@ -144,6 +146,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.vehicleId !== undefined) proxy['vehicleId'] = incoming.vehicleId
   if (incoming.vehicleName !== undefined) proxy['vehicleName'] = incoming.vehicleName
   if (incoming.normalPollIntervalMs !== undefined) proxy['normalPollIntervalMs'] = incoming.normalPollIntervalMs
+  if (incoming.idlePollIntervalMs !== undefined) proxy['idlePollIntervalMs'] = incoming.idlePollIntervalMs
   if (incoming.scheduleLeadTimeSec !== undefined) proxy['scheduleLeadTimeSec'] = incoming.scheduleLeadTimeSec
   if (incoming.rejectUnauthorized !== undefined) proxy['rejectUnauthorized'] = incoming.rejectUnauthorized
   parsed['proxy'] = proxy

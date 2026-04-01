@@ -141,6 +141,7 @@ export interface AppSettings {
   vehicleId: string
   vehicleName: string
   normalPollIntervalMs: number
+  idlePollIntervalMs: number
   scheduleLeadTimeSec: number
   rejectUnauthorized: boolean
   batteryCapacityKwh: number

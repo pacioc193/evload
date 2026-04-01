@@ -630,8 +630,9 @@ WebSocket backend espone separatamente `proxy` e `vehicle`.
 
 ### Nota Su F-40 (Polling Adattivo / Heartbeat)
 
-F-40 (loop heartbeat separato via `body_controller_state` con modalità NORMAL/REACTIVE) è nel backlog ma **non implementato**.
-L'implementazione attuale usa un singolo loop `vehicle_data` che è già sleep-safe grazie alla gestione delle risposte non-200 descritta sopra.
+Implementazione parziale:
+- Il backend mantiene un loop adattivo che usa `normalPollIntervalMs` (default 5s) durante la ricarica o quando l'engine è in esecuzione, e passa a `idlePollIntervalMs` (default 60s) quando il veicolo è inattivo per permettere lo sleep.
+- Heartbeat separato via `body_controller_state` è ancora nel backlog.
 
 ## F-35 Pannelli Di Dominio Collassabili Nelle Impostazioni
 - La pagina impostazioni deve essere organizzata in pannelli di dominio collassabili invece di un unico form lungo e continuo.
