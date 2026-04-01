@@ -116,7 +116,12 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 - È obbligatorio verificare la correttezza sintattica e funzionale (build/test) dopo ogni modifica significativa.
 - Non procedere alla feature successiva se quella corrente introduce errori di compilazione o regressioni bloccanti.
 
-15. Veridicità dei default e inizializzazione corretta.
+15. Aggiornamento Versione Software.
+- Per ogni modifica significativa o nuova feature, è obbligatorio incrementare la versione del software (semver: major.minor.patch).
+- La versione deve essere aggiornata coerentemente in: `backend/src/version.ts` (costante `VERSION` e `VERSION_HISTORY`), `package.json` della root e `backend/package.json`.
+- Uno step senza aggiornamento versione per modifiche sostanziali è considerato `FAILED`.
+
+16. Veridicità dei default e inizializzazione corretta.
 - All'apertura della pagina, ogni campo (test center, selettori, template) deve mostrare dati coerenti con l'evento di default selezionato.
 - È vietato avere discordanze tra evento visualizzato e payload/template mostrato (es. Test Center che mostra `engine_started` ma con payload di un altro evento).
 - L'inizializzazione deve essere dinamica basata sul catalogo backend, non basata su costanti statiche frontend potenzialmente obsolete.

@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.1.0'
+export const VERSION = '1.2.0'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.2.0',
+    releasedAt: '2026-04-01',
+    summary: 'Adaptive polling (normal vs idle), vehicle wake on manual start, and improved average power responsiveness',
+  },
   {
     version: '1.1.0',
     releasedAt: '2026-03-24',
