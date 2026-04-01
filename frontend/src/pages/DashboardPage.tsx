@@ -371,7 +371,7 @@ export default function DashboardPage() {
     : null
   const evloadAveragePowerKw =
     chargingElapsedMs != null
-    && chargingElapsedMs >= 60000
+    && chargingElapsedMs >= 10000
     && meterEnergyKwh != null
     && meterEnergyKwh > 0
       ? meterEnergyKwh / (chargingElapsedMs / 3600000)

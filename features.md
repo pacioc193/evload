@@ -32,8 +32,7 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 - Failsafe recovery hardening:
 	- attivazione/reset failsafe su reale stato di connettivita del proxy (non su semplici transizioni `vehicle.connected`).
 	- risolto blocco della ripartenza manuale in modalita ON dopo timeout brevi del proxy.
-- ETA/average power stabilization:
-	- media EVLoad calcolata su finestra sessione con warmup minimo per evitare valori instabili nei primi secondi.
+- ETA/average power stabilization: media EVLoad calcolata su finestra sessione con warmup minimo di 10s per evitare valori instabili nei primi secondi.
 - Version tracking in UI:
 	- versione corrente visibile nell'header.
 	- pannello Versioning in Settings con latest release check e storico versioni.
@@ -601,7 +600,7 @@ Lo stesso principio si applica a qualsiasi comando operativo.
 
 ### Comandi Verso Il Proxy
 
-- Avvio manuale motore: `startEngine()` chiama `requestWakeMode(false)` (nessun wake_up esplicito) poi `triggerImmediatePoll()`.
+- Avvio manuale motore: `startEngine()` chiama `requestWakeMode(true)` (sveglia il veicolo) poi `triggerImmediatePoll()`.
 - Wake manuale esplicito: `POST /api/engine/wake` chiama `requestWakeMode(true)` e invia `POST /api/1/vehicles/:vehicleId/command/wake_up`.
 - Scheduler: usa `requestWakeMode(true)` nella lead window `scheduleLeadTimeSec` e prima degli start pianificati.
 - Comandi runtime: `POST /api/1/vehicles/:vehicleId/command/:command`.

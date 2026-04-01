@@ -621,7 +621,7 @@ Current repository validation path typically includes:
 - Proxy health is intentionally modeled separately from interpreted vehicle connectivity: proxy can be LIVE while the car is sleeping.
 - Manual YAML editing and structured settings editing both write the backend config file.
 - Polling `GET /vehicle_data` is sleep-safe and does not establish a BLE connection when the vehicle is asleep.
-- Commands (charge_start, charge_stop, set_charging_amps) automatically wake the vehicle via the proxy; EVLoad guards against sending them to a sleeping vehicle.
+- Commands (charge_start, charge_stop, set_charging_amps) automatically wake the vehicle via the proxy; EVLoad guards against sending them to a sleeping vehicle during idle or stop operations, but explicitly wakes the vehicle when a charging session is started (manually or by schedule).
 - The engine log carries over the last 20 lines from the previous session so stop-engine entries remain visible after a new session starts.
 - Every critical engine action emits a structured `logger.info`/`logger.warn` with an emoji-prefixed tag (`🚀`, `🛑`, `🔌`, `⚡`, `🏁`, `🗓️`, `⛔`, `🚨`) and full context (vehicleId, sessionId, before/after values, reasons) to enable post-mortem analysis of overnight sessions.
 - Backend log files are written to the `logs/` directory; they can be downloaded directly from the authenticated Settings → Logs panel.

@@ -227,7 +227,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     return
   }
 
-  await requestWakeMode(false)
+  await requestWakeMode(true)
 
   // ── External charge detection ─────────────────────────────────────────────
   // If the vehicle is already charging (detected via polling) but evload did not
