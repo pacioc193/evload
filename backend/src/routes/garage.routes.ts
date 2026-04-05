@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import rateLimit from 'express-rate-limit'
 import { requireAuth } from '../middleware/auth.middleware'
 import { logger } from '../logger'
@@ -27,13 +27,12 @@ router.post('/display', garageActionLimiter, requireAuth, (req, res) => {
   }
 
   // vcgencmd display_power 1 = on, 0 = off
+  // Use execFile (no shell) to avoid any injection
   const powerArg = on ? '1' : '0'
-  const cmd = `vcgencmd display_power ${powerArg}`
 
-  exec(cmd, (err, stdout, stderr) => {
+  execFile('vcgencmd', ['display_power', powerArg], (err, stdout, stderr) => {
     if (err) {
-      logger.warn('GARAGE_DISPLAY: vcgencmd failed', { err, cmd, stderr })
-      // Non-fatal: the command may not be available outside RPi
+      logger.warn('GARAGE_DISPLAY: vcgencmd failed', { err, stderr })
       res.status(500).json({ error: 'vcgencmd not available or failed', detail: stderr })
       return
     }

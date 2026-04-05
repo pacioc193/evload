@@ -19,14 +19,14 @@
 
 import fs from 'fs'
 import path from 'path'
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { google } from 'googleapis'
 import { logger } from '../logger'
 import { prisma } from '../prisma'
 import { getConfig } from '../config'
 
-const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
 const CONFIG_PATH = process.env.CONFIG_PATH ?? path.join(__dirname, '../../config.yaml')
 const DB_PATH = process.env.DATABASE_URL?.replace('file:', '') ?? path.join(__dirname, '../../data/evload.db')
@@ -141,7 +141,9 @@ async function resolveOrCreateFolderPath(
 
   let parentId = 'root'
   for (const segment of segments) {
-    const q = `name='${segment.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
+    // Escape backslashes then single quotes so the Drive query is not injectable
+    const safeSegment = segment.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    const q = `name='${safeSegment}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
     const res = await drive.files.list({ q, fields: 'files(id, name)', pageSize: 1 })
     const files = res.data.files ?? []
     if (files.length > 0 && files[0].id) {
@@ -261,9 +263,8 @@ export async function createBackup(): Promise<string> {
     throw new Error('No backup files found (config.yaml or evload.db)')
   }
 
-  // Create tar.gz
-  const filesArg = filesToArchive.map((f) => `"${f}"`).join(' ')
-  await execAsync(`tar -czf "${archivePath}" ${filesArg}`)
+  // Create tar.gz — use execFile (no shell) to avoid path injection
+  await execFileAsync('tar', ['-czf', archivePath, ...filesToArchive])
   logger.info('BACKUP: Archive created', { archivePath, files: filesToArchive })
 
   // Upload to Drive
@@ -369,10 +370,56 @@ export async function restoreBackup(fileId: string): Promise<void> {
   })
   logger.info('BACKUP_RESTORE: Downloaded archive', { fileId, localPath })
 
-  // Extract (overwrite in place)
-  await execAsync(`tar -xzf "${localPath}" -C /`)
-  fs.unlinkSync(localPath)
-  logger.info('BACKUP_RESTORE: Extracted and restored files', { fileId })
+  // Extract to a controlled temp directory — never extract directly to /
+  const extractDir = path.join(BACKUP_TMP_DIR, `extract-${Date.now()}`)
+  fs.mkdirSync(extractDir, { recursive: true })
+
+  try {
+    // Use execFile (no shell) to avoid injection via localPath
+    await execFileAsync('tar', ['-xzf', localPath, '-C', extractDir])
+
+    // Copy only the known evload files to their proper locations
+    const knownFiles: Array<{ name: string; dest: string }> = [
+      { name: path.basename(CONFIG_PATH), dest: CONFIG_PATH },
+      { name: path.basename(DB_PATH),     dest: DB_PATH },
+    ]
+
+    for (const { name, dest } of knownFiles) {
+      // Find the file inside the extracted tree (it may be at a nested path)
+      const found = findFileInDir(extractDir, name)
+      if (found) {
+        const destDir = path.dirname(dest)
+        if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true })
+        fs.copyFileSync(found, dest)
+        logger.info('BACKUP_RESTORE: Restored file', { name, dest })
+      } else {
+        logger.warn('BACKUP_RESTORE: File not found in archive', { name })
+      }
+    }
+  } finally {
+    // Clean up temp files
+    try { fs.unlinkSync(localPath) } catch { /* ignore */ }
+    try { fs.rmSync(extractDir, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+
+  logger.info('BACKUP_RESTORE: Restore complete', { fileId })
+}
+
+/**
+ * Recursively search for a file by name within a directory tree.
+ * Returns the full path if found, null otherwise.
+ */
+function findFileInDir(dir: string, fileName: string): string | null {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      const found = findFileInDir(fullPath, fileName)
+      if (found) return found
+    } else if (entry.name === fileName) {
+      return fullPath
+    }
+  }
+  return null
 }
 
 // ─── Scheduled backup check ─────────────────────────────────────────────────
