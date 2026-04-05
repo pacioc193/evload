@@ -20,6 +20,8 @@ import configRoutes from './routes/config.routes'
 import scheduleRoutes from './routes/schedule.routes'
 import settingsRoutes from './routes/settings.routes'
 import versionRoutes from './routes/version.routes'
+import garageRoutes from './routes/garage.routes'
+import backupRoutes from './routes/backup.routes'
 import { startHaPoll } from './services/ha.service'
 import { startProxyPoll } from './services/proxy.service'
 import { startFleetSimulator, stopFleetSimulator } from './services/fleet-simulator.service'
@@ -30,6 +32,7 @@ import { initWebSocketServer, stopWebSocketServer } from './ws/broadcaster'
 import { startEngine, stopEngine, getEngineStatus, initializeEngineState, initExternalChargeGuard } from './engine/charging.engine'
 import { isFailsafeActive } from './services/failsafe.service'
 import { notificationEvents, dispatchTelegramNotificationEvent } from './services/notification-rules.service'
+import { runScheduledBackupCheck } from './services/backup.service'
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10)
 
@@ -234,6 +237,8 @@ app.use('/api/config', configRoutes)
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/settings', settingsRoutes)
 app.use('/api/version', versionRoutes)
+app.use('/api/garage', garageRoutes)
+app.use('/api/backup', backupRoutes)
 
 const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
 
@@ -342,6 +347,11 @@ async function bootstrap(): Promise<void> {
   startFleetSimulator()
   startProxyPoll()
   startScheduler()
+
+  // Backup scheduler: check every minute if a scheduled backup should run
+  setInterval(() => {
+    runScheduledBackupCheck().catch((err) => logger.error('Backup scheduler error', { err }))
+  }, 60_000)
 
   server.listen(PORT, () => {
     logger.info(`evload backend listening on port ${PORT}`)

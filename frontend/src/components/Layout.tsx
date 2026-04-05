@@ -1,6 +1,6 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Zap, Car, Thermometer, BarChart2, Settings, Wifi, WifiOff, Calendar, Bell, Moon, Sun, SlidersHorizontal, X } from 'lucide-react'
+import { Zap, Car, Thermometer, BarChart2, Settings, Wifi, WifiOff, Calendar, Bell, Moon, Sun, SlidersHorizontal, X, Warehouse } from 'lucide-react'
 import { useWsStore } from '../store/wsStore'
 import { clsx } from 'clsx'
 import { sendVehicleCommand, updateVehicleDataRequest, getVersionInfo } from '../api/index'
@@ -338,6 +338,7 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
         <nav className="w-16 lg:w-56 border-r border-evload-border bg-evload-surface flex flex-col py-4 gap-1">
           {[
             { to: '/dashboard', icon: Car, label: 'Dashboard' },
+            { to: '/garage', icon: Warehouse, label: 'Garage' },
             { to: '/schedule', icon: Calendar, label: 'Schedule' },
             { to: '/climate', icon: Thermometer, label: 'Climate' },
             { to: '/statistics', icon: BarChart2, label: 'Statistics' },

@@ -2,9 +2,9 @@ import { EventEmitter } from 'events'
 import { logger } from '../logger'
 import { getConfig } from '../config'
 import { prisma } from '../prisma'
-import { getVehicleState, sendProxyCommand, requestWakeMode, vehicleEvents } from '../services/proxy.service'
+import { getVehicleState, sendProxyCommand, requestWakeMode, vehicleEvents, proxyEvents } from '../services/proxy.service'
 import { getHaState } from '../services/ha.service'
-import { isFailsafeActive } from '../services/failsafe.service'
+import { isFailsafeActive, getFailsafeType } from '../services/failsafe.service'
 import { notificationEvents, dispatchTelegramNotificationEvent } from '../services/notification-rules.service'
 import { computeBalancingAction, shouldAdjustAmps, clampAmps } from './balancing'
 
@@ -62,6 +62,17 @@ let planArmed = false
 let lastEnergySampleAtMs: number | null = null
 let lastEngineHealthSnapshotAtMs = 0
 let vehicleBatteryEnergyBaselineKwh: number | null = null
+
+/**
+ * Suspended state saved when a soft failsafe (proxy disconnect) pauses an active charge session.
+ * On proxy reconnect the engine uses this to automatically resume the session.
+ */
+interface SuspendedChargeState {
+  targetSoc: number
+  targetAmps: number
+  reason: 'proxy_lost'
+}
+let suspendedState: SuspendedChargeState | null = null
 
 interface PersistedEngineRestoreState {
   restorePlan: boolean
@@ -422,6 +433,7 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
   lastEnergySampleAtMs = null
   lastEngineHealthSnapshotAtMs = 0
   vehicleBatteryEnergyBaselineKwh = null
+  suspendedState = null
   await persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
   engineEvents.emit('stopped', status)
 }
@@ -500,7 +512,31 @@ async function runEngineStep(): Promise<void> {
   engineLock = true
   try {
     if (isFailsafeActive()) {
-      logger.warn('🚨 [FAILSAFE] Failsafe is active — stopping engine immediately', {
+      const fsType = getFailsafeType()
+      if (fsType === 'soft') {
+        // Soft failsafe (proxy disconnected): suspend the session without stopping it.
+        // The engine timer keeps running; we just pause and wait for reconnect.
+        if (status.running && !suspendedState) {
+          suspendedState = {
+            targetSoc: status.targetSoc,
+            targetAmps: status.targetAmps,
+            reason: 'proxy_lost',
+          }
+          logger.warn('🔌 [CHARGE_SUSPEND] Proxy disconnected — charge session suspended, will auto-resume on reconnect', {
+            sessionId: status.sessionId,
+            targetSoc: suspendedState.targetSoc,
+            targetAmps: suspendedState.targetAmps,
+          })
+          pushEngineLog(`charge suspended: proxy lost (targetSoc=${suspendedState.targetSoc}% targetAmps=${suspendedState.targetAmps}A)`)
+          dispatchTelegramNotificationEvent('charging_paused', { reason: 'proxy_disconnected' }).catch(() => {})
+        }
+        setEnginePhase('paused', 'soft_failsafe_proxy_lost')
+        status.message = 'Proxy disconnected — charge suspended, waiting for reconnect'
+        engineEvents.emit('tick', status)
+        return
+      }
+      // Hard failsafe → stop the engine immediately
+      logger.warn('🚨 [FAILSAFE] Hard failsafe is active — stopping engine immediately', {
         sessionId: status.sessionId,
         phase: status.phase,
         currentSoc: getVehicleState().stateOfCharge,
@@ -953,6 +989,52 @@ export function initExternalChargeGuard(): void {
     await sendProxyCommand(vid, 'charge_stop', {}).catch((err) =>
       logger.error('\ud83d\udea8 [EXTERNAL_CHARGE_GUARD] charge_stop failed', { err, vehicleId: vid })
     )
+  })
+
+  // On proxy reconnect: auto-resume a suspended charge session or stop autonomous charge
+  proxyEvents.on('connected', async () => {
+    const cfg = getConfig()
+
+    if (suspendedState) {
+      // We had an active session when the proxy went away — resume it
+      const saved = suspendedState
+      suspendedState = null
+      logger.info('🔄 [CHARGE_RESUME] Proxy reconnected — resuming suspended charge session', {
+        targetSoc: saved.targetSoc,
+        targetAmps: saved.targetAmps,
+        previousSessionId: status.sessionId,
+      })
+      pushEngineLog(`proxy reconnected: resuming charge (targetSoc=${saved.targetSoc}% targetAmps=${saved.targetAmps}A)`)
+      dispatchTelegramNotificationEvent('charging_resumed', { reason: 'proxy_reconnected' }).catch(() => {})
+      // Brief delay to allow fresh vehicle data after reconnect
+      await new Promise<void>((resolve) => setTimeout(resolve, 2000))
+      await startEngine(saved.targetSoc, saved.targetAmps).catch((err) =>
+        logger.error('🚨 [CHARGE_RESUME] Failed to resume charge after proxy reconnect', { err })
+      )
+      return
+    }
+
+    // No suspended session — check for autonomous charge that started while proxy was offline
+    if (!status.running && cfg.proxy.stopAutonomousCharge) {
+      // Give proxy a moment to deliver fresh vehicle data
+      await new Promise<void>((resolve) => setTimeout(resolve, 3000))
+      const vState = getVehicleState()
+      if (vState.charging) {
+        const vid = getCommandVehicleId(cfg)
+        if (vid) {
+          logger.warn('🚦 [AUTONOMOUS_CHARGE_GUARD] Proxy reconnected: vehicle charging autonomously — stopAutonomousCharge=true, sending charge_stop', {
+            vehicleId: vid,
+            chargingState: vState.chargingState,
+            soc: vState.stateOfCharge,
+            chargerActualCurrent: vState.chargerActualCurrent,
+          })
+          pushEngineLog(`autonomous charge guard: charge_stop sent (proxy reconnect, stopAutonomousCharge=true)`)
+          await sendProxyCommand(vid, 'charge_stop', {}).catch((err) =>
+            logger.error('🚨 [AUTONOMOUS_CHARGE_GUARD] charge_stop failed', { err, vehicleId: vid })
+          )
+        }
+      }
+    }
   })
 
   logger.info('External charge guard initialized (stopChargeOnManualStart listener active)')

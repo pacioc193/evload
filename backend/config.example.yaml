@@ -116,3 +116,24 @@ proxy:
   
   # TLS certificate validation for proxy HTTPS (set false only for self-signed certs in local dev)
   rejectUnauthorized: true
+
+  # If true, evload will send charge_stop when it detects the car started charging autonomously
+  # after the proxy reconnects (e.g. car plugged in while proxy was temporarily offline).
+  # Set false if you want the car to continue any charge it started on its own.
+  stopAutonomousCharge: true
+
+# ============================================================
+# BACKUP TO GOOGLE DRIVE
+# ============================================================
+backup:
+  # Enable automatic backup to Google Drive
+  enabled: false
+
+  # Backup frequency: daily | weekly | monthly
+  frequency: weekly
+
+  # Time of day for scheduled backup (HH:MM, 24h format)
+  time: "02:00"
+
+  # Number of backup files to retain on Google Drive (older ones are deleted)
+  retentionCount: 10

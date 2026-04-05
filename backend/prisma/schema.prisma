@@ -48,7 +48,23 @@ model AppConfig {
   // Engine restore state (JSON) - used to restore charging state on boot
   // Structure: { restorePlan?, targetSoc?, targetAmps?, lastCharge? }
   engine_restore_state String?
-  
+
+  // ============================================================
+  // GOOGLE DRIVE BACKUP
+  // ============================================================
+
+  // Google OAuth access token (short-lived, auto-refreshed)
+  google_access_token   String?
+
+  // Google OAuth refresh token (long-lived, stored permanently)
+  google_refresh_token  String?
+
+  // Expiry timestamp for the access token
+  google_token_expiry   DateTime?
+
+  // Timestamp of the last successful backup
+  last_backup_at        DateTime?
+
   // Legacy key-value storage (for backward compatibility)
   key          String?  @unique
   value        String?

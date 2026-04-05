@@ -15,15 +15,23 @@ import {
   downloadBackendLog,
   downloadFrontendLogFromBackend,
   uploadFrontendLogs,
+  getBackupStatus,
+  startBackupOAuth,
+  disconnectBackupOAuth,
+  triggerBackup,
+  listBackupFiles,
+  restoreBackup,
+  type BackupStatus,
+  type DriveBackupFile,
 } from '../api/index'
 import { changePassword } from '../api/auth'
-import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch } from 'lucide-react'
+import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch, UploadCloud, RefreshCw, Trash2 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useNavigate } from 'react-router-dom'
 import { useWsStore } from '../store/wsStore'
 import { flog, downloadFrontendLogs, serializeLogsForUpload, getLogEntries } from '../utils/frontendLogger'
 
-type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'versioning' | 'security' | 'yaml' | 'logs'
+type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'versioning' | 'security' | 'yaml' | 'logs' | 'backup'
 
 const SETTINGS_PANEL_STATE_KEY = 'evload.settings.expandedPanels'
 
@@ -35,6 +43,7 @@ const defaultExpandedPanels: Record<PanelKey, boolean> = {
   security: false,
   yaml: false,
   logs: false,
+  backup: false,
 }
 
 function readExpandedPanels(): Record<PanelKey, boolean> {
@@ -50,6 +59,7 @@ function readExpandedPanels(): Record<PanelKey, boolean> {
       security: typeof parsed.security === 'boolean' ? parsed.security : defaultExpandedPanels.security,
       yaml: typeof parsed.yaml === 'boolean' ? parsed.yaml : defaultExpandedPanels.yaml,
       logs: typeof parsed.logs === 'boolean' ? parsed.logs : defaultExpandedPanels.logs,
+      backup: typeof parsed.backup === 'boolean' ? parsed.backup : defaultExpandedPanels.backup,
     }
   } catch {
     return defaultExpandedPanels
@@ -152,6 +162,13 @@ export default function SettingsPage() {
   const [logMsg, setLogMsg] = useState('')
   const [logError, setLogError] = useState(false)
   const [logBusy, setLogBusy] = useState(false)
+
+  // Backup panel
+  const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
+  const [backupFiles, setBackupFiles] = useState<DriveBackupFile[]>([])
+  const [backupBusy, setBackupBusy] = useState(false)
+  const [backupMsg, setBackupMsg] = useState('')
+  const [backupError, setBackupError] = useState(false)
   
   const clearToken = useAuthStore((s) => s.clearToken)
   const navigate = useNavigate()
@@ -216,6 +233,7 @@ export default function SettingsPage() {
     getSettings().then(setSettings).catch(console.error)
     loadHaTokenStatus()
     getVersionInfo().then(setVersionInfo).catch(() => setVersionInfo(null))
+    getBackupStatus().then(setBackupStatus).catch(() => setBackupStatus(null))
   }, [])
 
   useEffect(() => {
@@ -1078,6 +1096,188 @@ export default function SettingsPage() {
               {logMsg}
             </p>
           )}
+        </div>
+      </CollapsiblePanel>
+
+      {/* ── Google Drive Backup ─────────────────────────────────────────── */}
+      <CollapsiblePanel
+        title="Backup Google Drive"
+        subtitle="Backup automatico di config.yaml e database su Google Drive"
+        expanded={expandedPanels.backup}
+        onToggle={() => setExpandedPanels((p) => ({ ...p, backup: !p.backup }))}
+      >
+        <div className="space-y-4 pt-4">
+          {/* Connection status */}
+          <div className="flex items-center gap-3">
+            <div className={`w-2.5 h-2.5 rounded-full ${backupStatus?.connected ? 'bg-evload-success' : 'bg-evload-muted'}`} />
+            <span className="text-sm">
+              {backupStatus?.connected ? '✅ Google Drive collegato' : '⚪ Google Drive non collegato'}
+            </span>
+          </div>
+
+          {backupStatus?.lastBackupAt && (
+            <p className="text-xs text-evload-muted">
+              Ultimo backup: {new Date(backupStatus.lastBackupAt).toLocaleString()}
+            </p>
+          )}
+          {backupStatus?.nextBackupAt && backupStatus.connected && backupStatus.enabled && (
+            <p className="text-xs text-evload-muted">
+              Prossimo backup: {new Date(backupStatus.nextBackupAt).toLocaleString()}
+            </p>
+          )}
+
+          {/* Connect / Disconnect */}
+          <div className="flex gap-3 flex-wrap">
+            {!backupStatus?.connected ? (
+              <button
+                disabled={backupBusy}
+                onClick={async () => {
+                  setBackupBusy(true)
+                  try {
+                    const { url } = await startBackupOAuth()
+                    window.location.assign(url)
+                  } catch (e) {
+                    setBackupMsg('Errore connessione Google Drive')
+                    setBackupError(true)
+                    flog.error('BACKUP', 'OAuth start failed', { e })
+                    setTimeout(() => setBackupMsg(''), 4000)
+                  } finally {
+                    setBackupBusy(false)
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                <CloudUpload size={16} />
+                Connetti Google Drive
+              </button>
+            ) : (
+              <button
+                disabled={backupBusy}
+                onClick={async () => {
+                  setBackupBusy(true)
+                  try {
+                    await disconnectBackupOAuth()
+                    const s = await getBackupStatus()
+                    setBackupStatus(s)
+                    setBackupMsg('Google Drive disconnesso')
+                    setBackupError(false)
+                  } catch {
+                    setBackupMsg('Errore disconnessione')
+                    setBackupError(true)
+                  } finally {
+                    setBackupBusy(false)
+                    setTimeout(() => setBackupMsg(''), 4000)
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-evload-border hover:bg-evload-muted/20 rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                <Trash2 size={16} />
+                Disconnetti
+              </button>
+            )}
+
+            {backupStatus?.connected && (
+              <button
+                disabled={backupBusy}
+                onClick={async () => {
+                  setBackupBusy(true)
+                  setBackupMsg('')
+                  try {
+                    await triggerBackup()
+                    const s = await getBackupStatus()
+                    setBackupStatus(s)
+                    setBackupMsg('✅ Backup completato')
+                    setBackupError(false)
+                    const files = await listBackupFiles()
+                    setBackupFiles(files.files)
+                  } catch (e) {
+                    setBackupMsg('❌ Backup fallito: ' + String(e))
+                    setBackupError(true)
+                  } finally {
+                    setBackupBusy(false)
+                    setTimeout(() => setBackupMsg(''), 6000)
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-evload-surface border border-evload-border hover:bg-evload-border rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                <RefreshCw size={16} className={backupBusy ? 'animate-spin' : ''} />
+                Esegui Backup Ora
+              </button>
+            )}
+          </div>
+
+          {backupMsg && (
+            <p className={`text-sm ${backupError ? 'text-evload-error' : 'text-evload-success'}`}>{backupMsg}</p>
+          )}
+
+          {/* Backup list */}
+          {backupStatus?.connected && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold">File su Drive</h4>
+                <button
+                  onClick={async () => {
+                    try {
+                      const files = await listBackupFiles()
+                      setBackupFiles(files.files)
+                    } catch {
+                      setBackupMsg('Errore caricamento lista')
+                      setBackupError(true)
+                      setTimeout(() => setBackupMsg(''), 4000)
+                    }
+                  }}
+                  className="text-xs text-evload-muted hover:text-evload-text"
+                >
+                  Aggiorna lista
+                </button>
+              </div>
+              {backupFiles.length === 0 ? (
+                <p className="text-xs text-evload-muted">Nessun backup trovato. Clicca "Aggiorna lista" o esegui il primo backup.</p>
+              ) : (
+                <div className="space-y-1 max-h-56 overflow-auto">
+                  {backupFiles.map((f) => (
+                    <div key={f.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-evload-border bg-evload-bg text-xs">
+                      <div>
+                        <div className="font-medium truncate max-w-[220px]">{f.name}</div>
+                        {f.createdTime && (
+                          <div className="text-evload-muted">{new Date(f.createdTime).toLocaleString()}</div>
+                        )}
+                      </div>
+                      <button
+                        disabled={backupBusy}
+                        onClick={async () => {
+                          if (!window.confirm(`Ripristinare ${f.name}? L'operazione sovrascriverà config e database.`)) return
+                          setBackupBusy(true)
+                          setBackupMsg('')
+                          try {
+                            await restoreBackup(f.id)
+                            setBackupMsg('✅ Ripristino completato. Riavvia il servizio per applicare le modifiche.')
+                            setBackupError(false)
+                          } catch (e) {
+                            setBackupMsg('❌ Ripristino fallito: ' + String(e))
+                            setBackupError(true)
+                          } finally {
+                            setBackupBusy(false)
+                            setTimeout(() => setBackupMsg(''), 8000)
+                          }
+                        }}
+                        className="shrink-0 px-2 py-1 rounded bg-evload-border hover:bg-evload-accent hover:text-white transition-colors disabled:opacity-40"
+                      >
+                        Ripristina
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="text-xs text-evload-muted pt-2 border-t border-evload-border">
+            Frequenza e orario backup si configurano tramite il file <code>config.yaml</code> (sezione <code>backup</code>).
+            Crea un progetto Google Cloud con l'API Drive abilitata e configura{' '}
+            <code>GOOGLE_CLIENT_ID</code> e <code>GOOGLE_CLIENT_SECRET</code> nel file <code>.env</code>.
+            Vedi <strong>docs/SETUP_GUIDE.md</strong> per la guida completa.
+          </p>
         </div>
       </CollapsiblePanel>
 

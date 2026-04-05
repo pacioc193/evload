@@ -74,6 +74,15 @@ const ConfigSchema = z.object({
     idlePollIntervalMs: z.number().min(1000).default(60000),
     scheduleLeadTimeSec: z.number().min(0).default(1800),
     rejectUnauthorized: z.boolean().default(true),
+    // If true, stop an autonomous Tesla charge detected after proxy reconnects
+    // (e.g. car started charging on its own while the proxy was offline)
+    stopAutonomousCharge: z.boolean().default(true),
+  }).default({}),
+  backup: z.object({
+    enabled: z.boolean().default(false),
+    frequency: z.enum(['daily', 'weekly', 'monthly']).default('weekly'),
+    time: z.string().regex(/^\d{2}:\d{2}$/).default('02:00'),
+    retentionCount: z.number().min(1).max(100).default(10),
   }).default({}),
 })
 
