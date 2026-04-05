@@ -75,7 +75,9 @@ Write-Ok "Files synced."
 
 # ── Step 3: DB migration + service restart ────────────────────────────────────
 Write-Step "Applying DB schema and restarting service on RPi..."
-$remoteCmd = "cd ${InstallDir}/backend && npx prisma generate && npx prisma db push --accept-data-loss && sudo systemctl restart evload"
+# Quote InstallDir to handle paths with spaces
+$quotedDir = $InstallDir -replace "'", "'\''"
+$remoteCmd = "cd '${quotedDir}/backend' && npx prisma generate && npx prisma db push --accept-data-loss && sudo systemctl restart evload"
 & ssh $SshTarget $remoteCmd
 Write-Ok "Service restarted."
 

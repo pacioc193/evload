@@ -66,7 +66,7 @@ rsync -avz "${REPO_ROOT}/backend/prisma/" "${SSH_TARGET}:${INSTALL_DIR}/backend/
 
 # ── Step 3: Apply DB migrations on RPi ───────────────────────────────────────
 info "Applying Prisma schema on RPi..."
-ssh "${SSH_TARGET}" "cd ${INSTALL_DIR}/backend && npx prisma generate && npx prisma db push --accept-data-loss"
+ssh "${SSH_TARGET}" "cd '${INSTALL_DIR}/backend' && npx prisma generate && npx prisma db push --accept-data-loss"
 
 # ── Step 4: Restart service ───────────────────────────────────────────────────
 info "Restarting evload service..."
