@@ -856,6 +856,62 @@ Accettazione letterale:
 - C3: Client Home Assistant (aiohttp) ricevono la pagina di identità OAuth Client.
 - C4: Disabilitata direttiva `upgradeInsecureRequests` in Helmet per permettere il caricamento via HTTP in rete locale.
 
+## F-53 Connection Recovery (Proxy Disconnect)
+
+Requisito: "Quando il proxy BLE si disconnette durante una sessione di ricarica, il motore deve sospendere la sessione (non terminarla) e riprenderla automaticamente alla riconnessione."
+Accettazione letterale:
+- C1: `failsafe.service.ts` distingue tra failsafe `hard` (HA disconnect → stop definitivo) e `soft` (proxy disconnect → pausa temporanea).
+- C2: Su `proxyEvents.on('disconnected')`: si attiva failsafe `soft`, il motore salva `suspendedState` (targetSoc, targetAmps) e transisce in fase `paused`.
+- C3: Il motore NON chiama `stopEngine()` né invia `charge_stop` al proxy (irraggiungibile).
+- C4: Su `proxyEvents.on('connected')`: se `suspendedState` presente, il motore riavvia automaticamente la ricarica con i parametri salvati; emette log `🔄[CHARGE_RESUME]`.
+- C5: Nuovo flag `proxy.stopAutonomousCharge: boolean` (default `true`) — se il proxy riconnette e il veicolo sta già caricando autonomamente (non avviato da evload), invia `charge_stop`.
+- C6: La config `proxy.stopAutonomousCharge` è documentata in `config.example.yaml`.
+
+## F-54 Pannello Garage (RPi 7" + Mobile)
+
+Requisito: "Nuova pagina `/garage` touch-friendly ottimizzata per Raspberry Pi 4 + display 7" 800×480, accessibile anche da mobile."
+Accettazione letterale:
+- C1: Nuova route `/garage` in `App.tsx` con `<Layout>` esistente; link nel nav con icona Warehouse.
+- C2: Layout responsive (flex/grid): su desktop e RPi mostra griglia 4 colonne metriche + 4 pulsanti; su mobile ≤768px colonna singola.
+- C3: Pannello superiore: SoC (barra + percentuale grande), potenza ricarica (kW), ETA, consumo casa, corrente (A).
+- C4: Pulsanti azione (min 88px height): Avvia (con slider SOC), Ferma, Sgancia cavo, Sbrinamento rapido.
+- C5: Screen saver: overlay CSS trasparente → nero dopo N minuti; qualsiasi evento `touchstart`/`mousedown`/`mousemove`/`keydown` resetta il timer; Screen Wake Lock API dove disponibile.
+- C6: Configurazione timeout schermo persistita in localStorage.
+- C7: Backend endpoint `POST /api/garage/display` (protetto JWT) esegue `vcgencmd display_power 0/1` solo se `GARAGE_MODE=true`.
+
+## F-55 Backup su Google Drive
+
+Requisito: "Backup automatico di `config.yaml` e database SQLite su Google Drive via OAuth2, con selezione della cartella di destinazione."
+Accettazione letterale:
+- C1: `backup.service.ts` usa `googleapis` v144 per OAuth2 + Drive API.
+- C2: Backup compressi come `.tar.gz` con timestamp nel nome (`evload-backup-YYYY-MM-DD-<ts>.tar.gz`).
+- C3: Cartella Drive configurabile tramite `backup.driveFolderPath` in `config.yaml`; supporta percorsi nidificati (es. `Documenti/evload-backups`); cartelle mancanti create automaticamente.
+- C4: Frontend folder-picker in Settings → Backup: sfoglia cartelle radice Drive, selezione con click o digitazione libera.
+- C5: Scheduler integrato: ogni minuto controlla se eseguire il backup in base a `frequency` (daily/weekly/monthly) e `time` HH:MM.
+- C6: Retention: mantieni ultimi N backup su Drive (default 10), eliminazione automatica dei più vecchi.
+- C7: Endpoint `POST /api/backup/restore` scarica e decomprime un backup da Drive, sovrascrive file locali.
+- C8: Prisma schema aggiornato con campi `google_access_token`, `google_refresh_token`, `google_token_expiry`, `last_backup_at`.
+- C9: Stato connessione (ultimo backup, prossimo backup, cartella corrente) visibile in Settings panel collassabile.
+
+## F-56 Script Raspberry Pi (bash + PowerShell)
+
+Requisito: "Script di installazione, aggiornamento, kiosk e display per Raspberry Pi 4, disponibili sia per Unix/bash che per Windows/PowerShell."
+Accettazione letterale:
+- C1: `scripts/raspberry/install.sh` — installazione completa su RPi da zero (apt, Node.js, Chromium, unclutter, build, systemd, kiosk, screen blanking).
+- C2: `scripts/raspberry/install.ps1` — stesso flusso eseguito in remoto da Windows via SSH.
+- C3: `scripts/raspberry/update.sh` — build locale + rsync dist → RPi + restart + health check (Unix).
+- C4: `scripts/raspberry/update.ps1` — stesso flusso da Windows PowerShell.
+- C5: `scripts/raspberry/setup-kiosk.sh` / `setup-kiosk.ps1` — solo configurazione Chromium kiosk + autostart LXDE.
+- C6: `scripts/raspberry/setup-display.sh` / `setup-display.ps1` — rotazione display `/boot/config.txt`, DPMS xorg, permesso vcgencmd sudoers.
+
+## F-57 Setup Guide
+
+Requisito: "Guida step-by-step in `docs/SETUP_GUIDE.md` che copra tutte le opzioni di installazione."
+Accettazione letterale:
+- C1: Sezioni: Docker, Ubuntu/Proxmox nativo, Raspberry Pi 4, Prima Configurazione, Google Drive Backup, Pannello Garage, Aggiornamento, Troubleshooting.
+- C2: Tabella prerequisiti hardware e software.
+- C3: Comandi copy-pastabili per ogni scenario.
+
 ## Regola Finale Anti-Regressione
 
 Quando un item e' `VERIFIED`, rieseguire i test/build minimi e confermare che non rompe item gia' verificati.

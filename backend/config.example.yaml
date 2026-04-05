@@ -137,3 +137,8 @@ backup:
 
   # Number of backup files to retain on Google Drive (older ones are deleted)
   retentionCount: 10
+
+  # Google Drive destination folder name (or path, e.g. "Documenti/evload-backups").
+  # Folder is created automatically at root if it does not exist.
+  # Leave empty to use the default "evload-backups" folder.
+  driveFolderPath: "evload-backups"

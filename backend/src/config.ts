@@ -83,6 +83,10 @@ const ConfigSchema = z.object({
     frequency: z.enum(['daily', 'weekly', 'monthly']).default('weekly'),
     time: z.string().regex(/^\d{2}:\d{2}$/).default('02:00'),
     retentionCount: z.number().min(1).max(100).default(10),
+    // Google Drive folder where backups are stored.
+    // Use the folder name (e.g. "evload-backups") or a full Drive path like "MyFolder/evload-backups".
+    // Leave empty to use the default "evload-backups" folder at Drive root.
+    driveFolderPath: z.string().default('evload-backups'),
   }).default({}),
 })
 

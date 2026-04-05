@@ -383,12 +383,19 @@ export interface BackupStatus {
   frequency: string
   time: string
   enabled: boolean
+  driveFolderPath: string
 }
 
 export interface DriveBackupFile {
   id: string
   name: string
   createdTime: string | null
+}
+
+export interface DriveFolderInfo {
+  id: string
+  name: string
+  path: string
 }
 
 export async function getBackupStatus() {
@@ -414,6 +421,11 @@ export async function triggerBackup() {
 export async function listBackupFiles() {
   const res = await api.get('/backup/list')
   return res.data as { files: DriveBackupFile[] }
+}
+
+export async function listDriveFolders() {
+  const res = await api.get('/backup/folders')
+  return res.data as { folders: DriveFolderInfo[] }
 }
 
 export async function restoreBackup(fileId: string) {

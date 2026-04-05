@@ -10,6 +10,7 @@ import {
   createBackup,
   listBackups,
   restoreBackup,
+  listDriveFolders,
 } from '../services/backup.service'
 
 const router = Router()
@@ -72,6 +73,17 @@ router.post('/trigger', backupActionLimiter, requireAuth, async (_req, res) => {
     res.json({ success: true, fileId })
   } catch (err) {
     logger.error('BACKUP_ROUTE: trigger error', { err })
+    res.status(500).json({ error: String(err) })
+  }
+})
+
+/** GET /api/backup/folders — list top-level Drive folders for folder picker */
+router.get('/folders', backupActionLimiter, requireAuth, async (_req, res) => {
+  try {
+    const folders = await listDriveFolders()
+    res.json({ folders })
+  } catch (err) {
+    logger.error('BACKUP_ROUTE: folders error', { err })
     res.status(500).json({ error: String(err) })
   }
 })

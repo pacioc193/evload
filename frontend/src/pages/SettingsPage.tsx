@@ -20,16 +20,19 @@ import {
   disconnectBackupOAuth,
   triggerBackup,
   listBackupFiles,
+  listDriveFolders,
   restoreBackup,
   type BackupStatus,
   type DriveBackupFile,
+  type DriveFolderInfo,
 } from '../api/index'
 import { changePassword } from '../api/auth'
-import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch, UploadCloud, RefreshCw, Trash2 } from 'lucide-react'
+import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch, UploadCloud, RefreshCw, Trash2, FolderOpen } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useNavigate } from 'react-router-dom'
 import { useWsStore } from '../store/wsStore'
 import { flog, downloadFrontendLogs, serializeLogsForUpload, getLogEntries } from '../utils/frontendLogger'
+import { clsx } from 'clsx'
 
 type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'versioning' | 'security' | 'yaml' | 'logs' | 'backup'
 
@@ -169,6 +172,11 @@ export default function SettingsPage() {
   const [backupBusy, setBackupBusy] = useState(false)
   const [backupMsg, setBackupMsg] = useState('')
   const [backupError, setBackupError] = useState(false)
+  // Folder picker
+  const [driveFolders, setDriveFolders] = useState<DriveFolderInfo[]>([])
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false)
+  const [folderInput, setFolderInput] = useState('')
+  const [foldersLoading, setFoldersLoading] = useState(false)
   
   const clearToken = useAuthStore((s) => s.clearToken)
   const navigate = useNavigate()
@@ -233,7 +241,10 @@ export default function SettingsPage() {
     getSettings().then(setSettings).catch(console.error)
     loadHaTokenStatus()
     getVersionInfo().then(setVersionInfo).catch(() => setVersionInfo(null))
-    getBackupStatus().then(setBackupStatus).catch(() => setBackupStatus(null))
+    getBackupStatus().then((s) => {
+      setBackupStatus(s)
+      setFolderInput(s.driveFolderPath)
+    }).catch(() => setBackupStatus(null))
   }, [])
 
   useEffect(() => {
@@ -1126,6 +1137,93 @@ export default function SettingsPage() {
             </p>
           )}
 
+          {/* ── Drive folder picker ─────────────────────────────────────── */}
+          {backupStatus?.connected && (
+            <div className="space-y-2">
+              <label className="block text-sm text-evload-muted">
+                Cartella di destinazione su Drive
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={folderInput}
+                  onChange={(e) => setFolderInput(e.target.value)}
+                  placeholder="evload-backups"
+                  className="flex-1 bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-evload-accent"
+                />
+                <button
+                  title="Sfoglia cartelle su Drive"
+                  disabled={foldersLoading}
+                  onClick={async () => {
+                    setFoldersLoading(true)
+                    setFolderPickerOpen(false)
+                    try {
+                      const res = await listDriveFolders()
+                      setDriveFolders(res.folders)
+                      setFolderPickerOpen(true)
+                    } catch {
+                      setBackupMsg('Impossibile caricare le cartelle Drive')
+                      setBackupError(true)
+                      setTimeout(() => setBackupMsg(''), 4000)
+                    } finally {
+                      setFoldersLoading(false)
+                    }
+                  }}
+                  className="flex items-center gap-1 px-3 py-2 bg-evload-surface border border-evload-border rounded-lg text-sm hover:bg-evload-border disabled:opacity-50"
+                >
+                  <FolderOpen size={16} className={foldersLoading ? 'animate-pulse' : ''} />
+                  Sfoglia
+                </button>
+              </div>
+
+              {/* Folder dropdown list */}
+              {folderPickerOpen && (
+                <div className="rounded-lg border border-evload-border bg-evload-bg overflow-hidden">
+                  {driveFolders.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-evload-muted">
+                      Nessuna cartella trovata nella radice del Drive. Digita il nome che vuoi creare.
+                    </p>
+                  ) : (
+                    <ul className="max-h-44 overflow-auto divide-y divide-evload-border">
+                      {driveFolders.map((f) => (
+                        <li key={f.id}>
+                          <button
+                            onClick={() => {
+                              setFolderInput(f.path)
+                              setFolderPickerOpen(false)
+                            }}
+                            className={clsx(
+                              'w-full text-left px-3 py-2 text-sm hover:bg-evload-border transition-colors flex items-center gap-2',
+                              folderInput === f.path && 'bg-evload-border font-semibold'
+                            )}
+                          >
+                            <FolderOpen size={14} className="text-evload-muted shrink-0" />
+                            {f.name}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="px-3 py-2 border-t border-evload-border">
+                    <button
+                      onClick={() => setFolderPickerOpen(false)}
+                      className="text-xs text-evload-muted hover:text-evload-text"
+                    >
+                      Chiudi
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-xs text-evload-muted">
+                Percorso relativo nella radice Drive. Supporta sotto-cartelle: <code>Documenti/evload-backups</code>.
+                Le cartelle mancanti vengono create automaticamente.
+                Per cambiare la cartella modifica il campo <code>backup.driveFolderPath</code> in <code>config.yaml</code>
+                (sezione Impostazioni → YAML) oppure clicca "Sfoglia" per selezionare e poi salva via YAML.
+              </p>
+            </div>
+          )}
+
           {/* Connect / Disconnect */}
           <div className="flex gap-3 flex-wrap">
             {!backupStatus?.connected ? (
@@ -1147,7 +1245,7 @@ export default function SettingsPage() {
                 }}
                 className="flex items-center gap-2 px-4 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
               >
-                <CloudUpload size={16} />
+                <UploadCloud size={16} />
                 Connetti Google Drive
               </button>
             ) : (
@@ -1273,8 +1371,8 @@ export default function SettingsPage() {
           )}
 
           <p className="text-xs text-evload-muted pt-2 border-t border-evload-border">
-            Frequenza e orario backup si configurano tramite il file <code>config.yaml</code> (sezione <code>backup</code>).
-            Crea un progetto Google Cloud con l'API Drive abilitata e configura{' '}
+            Frequenza, orario e cartella si configurano anche tramite il file <code>config.yaml</code> (sezione <code>backup</code>).
+            Per abilitare il backup crea un progetto Google Cloud con l'API Drive abilitata e configura{' '}
             <code>GOOGLE_CLIENT_ID</code> e <code>GOOGLE_CLIENT_SECRET</code> nel file <code>.env</code>.
             Vedi <strong>docs/SETUP_GUIDE.md</strong> per la guida completa.
           </p>

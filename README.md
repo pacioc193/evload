@@ -21,8 +21,12 @@ The project is designed for home charging scenarios where you want to:
 
 - Proxy status driven by `vehicle_data` polling with explicit proxy-vs-car state separation
 - Home Assistant-based dynamic current throttling with **linear ramp-up algorithm**
+- **Connection recovery**: soft failsafe on proxy disconnect — charge session is suspended (not stopped) and automatically resumed on reconnect
 - Manual, planned, and scheduled charging modes
+- **Garage Panel** (`/garage`) — touch-friendly kiosk UI for Raspberry Pi 7" display, fully responsive on mobile; screen saver with Screen Wake Lock API
+- **Google Drive Backup** — scheduled OAuth2 backup of `config.yaml` + SQLite DB, configurable folder picker, retention management, and restore
 - **Native Proxmox/Ubuntu deployment** via PowerShell scripts (no Docker required)
+- **Raspberry Pi 4 scripts** — full install (bash + PowerShell), remote update via rsync, kiosk setup, display rotation + DPMS
 - **Production-hardened routing**: root path intelligently serves React UI or Home Assistant OAuth identity
 - **Sleep-aware and local-safe**: CSP configuration for LAN HTTP usage and sleep-safe proxy polling
 - Plan mode remains armed across scheduled runs until explicitly switched to Off
@@ -61,10 +65,63 @@ evload/
 ├── Dockerfile
 ├── install.ps1
 ├── install.sh
+├── docs/
+│   └── SETUP_GUIDE.md            Full installation & configuration guide
+├── scripts/
+│   └── raspberry/                Raspberry Pi installation & update scripts
+│       ├── install.sh / .ps1     Full RPi install (bash + PowerShell)
+│       ├── update.sh / .ps1      Remote update via rsync (bash + PowerShell)
+│       ├── setup-kiosk.sh / .ps1 Chromium kiosk + LXDE autostart
+│       └── setup-display.sh/.ps1 Display rotation, DPMS, vcgencmd sudoers
 └── features.md
 ```
 
-## Architecture Summary
+## Garage Panel
+
+The `/garage` route provides a kiosk-optimised full-screen dashboard for Raspberry Pi 4 + official 7" 800×480 touch display:
+
+- Large battery SoC bar, charging power (kW), ETA, home consumption, current (A)
+- Touch-friendly action buttons (≥88px): Start (with SOC slider), Stop, Unplug, Quick Defrost
+- Screen saver: CSS overlay that dims after N minutes of inactivity, fully wakes on any touch/click; uses Screen Wake Lock API where available
+- Physical display on/off via `vcgencmd display_power` (requires `GARAGE_MODE=true` in `.env`)
+- Fully responsive — accessible from any phone browser via the nav menu
+
+See [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md#7-garage-panel-kiosk-mode) for kiosk setup instructions.
+
+## Google Drive Backup
+
+Automatic encrypted backup of `config.yaml` and the SQLite database to your personal Google Drive:
+
+- OAuth2 authentication — no service account needed
+- Scheduled: `daily`, `weekly`, or `monthly` at a configurable HH:MM time
+- Configurable **destination folder** — pick from a folder list or type a nested path (e.g. `Documenti/evload-backups`)
+- Retention: keep the last N backups, auto-delete older ones
+- One-click restore from the Settings panel
+
+See [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md#6-google-drive-backup-setup) for OAuth setup instructions.
+
+## Raspberry Pi Installation
+
+Quick install on a Raspberry Pi 4 running Raspbian OS Desktop:
+
+```bash
+git clone https://github.com/pacioc193/evload.git ~/evload
+cd ~/evload/scripts/raspberry
+chmod +x *.sh
+sudo ./install.sh
+```
+
+Remote update from your development machine:
+
+```bash
+# Unix/macOS
+RPI_HOST=192.168.1.100 ./scripts/raspberry/update.sh
+
+# Windows PowerShell
+.\scripts\raspberry\update.ps1 -RpiHost 192.168.1.100
+```
+
+See [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md#4-option-c--raspberry-pi-4--official-7-display) for the full guide.
 
 ### Backend
 

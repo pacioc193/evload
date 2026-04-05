@@ -11,6 +11,10 @@
  *
  * Access/refresh tokens are persisted in appConfig table (keys: google_access_token,
  * google_refresh_token, google_token_expiry).
+ *
+ * The destination folder on Drive is configured via config.yaml → backup.driveFolderPath.
+ * It supports a simple folder name ("evload-backups") or a nested path
+ * ("Documenti/evload-backups"). Each path segment is looked up or created as needed.
  */
 
 import fs from 'fs'
@@ -27,7 +31,7 @@ const execAsync = promisify(exec)
 const CONFIG_PATH = process.env.CONFIG_PATH ?? path.join(__dirname, '../../config.yaml')
 const DB_PATH = process.env.DATABASE_URL?.replace('file:', '') ?? path.join(__dirname, '../../data/evload.db')
 const BACKUP_TMP_DIR = path.join(__dirname, '../../data/backup_tmp')
-const DRIVE_FOLDER_NAME = 'evload-backups'
+const DEFAULT_DRIVE_FOLDER = 'evload-backups'
 
 // ─── OAuth2 Client ──────────────────────────────────────────────────────────
 
@@ -114,23 +118,76 @@ async function getAuthenticatedClient() {
 
 // ─── Drive helpers ──────────────────────────────────────────────────────────
 
-async function getOrCreateBackupFolder(drive: ReturnType<typeof google.drive>): Promise<string> {
-  const res = await drive.files.list({
-    q: `name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    fields: 'files(id, name)',
-  })
-  const files = res.data.files ?? []
-  if (files.length > 0 && files[0].id) {
-    return files[0].id
+/**
+ * Resolve (and create if needed) a Drive folder from a slash-separated path.
+ * Each path segment is looked up under its parent; missing segments are created.
+ *
+ * Examples:
+ *   "evload-backups"           → single folder at root
+ *   "Documenti/evload-backups" → nested: Documenti → evload-backups
+ */
+async function resolveOrCreateFolderPath(
+  drive: ReturnType<typeof google.drive>,
+  folderPath: string
+): Promise<string> {
+  const segments = folderPath
+    .split('/')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+
+  if (segments.length === 0) {
+    segments.push(DEFAULT_DRIVE_FOLDER)
   }
-  const folder = await drive.files.create({
-    requestBody: {
-      name: DRIVE_FOLDER_NAME,
-      mimeType: 'application/vnd.google-apps.folder',
-    },
-    fields: 'id',
+
+  let parentId = 'root'
+  for (const segment of segments) {
+    const q = `name='${segment.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
+    const res = await drive.files.list({ q, fields: 'files(id, name)', pageSize: 1 })
+    const files = res.data.files ?? []
+    if (files.length > 0 && files[0].id) {
+      parentId = files[0].id
+    } else {
+      const created = await drive.files.create({
+        requestBody: {
+          name: segment,
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [parentId],
+        },
+        fields: 'id',
+      })
+      parentId = created.data.id!
+      logger.info('BACKUP: Created Drive folder', { segment, parentId })
+    }
+  }
+  return parentId
+}
+
+/**
+ * List all folders visible to the app on Google Drive (top-level only, non-trashed).
+ * Used by the frontend folder-picker.
+ */
+export interface DriveFolderInfo {
+  id: string
+  name: string
+  path: string
+}
+
+export async function listDriveFolders(): Promise<DriveFolderInfo[]> {
+  const auth = await getAuthenticatedClient()
+  const drive = google.drive({ version: 'v3', auth })
+
+  const res = await drive.files.list({
+    q: "mimeType='application/vnd.google-apps.folder' and trashed=false and 'root' in parents",
+    fields: 'files(id, name)',
+    orderBy: 'name asc',
+    pageSize: 100,
   })
-  return folder.data.id!
+  const folders = (res.data.files ?? []).map((f) => ({
+    id: f.id!,
+    name: f.name!,
+    path: f.name!,
+  }))
+  return folders
 }
 
 // ─── Backup status ──────────────────────────────────────────────────────────
@@ -142,6 +199,7 @@ export interface BackupStatus {
   frequency: string
   time: string
   enabled: boolean
+  driveFolderPath: string
 }
 
 export async function getBackupStatus(): Promise<BackupStatus> {
@@ -159,6 +217,7 @@ export async function getBackupStatus(): Promise<BackupStatus> {
     frequency: cfg.backup.frequency,
     time: cfg.backup.time,
     enabled: cfg.backup.enabled,
+    driveFolderPath: cfg.backup.driveFolderPath,
   }
 }
 
@@ -210,7 +269,9 @@ export async function createBackup(): Promise<string> {
   // Upload to Drive
   const auth = await getAuthenticatedClient()
   const drive = google.drive({ version: 'v3', auth })
-  const folderId = await getOrCreateBackupFolder(drive)
+  const cfg2 = getConfig()
+  const folderPath = cfg2.backup.driveFolderPath || DEFAULT_DRIVE_FOLDER
+  const folderId = await resolveOrCreateFolderPath(drive, folderPath)
 
   const uploadRes = await drive.files.create({
     requestBody: {
@@ -272,7 +333,9 @@ export interface DriveBackupFile {
 export async function listBackups(): Promise<DriveBackupFile[]> {
   const auth = await getAuthenticatedClient()
   const drive = google.drive({ version: 'v3', auth })
-  const folderId = await getOrCreateBackupFolder(drive)
+  const cfg = getConfig()
+  const folderPath = cfg.backup.driveFolderPath || DEFAULT_DRIVE_FOLDER
+  const folderId = await resolveOrCreateFolderPath(drive, folderPath)
 
   const res = await drive.files.list({
     q: `'${folderId}' in parents and name contains 'evload-backup-' and trashed=false`,
