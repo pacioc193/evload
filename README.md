@@ -49,7 +49,7 @@ The project is designed for home charging scenarios where you want to:
 - **Robust energy tracking**: monotonic Wh counters with session logging to prevent resets during Amp changes
 - **Vehicle energy baseline correction**: `charge_energy_added` from Tesla proxy is captured at session start and used as zero-point, so sessions that begin with a non-zero counter report correct session energy and efficiency
 - **Dual vehicle energy display**: Dashboard Vehicle Details shows both the session-relative energy (used for efficiency) and the raw `charge_energy_added` value from the proxy for comparison
-- **Configurable start amps** (`charging.startAmps`): first charging command jumps to `startAmps` instead of the vehicle default; ramp-up continues from there incrementing one amp per `rampIntervalSec` until `targetAmps`
+- **Safe charge start sequence** (`charging.startAmps`): `set_charging_amps(startAmps)` is sent and awaited **before** `charge_start` so Tesla has accepted the safe current setpoint before current begins to flow. This prevents inrush current spikes caused by a previously-high amperage setting. Ramp-up continues from `startAmps`, incrementing one amp per `rampIntervalSec` until `targetAmps`.
 - **Offline-safe YAML editor**: Settings YAML panel uses a native textarea instead of Monaco Editor (which requires CDN access), ensuring the config editor works on isolated LAN deployments
 - Telegram notifications and command hooks
 - Demo mode with simulator parity for proxy endpoints
@@ -221,7 +221,7 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Vehicle energy baseline correction at session start: non-zero `charge_energy_added` values are offset so session-relative energy is always accurate
 - Dual vehicle energy tiles in Dashboard Vehicle Details: session-relative energy (for efficiency) and raw proxy value side by side
 - Charging efficiency persisted per session in backend and surfaced in Dashboard and Statistics
-- Configurable `startAmps`: first charging current command uses `charging.startAmps` (default 8 A); ramp then steps +1 A per `rampIntervalSec` from the commanded setpoint (not vehicle actual amps)
+- Configurable `startAmps`: `set_charging_amps(startAmps)` is sent **before** `charge_start` to prevent inrush current spikes from a previously-high setpoint; ramp then steps +1 A per `rampIntervalSec` from the commanded setpoint (not vehicle actual amps)
 - Dashboard normal view uses backend meter energy; Vehicle Details → Vehicle Charged Energy uses vehicle battery energy
 - Settings YAML editor is a native textarea — works offline and on isolated LAN without CDN dependency
 - Version visibility in UI: current version in header and release history panel in Settings

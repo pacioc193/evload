@@ -320,6 +320,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
   haResumeAfterMs = null
   lastChargeStartAttemptMs = 0
   lastRampUpMs = Date.now()
+  lastSetpointSentMs = 0
 
   const session = await prisma.chargingSession.create({
     data: {
@@ -873,6 +874,27 @@ async function runEngineStep(): Promise<void> {
           if (retryAllowed) {
             const vid = getCommandVehicleId(cfg)
             if (vid) {
+              // ── Pre-set current BEFORE charge_start to avoid a current spike ──
+              // If no setpoint has been sent yet this session, set the safe start current
+              // now so that Tesla begins drawing at startAmps the moment charge_start fires.
+              if (lastSetpointSentMs === 0) {
+                const safeAmps = cfg.charging.startAmps
+                logger.info('⚡ [SET_AMP] Pre-setting start current before charge_start', {
+                  vehicleId: vid,
+                  sessionId: status.sessionId,
+                  startAmps: safeAmps,
+                })
+                try {
+                  await sendProxyCommand(vid, 'set_charging_amps', { charging_amps: safeAmps })
+                  status.setpointAmps = safeAmps
+                  lastSetpointSentMs = now
+                  pushEngineLog(`pre-set current: ${safeAmps}A before charge_start`)
+                } catch (err) {
+                  logger.error('🚨 [SET_AMP] Pre-set current before charge_start failed', { err, vehicleId: vid })
+                  pushEngineLog('pre-set current failed — proceeding with charge_start anyway')
+                }
+              }
+
               logger.info('🔌 [CHARGE_START] Vehicle plugged but not charging — sending charge_start', {
                 vehicleId: vid,
                 sessionId: status.sessionId,
@@ -958,7 +980,8 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
   const chargerPowerW = haS.chargerW ?? ((vState.chargeRateKw ?? 0) * 1000)
   const vehicleVoltageV = vState.chargerVoltage ?? DEFAULT_VEHICLE_VOLTAGE_V
 
-  // First command in session: jump to startAmps instead of leaving the vehicle at its own default
+  // The initial startAmps setpoint is always sent before charge_start (see CHARGE_START block above).
+  // isFirstCommand is kept as a safety fallback in case set_charging_amps before charge_start failed.
   const isFirstCommand = lastSetpointSentMs === 0 && status.setpointAmps === 0
   let desired = status.setpointAmps
 

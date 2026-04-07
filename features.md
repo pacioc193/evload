@@ -28,6 +28,7 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 	- Efficienza calcolata sempre su valore sessione-relativo.
 - Nuovo parametro `charging.startAmps` (default 8 A):
 	- Al primo comando in sessione, l'engine usa `startAmps` invece del default del veicolo.
+	- **Safe charge start sequence**: `set_charging_amps(startAmps)` è inviato e confermato PRIMA di `charge_start`, garantendo che Tesla accetti il setpoint sicuro prima che la corrente cominci a scorrere. Questo evita picchi di corrente all'accensione nel caso in cui l'ultimo livello impostato fosse troppo elevato.
 	- Il ramp-up incrementa di +1A per `rampIntervalSec` partendo dal setpoint comandato (`setpointAmps`), non dall'ampere effettivo riportato dal veicolo (che può essere in ritardo).
 	- `setpointAmps` inizializzato a 0 all'avvio sessione come sentinel per il primo comando.
 	- Aggiornati `config.yaml`, `config.example.yaml` e schema Zod.
