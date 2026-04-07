@@ -32,8 +32,9 @@ The project is designed for home charging scenarios where you want to:
 - **Automatic startup diagnostics**: if service/container restart fails, scripts print the latest runtime logs (`journalctl` or `docker compose logs`) before exiting with error
 - **Charge-start disconnected guard**: when EVLoad detects a cable-disconnected or vehicle-disconnected charging state, it suspends repeated `charge_start` retries, emits a dedicated Telegram notification event (`charge_start_blocked`), and exposes a clear dashboard warning until the condition recovers
 - **Cable-not-connected banner**: Dashboard shows a prominent orange warning when the vehicle is connected to the proxy but the charging cable is not plugged in
-- **body_controller_state-driven sleep detection**: Sleep status is determined by polling `body_controller_state` (which never wakes the vehicle); `vehicleSleepStatus` and `userPresence` are surfaced in the Dashboard vehicle card. When asleep, the Dashboard shows a "Sleeping" badge and suspends `vehicle_data` polling
-- **Configurable sleep poll interval** (`proxy.sleepPollIntervalMs`, default 300000 ms): controls how often body_controller_state is checked while the vehicle is asleep; configurable from the Settings Proxy panel
+- **body_controller_state-driven sleep detection**: Sleep status is determined by polling `body_controller_state` (which never wakes the vehicle); `vehicleSleepStatus` and `userPresence` are surfaced in the Dashboard vehicle card. When asleep, the Dashboard shows a "Sleeping" badge
+- **Smart vehicle_data window polling**: `vehicle_data` is fetched only during charging or within a configurable wake window after connect/wake (default 5 min). After the window, only `body_controller_state` is polled so the car can fall asleep naturally. Four configurable intervals: `chargingPollIntervalMs`, `idlePollIntervalMs`, `bodyPollIntervalMs`, `sleepPollIntervalMs`; plus `vehicleDataWindowMs` for the wake window duration
+- **Garage page redesigned**: action buttons are now split into "Opzioni Auto" (car commands) and "Opzioni Schermo" (screen saver), each with a section title, subtitle description, and per-button context text
 - **Notifications builder templates updated**: `charge_start_blocked` now has a ready-to-use default template in the Notifications UI, aligned with the existing event template workflow
 - **Collapsible navigation**: the left sidebar can now be hidden with a classic hamburger button (desktop collapse + mobile slide-out menu) for full-screen dashboard focus
 - **Production-hardened routing**: root path intelligently serves React UI or Home Assistant OAuth identity
@@ -165,10 +166,15 @@ EVLoad leverages this to poll safely at all times and only sends commands when t
 
 ### State Polling
 
-- Interval: `proxy.normalPollIntervalMs` (default 30 seconds)
-- Endpoint: `GET /api/1/vehicles/:vehicleId/vehicle_data`
+EVLoad uses a two-phase polling strategy:
+
+1. **`body_controller_state`** is polled on every cycle — it never wakes the vehicle.
+2. **`vehicle_data`** is fetched only when:
+   - The vehicle is actively charging (interval: `proxy.chargingPollIntervalMs`, default 5 s), or
+   - Within the vehicle_data window after a wake or connect event (interval: `proxy.idlePollIntervalMs`, default 10 s; window duration: `proxy.vehicleDataWindowMs`, default 5 min)
+   - After the window expires, only `body_controller_state` is polled (interval: `proxy.bodyPollIntervalMs`, default 60 s) so the car can fall asleep naturally
+3. While **confirmed asleep** (body_controller_state = ASLEEP), only `body_controller_state` is polled (interval: `proxy.sleepPollIntervalMs`, default 5 min)
 - An additional immediate poll is triggered on engine start (no wait for the next scheduled tick)
-- Non-200 responses where the reason contains `sleep` / `asleep` / `offline` / `unavailable` are treated as proxy-reachable and parsed normally
 
 ### Runtime Status Contract
 
@@ -547,7 +553,11 @@ Relevant proxy fields:
 | `proxy.url` | Base URL of the Tesla proxy |
 | `proxy.vehicleId` | Vehicle VIN/id used in proxy routes |
 | `proxy.vehicleName` | Friendly display name shown in UI |
-| `proxy.normalPollIntervalMs` | Full `vehicle_data` refresh interval |
+| `proxy.chargingPollIntervalMs` | Poll interval (ms) during active charging (vehicle_data + body) |
+| `proxy.idlePollIntervalMs` | Poll interval (ms) during the vehicle_data window after wake/connect |
+| `proxy.bodyPollIntervalMs` | Poll interval (ms) after the wake window expires (body only, allows sleep) |
+| `proxy.sleepPollIntervalMs` | Poll interval (ms) while confirmed asleep (body only) |
+| `proxy.vehicleDataWindowMs` | Duration (ms) of the vehicle_data window after wake/connect (default 300000 = 5 min) |
 | `proxy.scheduleLeadTimeSec` | Scheduler pre-wake lead time |
 | `proxy.rejectUnauthorized` | TLS certificate validation for proxy HTTPS |
 

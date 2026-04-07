@@ -105,16 +105,29 @@ proxy:
   # Friendly name for the vehicle
   vehicleName: ""
 
-  # Polling interval (ms) for vehicle_data status refresh
-  normalPollIntervalMs: 5000
+  # ── Polling intervals ──────────────────────────────────────────────────────
+  # body_controller_state is ALWAYS polled (never wakes the vehicle).
+  # vehicle_data is only fetched when actively charging or within the wake window.
 
-  # Polling interval (ms) when vehicle is not charging and engine is idle
-  idlePollIntervalMs: 60000
+  # Polling interval (ms) when charging — both body_controller_state + vehicle_data are fetched.
+  chargingPollIntervalMs: 5000
 
-  # Polling interval (ms) while the vehicle is confirmed asleep (body_controller_state).
-  # vehicle_data is NOT sent during this period so the vehicle can stay asleep.
-  # Default is 5 minutes (300000 ms). Increase to let the vehicle sleep longer undisturbed.
+  # Polling interval (ms) during the vehicle_data wake window (after wake/connect).
+  # Both body_controller_state + vehicle_data are fetched.
+  idlePollIntervalMs: 10000
+
+  # Polling interval (ms) after the wake window expires and vehicle is not charging.
+  # Only body_controller_state is fetched. vehicle_data is NOT called so the car can sleep.
+  bodyPollIntervalMs: 60000
+
+  # Polling interval (ms) while the vehicle is confirmed asleep (body_controller_state = ASLEEP).
+  # Only body_controller_state is fetched to allow the car to keep sleeping undisturbed.
   sleepPollIntervalMs: 300000
+
+  # Duration (ms) of the vehicle_data polling window after a wake or connect event.
+  # During this window vehicle_data is fetched at idlePollIntervalMs even when not charging.
+  # After the window expires, only body_controller_state is polled (bodyPollIntervalMs).
+  vehicleDataWindowMs: 300000
 
   # Anticipatory wake lead time (sec) - wakes vehicle before scheduled charge execution
   scheduleLeadTimeSec: 1800

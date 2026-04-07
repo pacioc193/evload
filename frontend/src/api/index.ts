@@ -140,9 +140,11 @@ export interface AppSettings {
   proxyUrl: string
   vehicleId: string
   vehicleName: string
-  normalPollIntervalMs: number
+  chargingPollIntervalMs: number
   idlePollIntervalMs: number
+  bodyPollIntervalMs: number
   sleepPollIntervalMs: number
+  vehicleDataWindowMs: number
   scheduleLeadTimeSec: number
   rejectUnauthorized: boolean
   batteryCapacityKwh: number

@@ -298,77 +298,150 @@ export default function GaragePage() {
           )}
         </div>
 
-        {/* ── Action buttons ────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {/* ── Car Options ───────────────────────────────────────── */}
+        <div className="rounded-2xl bg-evload-surface border border-evload-border p-4 flex flex-col gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-widest text-evload-muted mb-0.5">Opzioni Auto</div>
+            <div className="text-[11px] text-evload-muted">Comandi diretti al veicolo — richiede connessione proxy attiva.</div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
 
-          {/* Start button — shows SOC slider on first tap */}
-          {!engineRunning ? (
-            <button
-              onClick={() => showSocSlider ? handleStart() : setShowSocSlider(true)}
-              disabled={busy || !vehicle?.pluggedIn}
-              className={clsx(
-                'flex flex-col items-center justify-center gap-2 rounded-2xl p-5 min-h-[88px]',
-                'bg-green-600 hover:bg-green-500 text-white font-semibold text-base',
-                'disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
-              )}
-            >
-              <Play size={28} />
-              {showSocSlider ? `Avvia → ${targetSoc}%` : 'Avvia'}
-            </button>
-          ) : (
-            <button
-              onClick={handleStop}
-              disabled={busy}
-              className={clsx(
-                'flex flex-col items-center justify-center gap-2 rounded-2xl p-5 min-h-[88px]',
-                'bg-red-600 hover:bg-red-500 text-white font-semibold text-base',
-                'disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
-              )}
-            >
-              <Square size={28} />
-              Ferma
-            </button>
-          )}
-
-          <button
-            onClick={handleUnplug}
-            disabled={busy || !vehicle?.pluggedIn}
-            className={clsx(
-              'flex flex-col items-center justify-center gap-2 rounded-2xl p-5 min-h-[88px]',
-              'bg-evload-surface border border-evload-border hover:bg-evload-border',
-              'font-semibold text-base disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
+            {/* Start / Stop */}
+            {!engineRunning ? (
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={() => showSocSlider ? handleStart() : setShowSocSlider(true)}
+                  disabled={busy || !vehicle?.pluggedIn}
+                  className={clsx(
+                    'flex flex-col items-center justify-center gap-2 rounded-2xl p-5 min-h-[88px]',
+                    'bg-green-600 hover:bg-green-500 text-white font-semibold text-base',
+                    'disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
+                  )}
+                >
+                  <Play size={28} />
+                  {showSocSlider ? `Avvia → ${targetSoc}%` : 'Avvia'}
+                </button>
+                <p className="text-[10px] text-evload-muted text-center">Avvia sessione di ricarica EVload al target SoC selezionato</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={handleStop}
+                  disabled={busy}
+                  className={clsx(
+                    'flex flex-col items-center justify-center gap-2 rounded-2xl p-5 min-h-[88px]',
+                    'bg-red-600 hover:bg-red-500 text-white font-semibold text-base',
+                    'disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
+                  )}
+                >
+                  <Square size={28} />
+                  Ferma
+                </button>
+                <p className="text-[10px] text-evload-muted text-center">Interrompe la sessione di ricarica attiva e rilascia il controllo EVload</p>
+              </div>
             )}
-          >
-            <Plug size={28} />
-            Sgancia
-          </button>
 
-          <button
-            onClick={handleDefrost}
-            disabled={busy}
-            className={clsx(
-              'flex flex-col items-center justify-center gap-2 rounded-2xl p-5 min-h-[88px]',
-              'bg-evload-surface border border-evload-border hover:bg-evload-border',
-              'font-semibold text-base disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
-            )}
-          >
-            <Thermometer size={28} />
-            Sbrina
-          </button>
+            <div className="flex flex-col gap-1">
+              <button
+                onClick={handleUnplug}
+                disabled={busy || !vehicle?.pluggedIn}
+                className={clsx(
+                  'flex flex-col items-center justify-center gap-2 rounded-2xl p-5 min-h-[88px]',
+                  'bg-evload-surface border border-evload-border hover:bg-evload-border',
+                  'font-semibold text-base disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
+                )}
+              >
+                <Plug size={28} />
+                Sgancia
+              </button>
+              <p className="text-[10px] text-evload-muted text-center">Apre il portello del cavo di ricarica per rimuoverlo dal veicolo</p>
+            </div>
 
-          {/* Screen saver toggle */}
-          <button
-            onClick={() => screenTimeoutMin > 0 ? saveScreenTimeout(0) : saveScreenTimeout(DEFAULT_SCREEN_TIMEOUT_MIN)}
-            className={clsx(
-              'flex flex-col items-center justify-center gap-2 rounded-2xl p-5 min-h-[88px]',
-              'bg-evload-surface border border-evload-border hover:bg-evload-border',
-              'font-semibold text-base transition-colors',
-              screenTimeoutMin === 0 && 'border-yellow-500 text-yellow-400'
+            <div className="flex flex-col gap-1">
+              <button
+                onClick={handleDefrost}
+                disabled={busy}
+                className={clsx(
+                  'flex flex-col items-center justify-center gap-2 rounded-2xl p-5 min-h-[88px]',
+                  'bg-evload-surface border border-evload-border hover:bg-evload-border',
+                  'font-semibold text-base disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
+                )}
+              >
+                <Thermometer size={28} />
+                Sbrina
+              </button>
+              <p className="text-[10px] text-evload-muted text-center">Attiva il massimo riscaldamento per sbrinare vetri e abitacolo</p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Screen Options ─────────────────────────────────────── */}
+        <div className="rounded-2xl bg-evload-surface border border-evload-border p-4 flex flex-col gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-widest text-evload-muted mb-0.5">Opzioni Schermo</div>
+            <div className="text-[11px] text-evload-muted">Controlla il comportamento dello schermo tablet in garage.</div>
+          </div>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-sm font-medium">Salvaschermo automatico</div>
+                <div className="text-[11px] text-evload-muted">
+                  {screenTimeoutMin === 0
+                    ? 'Disattivato — lo schermo rimane sempre acceso.'
+                    : `Schermo si oscura dopo ${screenTimeoutMin} min di inattività, si spegne completamente dopo la stessa durata.`}
+                </div>
+              </div>
+              <button
+                onClick={() => screenTimeoutMin > 0 ? saveScreenTimeout(0) : saveScreenTimeout(DEFAULT_SCREEN_TIMEOUT_MIN)}
+                className={clsx(
+                  'flex flex-col items-center justify-center gap-1 rounded-2xl px-4 py-3 min-w-[80px]',
+                  'border transition-colors font-semibold text-sm',
+                  screenTimeoutMin === 0
+                    ? 'border-yellow-500 bg-yellow-500/10 text-yellow-400'
+                    : 'border-evload-border bg-evload-bg hover:bg-evload-border text-evload-text'
+                )}
+              >
+                {screenTimeoutMin === 0 ? <Sun size={22} /> : <Moon size={22} />}
+                {screenTimeoutMin === 0 ? 'Attiva' : 'Disattiva'}
+              </button>
+            </div>
+            {screenTimeoutMin > 0 && (
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] text-evload-muted">Minuti di inattività prima dello spegnimento</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={1}
+                    max={30}
+                    step={1}
+                    value={screenTimeoutMin}
+                    onChange={(e) => saveScreenTimeout(Number(e.target.value))}
+                    className="flex-1 h-2 rounded-full accent-red-500"
+                  />
+                  <span className="text-sm font-semibold w-12 text-right">{screenTimeoutMin} min</span>
+                </div>
+                <div className="flex gap-2 mt-1">
+                  {[3, 5, 10, 15].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => saveScreenTimeout(m)}
+                      className={clsx(
+                        'flex-1 py-1.5 rounded-lg border text-xs font-medium transition-colors',
+                        screenTimeoutMin === m
+                          ? 'border-evload-accent bg-evload-accent/10 text-evload-accent'
+                          : 'border-evload-border hover:bg-evload-border text-evload-muted'
+                      )}
+                    >
+                      {m} min
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
-          >
-            {screenTimeoutMin === 0 ? <Sun size={28} /> : <Moon size={28} />}
-            {screenTimeoutMin === 0 ? 'Salva OFF' : `Salva ${screenTimeoutMin}m`}
-          </button>
+            <p className="text-[10px] text-evload-muted">
+              Su Raspberry Pi puoi impostare <code>GARAGE_MODE=true</code> nel .env per spegnere fisicamente il display tramite DPMS.
+            </p>
+          </div>
         </div>
 
         {/* ── SOC Slider (shown after Start tap) ───────────────────── */}
@@ -411,29 +484,6 @@ export default function GaragePage() {
             {statusMsg}
           </div>
         )}
-
-        {/* ── Screen timeout settings ───────────────────────────────── */}
-        <details className="rounded-2xl bg-evload-surface border border-evload-border">
-          <summary className="px-5 py-4 cursor-pointer text-sm font-medium text-evload-muted select-none">
-            ⚙️ Impostazioni schermo
-          </summary>
-          <div className="px-5 pb-5 flex flex-col gap-3">
-            <label className="flex items-center justify-between gap-4 text-sm">
-              <span>Spegni schermo dopo (minuti)</span>
-              <input
-                type="number"
-                min={0}
-                max={60}
-                value={screenTimeoutMin}
-                onChange={(e) => saveScreenTimeout(Number(e.target.value))}
-                className="w-20 bg-evload-bg border border-evload-border rounded px-2 py-1 text-center"
-              />
-            </label>
-            <p className="text-xs text-evload-muted">
-              0 = mai. Su Raspberry Pi puoi impostare GARAGE_MODE=true nel .env per spegnere fisicamente il display.
-            </p>
-          </div>
-        </details>
 
       </div>
     </div>

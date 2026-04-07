@@ -373,7 +373,7 @@ export default function SettingsPage() {
 
   const numberFields = new Set<keyof AppSettings>([
     'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
-    'normalPollIntervalMs', 'idlePollIntervalMs', 'sleepPollIntervalMs', 'scheduleLeadTimeSec',
+    'chargingPollIntervalMs', 'idlePollIntervalMs', 'bodyPollIntervalMs', 'sleepPollIntervalMs', 'vehicleDataWindowMs', 'scheduleLeadTimeSec',
   ])
 
   const upd = (key: keyof AppSettings) => (val: string) =>
@@ -734,20 +734,28 @@ export default function SettingsPage() {
                 />
               </div>
               <Field
-                label="Normal Poll Interval"
-                value={settings.normalPollIntervalMs}
-                onChange={upd('normalPollIntervalMs')}
+                label="Charging Poll Interval"
+                value={settings.chargingPollIntervalMs}
+                onChange={upd('chargingPollIntervalMs')}
                 type="number"
                 unit="ms"
-                description="Refresh interval while charging or active (e.g. 5000ms)."
+                description="Polling interval while the vehicle is actively charging. Both body_controller_state and vehicle_data are fetched at this rate (e.g. 5000ms)."
               />
               <Field
-                label="Idle Poll Interval"
+                label="Wake Window Poll Interval"
                 value={settings.idlePollIntervalMs}
                 onChange={upd('idlePollIntervalMs')}
                 type="number"
                 unit="ms"
-                description="Slow refresh interval when engine is idle to allow vehicle sleep (e.g. 60000ms)."
+                description="Polling interval during the vehicle_data window after a wake or connect event. Both body_controller_state and vehicle_data are fetched (e.g. 10000ms)."
+              />
+              <Field
+                label="Body-Only Poll Interval"
+                value={settings.bodyPollIntervalMs}
+                onChange={upd('bodyPollIntervalMs')}
+                type="number"
+                unit="ms"
+                description="Polling interval after the vehicle_data window expires and the vehicle is not charging. Only body_controller_state is fetched — vehicle_data is skipped so the car can fall asleep (e.g. 60000ms)."
               />
               <Field
                 label="Sleep Poll Interval"
@@ -755,7 +763,15 @@ export default function SettingsPage() {
                 onChange={upd('sleepPollIntervalMs')}
                 type="number"
                 unit="ms"
-                description="Polling interval while vehicle is confirmed asleep via body_controller_state. Vehicle data is NOT fetched during sleep to avoid waking it (e.g. 300000ms = 5 min)."
+                description="Polling interval while body_controller_state confirms the vehicle is asleep. Only body_controller_state is checked — vehicle_data is never called to avoid waking the car (e.g. 300000ms = 5 min)."
+              />
+              <Field
+                label="Vehicle Data Window"
+                value={settings.vehicleDataWindowMs}
+                onChange={upd('vehicleDataWindowMs')}
+                type="number"
+                unit="ms"
+                description="How long to keep fetching vehicle_data after a wake or connect event. After this window, only body_controller_state is polled until the next charge session begins (e.g. 300000ms = 5 min)."
               />
               <Field
                 label="Schedule Lead Time"

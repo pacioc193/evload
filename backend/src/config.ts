@@ -70,11 +70,20 @@ const ConfigSchema = z.object({
     url: z.string().default('http://localhost:8080'),
     vehicleId: z.string().default(''),
     vehicleName: z.string().default(''),
-    normalPollIntervalMs: z.number().min(1000).default(5000),
-    idlePollIntervalMs: z.number().min(1000).default(60000),
-    // Polling interval while the vehicle is known to be asleep (body_controller_state = ASLEEP).
-    // Vehicle data is NOT fetched during this interval to avoid waking the vehicle.
+    // Interval (ms) used when actively charging — both body_controller_state and vehicle_data are fetched.
+    chargingPollIntervalMs: z.number().min(1000).default(5000),
+    // Interval (ms) during the vehicle_data wake window (after wake/connect, before window expires).
+    // Both body_controller_state and vehicle_data are fetched.
+    idlePollIntervalMs: z.number().min(1000).default(10000),
+    // Interval (ms) when the vehicle_data window has expired and the vehicle is awake but not charging.
+    // Only body_controller_state is fetched; vehicle_data is NOT called to allow the car to sleep.
+    bodyPollIntervalMs: z.number().min(1000).default(60000),
+    // Interval (ms) while the vehicle is confirmed asleep (body_controller_state = ASLEEP).
+    // Only body_controller_state is fetched; vehicle_data is NOT called to avoid waking the vehicle.
     sleepPollIntervalMs: z.number().min(5000).default(300000),
+    // How long (ms) to keep polling vehicle_data after a wake or connect event.
+    // After this window, only body_controller_state is polled until the next charge session starts.
+    vehicleDataWindowMs: z.number().min(10000).default(300000),
     scheduleLeadTimeSec: z.number().min(0).default(1800),
     rejectUnauthorized: z.boolean().default(true),
     // If true, stop an autonomous Tesla charge detected after proxy reconnects
