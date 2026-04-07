@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area, BarChart, Bar
 } from 'recharts'
 import { deleteSession, getSessions, getSession } from '../api/index'
 import { BarChart2, Zap, Battery, Clock, Trash2 } from 'lucide-react'
+import { useWsStore } from '../store/wsStore'
 
 interface Session {
   id: number
@@ -57,6 +58,9 @@ export default function StatisticsPage() {
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<number | null>(null)
   const [sessionMessage, setSessionMessage] = useState('')
 
+  const engineSessionId = useWsStore((s) => s.engine?.sessionId ?? null)
+  const prevSessionIdRef = useRef<number | null>(engineSessionId)
+
   const loadSessions = async () => {
     const data = await getSessions(1, 20)
     setSessions(data.sessions as Session[])
@@ -67,6 +71,19 @@ export default function StatisticsPage() {
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  // Reload sessions list when a charging session ends (sessionId goes from a value to null)
+  useEffect(() => {
+    const prev = prevSessionIdRef.current
+    prevSessionIdRef.current = engineSessionId
+    if (prev !== null && engineSessionId === null) {
+      // Small delay to let the backend commit the final session data
+      const timer = setTimeout(() => {
+        loadSessions().catch(console.error)
+      }, 1500)
+      return () => clearTimeout(timer)
+    }
+  }, [engineSessionId])
 
   const loadSession = async (id: number) => {
     setSessionLoading(true)

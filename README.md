@@ -19,6 +19,9 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Proxy resilience**: `proxyGet` retries up to 3 times with a 30 s timeout per attempt before declaring lost communication — total worst-case 90 s; all proxy timeouts (GET, POST, PUT) unified at 30 s to handle slow BLE proxy responses
+- **ETA guard on proxy disconnect**: when the proxy is offline, stale `chargeRateKw` and `machineHours` from the last poll are not used for ETA calculation — the dashboard shows "—" or falls back to the meter-based average only
+- **Statistics live reload**: the Statistics page automatically reloads the sessions list when a charging session ends, so cost, efficiency and energy data appear immediately after session stop without a manual refresh
 - Proxy status driven by `vehicle_data` polling with explicit proxy-vs-car state separation
 - Home Assistant-based dynamic current throttling with **linear ramp-up algorithm**
 - **Connection recovery**: soft failsafe on proxy disconnect — charge session is suspended (not stopped) and automatically resumed on reconnect

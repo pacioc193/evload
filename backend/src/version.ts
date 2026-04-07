@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.4.0'
+export const VERSION = '1.5.0'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.5.0',
+    releasedAt: '2026-04-07',
+    summary: 'Proxy resilience: 3 retry attempts with 30 s timeout before declaring lost communication; ETA guard — stale chargeRateKw/machineHours zeroed when proxy disconnected; Statistics page auto-reloads on session end',
+  },
   {
     version: '1.4.0',
     releasedAt: '2026-04-07',

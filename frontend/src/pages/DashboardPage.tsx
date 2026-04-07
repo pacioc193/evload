@@ -239,6 +239,9 @@ export default function DashboardPage() {
   const wsLastUpdate = useWsStore((s) => s.lastUpdate)
   const demo = useWsStore((s) => s.demo)
 
+  // Derive proxy connectivity early — used to guard stale vehicle telemetry in ETA/power display
+  const proxyConnected = proxy?.connected ?? false
+
   const [manualTargetSoc, setManualTargetSoc] = useState(80)
   const seededFromCarRef = useRef(false)
   const [chargeMode, setChargeMode] = useState<ChargeMode>(
@@ -287,7 +290,8 @@ export default function DashboardPage() {
     ? (nextCharge?.targetSoc ?? engine?.targetSoc ?? manualTargetSoc)
     : manualTargetSoc
 
-  const chargePowerKw = Math.max(0, vehicle?.chargeRateKw ?? 0)
+  // When proxy is disconnected, chargeRateKw is stale — zero it out to avoid ETA and power display errors
+  const chargePowerKw = proxyConnected ? Math.max(0, vehicle?.chargeRateKw ?? 0) : 0
   const vehicleChargerPowerW = Math.max(0, Math.round(chargePowerKw * 1000))
   const haChargerPowerW = ha?.chargerW != null && Number.isFinite(ha.chargerW)
     ? Math.max(0, Math.round(ha.chargerW))
@@ -364,7 +368,7 @@ export default function DashboardPage() {
       : null
 
   const timeToTarget = computeTimeToTargetH({
-    machineHours: vehicle?.timeToFullChargeH ?? null,
+    machineHours: proxyConnected ? (vehicle?.timeToFullChargeH ?? null) : null,
     stateOfCharge: soc,
     desiredTargetSoc: effectiveTargetSoc,
     carLimitSoc,
@@ -383,7 +387,8 @@ export default function DashboardPage() {
     && meterEnergyKwh > 0
       ? meterEnergyKwh / (chargingElapsedMs / 3600000)
       : null
-  const fallbackAveragePowerKw = displayChargePowerKw > 0 ? displayChargePowerKw : null
+  // Only use live display power as fallback when proxy is connected; stale chargeRateKw would skew ETA
+  const fallbackAveragePowerKw = proxyConnected && displayChargePowerKw > 0 ? displayChargePowerKw : null
   const usableEvloadAveragePowerKw = evloadAveragePowerKw != null && Number.isFinite(evloadAveragePowerKw) && evloadAveragePowerKw > 0
     ? evloadAveragePowerKw
     : fallbackAveragePowerKw
@@ -488,7 +493,6 @@ export default function DashboardPage() {
   }
 
   const canWakeVehicle = vehicle?.chargingState === 'Sleeping'
-  const proxyConnected = proxy?.connected ?? false
   const vehicleInGarage = vehicle?.connected ?? false
   const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
   const carStatusLabel = isVehicleSleeping ? 'Sleeping' : vehicleInGarage ? 'In garage' : 'Not in garage / unreachable'

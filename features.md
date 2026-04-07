@@ -3,6 +3,24 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Aggiornamenti Recenti (2026-04-07) — v1.5.0
+
+- **Proxy resilience — 3 tentativi prima di dichiarare lost communication**:
+	- `proxyGet` ora esegue fino a 3 tentativi prima di chiamare `markProxyError` e propagare l'errore.
+	- Ogni tentativo usa un timeout di 30 s (aumentato da 4 s / 8 s per coprire risposte lente del proxy BLE fino a ~30 s).
+	- Tutti i timeout proxy allineati a 30 s: `proxyGet` default, `body_controller_state`, `vehicle_data`, `proxyPost`, `PUT sendCommand`.
+	- Ogni tentativo fallito logga `PROXY_GET_RETRY` con numero tentativo e timeout.
+	- Worst-case prima del "lost communication": 3 × 30 s = 90 s.
+
+- **ETA guardia contro proxy disconnesso**:
+	- `chargeRateKw` dal proxy Tesla viene azzerato nel frontend quando `proxyConnected=false`, evitando che valori stale (es. 30 kW) alimentino il calcolo ETA.
+	- `machineHours` (ETA nativa del veicolo) viene anch'essa ignorata quando il proxy è offline.
+	- `fallbackAveragePowerKw` è condizionato a `proxyConnected`: quando offline si usa solo la media calcolata dal contatore reale; se non disponibile, ETA mostra "—".
+
+- **Statistics — ricaricamento automatico a fine sessione**:
+	- La pagina Statistics sottoscrive `engine.sessionId` via wsStore.
+	- Quando la sessione termina (`sessionId` passa da un valore a `null`), la lista sessioni si ricarica automaticamente dopo 1,5 s (per attendere il commit DB finale con `totalCostEur`, `chargingEfficiencyPct`, ecc.).
+
 ## Aggiornamenti Recenti (2026-03-25)
 
 - Hardening install/update script (2026-04-07):
