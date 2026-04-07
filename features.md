@@ -195,6 +195,14 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 - All'avvio di una sessione di ricarica (requestWakeMode) la finestra vehicle_data viene riaperta.
 - Una implementazione che chiama sempre vehicle_data quando sveglio è `FAILED`.
 
+26. Regola di Versioning.
+- Il numero di versione è contenuto in `backend/src/version.ts` (costante `VERSION`) e deve corrispondere a `backend/package.json` e `frontend/package.json`.
+- Ad ogni rilascio significativo (nuova feature, bugfix importante, refactor UX) incrementare la versione secondo SemVer: PATCH per bugfix/UX minori, MINOR per nuove feature, MAJOR per breaking changes.
+- Aggiungere sempre un nuovo entry a `VERSION_HISTORY` in `version.ts` con data e sommario della release.
+- Aggiornare contemporaneamente `backend/package.json`, `frontend/package.json` e `package.json` (root).
+- Il controllo di aggiornamenti usa la GitHub Releases API. Se `GITHUB_TOKEN` è configurato nel backend `.env`, funziona anche su repository privati.
+- Mostrare "—" (non "Unknown") quando la versione latest non è recuperabile.
+
 ## Protocollo Di Verifica Per Ogni Step
 
 Per ogni item `F-XX`:

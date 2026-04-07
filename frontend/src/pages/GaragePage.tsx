@@ -265,6 +265,22 @@ export default function GaragePage() {
             )}
           </div>
 
+          {/* Cable status indicator */}
+          {vehicle != null && (
+            <div className={clsx(
+              'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold',
+              vehicle.pluggedIn
+                ? 'bg-green-500/10 border border-green-500/40 text-green-400'
+                : 'bg-orange-500/10 border border-orange-500/40 text-orange-400'
+            )}>
+              <Plug size={18} />
+              {vehicle.pluggedIn ? 'Cavo collegato' : 'Cavo non collegato'}
+              {vehicle.cableType && vehicle.pluggedIn && (
+                <span className="ml-auto text-xs font-normal opacity-70">{vehicle.cableType}</span>
+              )}
+            </div>
+          )}
+
           {/* Metrics grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
             <div className="rounded-xl bg-evload-bg p-3">

@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.2.0'
+export const VERSION = '1.3.0'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.3.0',
+    releasedAt: '2026-04-07',
+    summary: 'Smart vehicle_data window polling (body-only after wake window), 5 configurable poll intervals, garage dashboard split into "Opzioni Auto" / "Opzioni Schermo", settings UX improvements',
+  },
   {
     version: '1.2.0',
     releasedAt: '2026-04-01',
@@ -42,11 +47,24 @@ export async function getVersionInfo(): Promise<VersionInfo> {
   
   if (!latestVersionCache || now - lastCheckMs > CHECK_INTERVAL_MS) {
     try {
-      // Fetch latest version from GitHub API
-      // We look at the package.json on main branch for simplicity
-      const res = await axios.get('https://raw.githubusercontent.com/pacioc193/evload/main/package.json', { timeout: 5000 })
-      if (res.data?.version) {
-        latestVersionCache = res.data.version
+      // Use GitHub Releases API for latest release tag.
+      // If GITHUB_TOKEN is set it will work for private repos too.
+      const headers: Record<string, string> = {
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      }
+      const token = process.env.GITHUB_TOKEN
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      const res = await axios.get('https://api.github.com/repos/pacioc193/evload/releases/latest', {
+        timeout: 5000,
+        headers,
+      })
+      const tag: string = res.data?.tag_name ?? ''
+      // Strip leading 'v' if present (e.g. 'v1.3.0' → '1.3.0')
+      const version = tag.replace(/^v/, '')
+      if (version) {
+        latestVersionCache = version
         lastCheckMs = now
       }
     } catch (err) {

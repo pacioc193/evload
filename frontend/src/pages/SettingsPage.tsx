@@ -43,10 +43,10 @@ const defaultExpandedPanels: Record<PanelKey, boolean> = {
   proxy: true,
   engine: true,
   versioning: true,
-  security: false,
-  yaml: false,
-  logs: false,
-  backup: false,
+  security: true,
+  yaml: true,
+  logs: true,
+  backup: true,
 }
 
 function readExpandedPanels(): Record<PanelKey, boolean> {
@@ -378,6 +378,15 @@ export default function SettingsPage() {
 
   const upd = (key: keyof AppSettings) => (val: string) =>
     setSettings((prev) => prev ? { ...prev, [key]: numberFields.has(key) ? Number(val) : val } : prev)
+
+  /**
+   * Helper for poll/window fields stored as milliseconds but shown/edited as seconds.
+   * Returns { value, onChange } props for the Field component.
+   */
+  const secField = (key: 'chargingPollIntervalMs' | 'idlePollIntervalMs' | 'bodyPollIntervalMs' | 'sleepPollIntervalMs' | 'vehicleDataWindowMs') => ({
+    value: settings ? Math.round((settings[key] as number) / 1000) : 0,
+    onChange: (val: string) => upd(key)(String(Math.round(Number(val) * 1000))),
+  })
 
   const togglePanel = (key: PanelKey) => {
     setExpandedPanels((prev) => ({ ...prev, [key]: !prev[key] }))
@@ -734,44 +743,39 @@ export default function SettingsPage() {
                 />
               </div>
               <Field
-                label="Charging Poll Interval"
-                value={settings.chargingPollIntervalMs}
-                onChange={upd('chargingPollIntervalMs')}
+                label="Vehicle Data Window"
+                {...secField('vehicleDataWindowMs')}
                 type="number"
-                unit="ms"
-                description="Polling interval while the vehicle is actively charging. Both body_controller_state and vehicle_data are fetched at this rate (e.g. 5000ms)."
+                unit="sec"
+                description="Duration of the vehicle_data polling window after a wake or connect event. During this window full vehicle data is fetched. After it expires, only body_controller_state is polled until the next charge session (default: 300 s = 5 min)."
+              />
+              <Field
+                label="Charging Poll Interval"
+                {...secField('chargingPollIntervalMs')}
+                type="number"
+                unit="sec"
+                description="How often to poll while the vehicle is actively charging. Both body_controller_state and vehicle_data are fetched (default: 5 s)."
               />
               <Field
                 label="Wake Window Poll Interval"
-                value={settings.idlePollIntervalMs}
-                onChange={upd('idlePollIntervalMs')}
+                {...secField('idlePollIntervalMs')}
                 type="number"
-                unit="ms"
-                description="Polling interval during the vehicle_data window after a wake or connect event. Both body_controller_state and vehicle_data are fetched (e.g. 10000ms)."
+                unit="sec"
+                description="How often to poll during the vehicle_data window after a wake or connect event. Both body_controller_state and vehicle_data are fetched (default: 10 s)."
               />
               <Field
                 label="Body-Only Poll Interval"
-                value={settings.bodyPollIntervalMs}
-                onChange={upd('bodyPollIntervalMs')}
+                {...secField('bodyPollIntervalMs')}
                 type="number"
-                unit="ms"
-                description="Polling interval after the vehicle_data window expires and the vehicle is not charging. Only body_controller_state is fetched — vehicle_data is skipped so the car can fall asleep (e.g. 60000ms)."
+                unit="sec"
+                description="How often to poll after the vehicle_data window expires and the vehicle is not charging. Only body_controller_state is fetched so the car can fall asleep naturally (default: 60 s)."
               />
               <Field
                 label="Sleep Poll Interval"
-                value={settings.sleepPollIntervalMs}
-                onChange={upd('sleepPollIntervalMs')}
+                {...secField('sleepPollIntervalMs')}
                 type="number"
-                unit="ms"
-                description="Polling interval while body_controller_state confirms the vehicle is asleep. Only body_controller_state is checked — vehicle_data is never called to avoid waking the car (e.g. 300000ms = 5 min)."
-              />
-              <Field
-                label="Vehicle Data Window"
-                value={settings.vehicleDataWindowMs}
-                onChange={upd('vehicleDataWindowMs')}
-                type="number"
-                unit="ms"
-                description="How long to keep fetching vehicle_data after a wake or connect event. After this window, only body_controller_state is polled until the next charge session begins (e.g. 300000ms = 5 min)."
+                unit="sec"
+                description="How often to poll while body_controller_state confirms the vehicle is asleep. Only body_controller_state is checked — vehicle_data is never called to avoid waking the car (default: 300 s = 5 min)."
               />
               <Field
                 label="Schedule Lead Time"
@@ -779,7 +783,7 @@ export default function SettingsPage() {
                 onChange={upd('scheduleLeadTimeSec')}
                 type="number"
                 unit="sec"
-                description="How early the scheduler can request wake mode before a planned charging session."
+                description="How many seconds before a scheduled charge the scheduler wakes the vehicle (default: 1800 s = 30 min)."
               />
               <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
                 <div>
@@ -928,7 +932,7 @@ export default function SettingsPage() {
             </div>
             <div className="rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
               <div className="text-xs text-evload-muted uppercase tracking-wide">Latest</div>
-              <div className="mt-1 text-xl font-semibold text-evload-text">{versionInfo?.latest ?? 'Unknown'}</div>
+              <div className="mt-1 text-xl font-semibold text-evload-text">{versionInfo?.latest ?? '—'}</div>
             </div>
             <div className="rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
               <div className="text-xs text-evload-muted uppercase tracking-wide">Update Status</div>
