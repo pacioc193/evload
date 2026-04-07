@@ -117,12 +117,9 @@ proxy:
   idlePollIntervalMs: 10000
 
   # Polling interval (ms) after the wake window expires and vehicle is not charging.
-  # Only body_controller_state is fetched. vehicle_data is NOT called so the car can sleep.
+  # Only body_controller_state is fetched (both awake and asleep) — vehicle_data is NOT called
+  # so the car can fall asleep and stay asleep undisturbed.
   bodyPollIntervalMs: 60000
-
-  # Polling interval (ms) while the vehicle is confirmed asleep (body_controller_state = ASLEEP).
-  # Only body_controller_state is fetched to allow the car to keep sleeping undisturbed.
-  sleepPollIntervalMs: 300000
 
   # Duration (ms) of the vehicle_data polling window after a wake or connect event.
   # During this window vehicle_data is fetched at idlePollIntervalMs even when not charging.

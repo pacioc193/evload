@@ -118,11 +118,12 @@ let vehicleState: VehicleState = {
   reason: null,
 }
 
-let proxyHealthState: Omit<ProxyHealthState, 'vehicleDataWindowExpiresAt'> = {
+let proxyHealthState: ProxyHealthState = {
   connected: false,
   lastSuccessAt: null,
   lastEndpoint: null,
   error: null,
+  vehicleDataWindowExpiresAt: null,
 }
 
 let pollLock = false
@@ -203,6 +204,7 @@ function markProxySuccess(url: string): void {
     lastSuccessAt: new Date().toISOString(),
     lastEndpoint: endpointKey,
     error: null,
+    vehicleDataWindowExpiresAt: null,
   }
   if (!wasConnected) {
     logger.info('PROXY_CONNECTIVITY_TRANSITION', {
