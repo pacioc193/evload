@@ -750,9 +750,9 @@ export default function SettingsPage() {
                   Last successful proxy call: {proxyLastEndpoint ?? 'unknown'}{proxyLastSuccessAt ? ` at ${proxyLastSuccessAt}` : ''}.
                 </div>
                 <div className="mt-1 text-xs text-evload-muted">
-                  Finestra dati: {dataWindowRemainSec != null && dataWindowRemainSec > 0
-                    ? <span className="text-evload-success font-medium">attiva — {Math.floor(dataWindowRemainSec / 60)}m {dataWindowRemainSec % 60}s rimanenti</span>
-                    : <span className="text-evload-muted">inattiva (solo body_controller_state)</span>}
+                  Data window: {dataWindowRemainSec != null && dataWindowRemainSec > 0
+                    ? <span className="text-evload-success font-medium">active — {Math.floor(dataWindowRemainSec / 60)}m {dataWindowRemainSec % 60}s remaining</span>
+                    : <span className="text-evload-muted">inactive (body_controller_state only)</span>}
                 </div>
               </div>
 
@@ -766,8 +766,8 @@ export default function SettingsPage() {
                 />
                 <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-sm">Verifica TLS</span>
-                    <Tooltip text="Se attivo, valida il certificato TLS del proxy. Disabilitare solo per certificati self-signed in ambienti locali fidati." />
+                    <span className="font-medium text-sm">Verify TLS</span>
+                    <Tooltip text="When enabled, validates the proxy TLS certificate. Disable only for self-signed certificates in trusted local environments." />
                   </div>
                   <button
                     onClick={() => setSettings((prev) => prev ? { ...prev, rejectUnauthorized: !prev.rejectUnauthorized } : prev)}
@@ -778,72 +778,72 @@ export default function SettingsPage() {
                 </div>
               </SectionCard>
 
-              <SectionCard title="VIN / Veicolo">
+              <SectionCard title="VIN / Vehicle">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <Field
                     label="VIN"
                     value={settings.vehicleId}
                     onChange={upd('vehicleId')}
                     placeholder="LRW..."
-                    description="Vehicle Identification Number usato dal proxy e dai comandi vehicle."
+                    description="Vehicle Identification Number used by the proxy and vehicle command routes."
                   />
                   <Field
-                    label="Nome veicolo"
+                    label="Vehicle Name"
                     value={settings.vehicleName}
                     onChange={upd('vehicleName')}
                     placeholder="My Model 3"
-                    description="Nome amichevole mostrato nella Dashboard e nei messaggi di stato."
+                    description="Friendly name shown in the Dashboard and runtime status messages."
                   />
                 </div>
               </SectionCard>
 
-              <SectionCard title="Finestra dati veicolo">
+              <SectionCard title="Vehicle Data Window">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <Field
-                    label="Durata finestra"
+                    label="Window Duration"
                     {...secField('vehicleDataWindowMs')}
                     type="number"
                     unit="sec"
-                    description="Per quanti secondi dopo un wake o connessione vengono richiesti i dati completi (vehicle_data). Scaduta la finestra, si usa solo body_controller_state. Default: 300 s."
+                    description="How many seconds after a wake or connect event full vehicle_data is requested. Once the window expires, only body_controller_state is polled (default: 300 s)."
                   />
                   <Field
-                    label="Polling dati nella finestra"
+                    label="Window Poll Interval"
                     {...secField('idlePollIntervalMs')}
                     type="number"
                     unit="sec"
-                    description="Intervallo di polling durante la finestra dati attiva: body_controller_state + vehicle_data entrambi. Default: 10 s."
+                    description="Polling interval while the data window is active: both body_controller_state and vehicle_data are fetched (default: 10 s)."
                   />
                 </div>
               </SectionCard>
 
-              <SectionCard title="Polling durante ricarica">
+              <SectionCard title="Charging Poll">
                 <Field
-                  label="Intervallo polling ricarica"
+                  label="Charging Poll Interval"
                   {...secField('chargingPollIntervalMs')}
                   type="number"
                   unit="sec"
-                  description="Intervallo di polling mentre il veicolo è in ricarica attiva. body_controller_state + vehicle_data entrambi. Default: 5 s."
+                  description="Polling interval while the vehicle is actively charging. Both body_controller_state and vehicle_data are fetched (default: 5 s)."
                 />
               </SectionCard>
 
               <SectionCard title="Body Controller">
                 <Field
-                  label="Intervallo polling body"
+                  label="Body Poll Interval"
                   {...secField('bodyPollIntervalMs')}
                   type="number"
                   unit="sec"
-                  description="Intervallo di polling quando la finestra dati è scaduta e la ricarica non è attiva (veicolo sveglio o dormiente). Solo body_controller_state — vehicle_data non viene mai chiamato così il veicolo può addormentarsi. Default: 60 s."
+                  description="Polling interval after the data window has expired and charging is not active (awake or asleep). Only body_controller_state is fetched — vehicle_data is never called so the car can fall asleep naturally (default: 60 s)."
                 />
               </SectionCard>
 
               <SectionCard title="Scheduler">
                 <Field
-                  label="Anticipo attivazione"
+                  label="Schedule Lead Time"
                   value={settings.scheduleLeadTimeSec}
                   onChange={upd('scheduleLeadTimeSec')}
                   type="number"
                   unit="sec"
-                  description="Quanti secondi prima dell'orario pianificato lo scheduler risveglia il veicolo. Default: 1800 s = 30 min."
+                  description="How many seconds before the scheduled charge time the scheduler wakes the vehicle (default: 1800 s = 30 min)."
                 />
               </SectionCard>
             </div>
@@ -870,7 +870,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
                 <div className="flex items-center gap-1.5">
                   <span className="font-medium text-sm">Demo Mode</span>
-                  <Tooltip text="Bypassa tutte le chiamate HTTP reali con dati simulati. Utile per testare l'interfaccia senza un proxy attivo." />
+                  <Tooltip text="Bypasses all real HTTP calls with simulated data. Useful for testing the UI without an active proxy." />
                 </div>
                 <button
                   onClick={() => setSettings((prev) => prev ? { ...prev, demo: !prev.demo } : prev)}
@@ -950,7 +950,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
                 <div className="flex items-center gap-1.5">
                   <span className="font-medium text-sm">Stop Charging On Start</span>
-                  <Tooltip text="Se attivo, EVload ferma la ricarica avviata dallo scheduler interno del veicolo prima che una sessione EVload pianificata prenda il controllo." />
+                  <Tooltip text="If enabled, EVload stops charging started by the car's internal scheduler before a scheduled EVload session takes control." />
                 </div>
                 <button
                   onClick={() => setSettings((prev) => prev ? { ...prev, stopChargeOnManualStart: !prev.stopChargeOnManualStart } : prev)}
