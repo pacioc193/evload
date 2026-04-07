@@ -22,6 +22,8 @@ export interface EngineStatus {
   balancingStartedAt: Date | null
   phase: 'idle' | 'charging' | 'balancing' | 'complete' | 'paused'
   message: string
+  chargeStartBlocked: boolean
+  chargeStartBlockReason: string | null
   haThrottled: boolean
   accumulatedSessionEnergyKwh: number
   vehicleBatteryEnergyKwh: number
@@ -42,6 +44,8 @@ let status: EngineStatus = {
   balancingStartedAt: null,
   phase: 'idle',
   message: 'Engine idle',
+  chargeStartBlocked: false,
+  chargeStartBlockReason: null,
   haThrottled: false,
   accumulatedSessionEnergyKwh: 0,
   vehicleBatteryEnergyKwh: 0,
@@ -62,6 +66,7 @@ let planArmed = false
 let lastEnergySampleAtMs: number | null = null
 let lastEngineHealthSnapshotAtMs = 0
 let vehicleBatteryEnergyBaselineKwh: number | null = null
+let chargeStartBlockedNotified = false
 
 /**
  * Suspended state saved when a soft failsafe (proxy disconnect) pauses an active charge session.
@@ -132,6 +137,8 @@ export async function initializeEngineState(): Promise<void> {
       balancingStartedAt: null,
       phase: 'idle',
       message: 'Plan restored after restart',
+      chargeStartBlocked: false,
+      chargeStartBlockReason: null,
       haThrottled: false,
       accumulatedSessionEnergyKwh: 0,
       vehicleBatteryEnergyKwh: 0,
@@ -148,6 +155,17 @@ function getCommandVehicleId(cfg: ReturnType<typeof getConfig>): string {
   if (cfg.proxy.vehicleId) return cfg.proxy.vehicleId
   if (cfg.demo) return 'demo'
   return ''
+}
+
+function resolveChargeStartBlockReason(vState: ReturnType<typeof getVehicleState>): string | null {
+  const chargingState = String(vState.chargingState ?? '').toLowerCase()
+  const reason = String(vState.reason ?? '').toLowerCase()
+
+  if (!vState.connected) return 'Vehicle not connected to proxy'
+  if (!vState.pluggedIn) return 'Charge cable not connected'
+  if (chargingState.includes('disconnected')) return 'Vehicle charging state is disconnected'
+  if (reason.includes('disconnected') || reason.includes('not in range')) return 'Vehicle reports disconnected while starting charge'
+  return null
 }
 
 function pushEngineLog(msg: string): void {
@@ -286,6 +304,8 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     setpointAmps: 0,  // will be sent as startAmps on the first adjustAmps call
     phase: 'idle',
     message: planArmed ? 'Planned session started' : 'Engine started',
+    chargeStartBlocked: false,
+    chargeStartBlockReason: null,
     accumulatedSessionEnergyKwh: 0,
     vehicleBatteryEnergyKwh: 0,
     vehicleBatteryEnergyRawKwh: 0,
@@ -295,6 +315,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
   sessionEnergyPriceEurPerKwh = cfg.charging.energyPriceEurPerKwh
   lastEnergySampleAtMs = Date.now()
   vehicleBatteryEnergyBaselineKwh = null
+  chargeStartBlockedNotified = false
   haStoppedForLimit = false
   haResumeAfterMs = null
   lastChargeStartAttemptMs = 0
@@ -415,6 +436,8 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
     sessionId: null,
     phase: 'idle',
     message: planArmed ? 'Plan armed — waiting for scheduled start' : 'Engine stopped',
+    chargeStartBlocked: false,
+    chargeStartBlockReason: null,
     balancing: false,
     balancingStartedAt: null,
     haThrottled: false,
@@ -433,6 +456,7 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
   lastEnergySampleAtMs = null
   lastEngineHealthSnapshotAtMs = 0
   vehicleBatteryEnergyBaselineKwh = null
+  chargeStartBlockedNotified = false
   suspendedState = null
   await persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
   engineEvents.emit('stopped', status)
@@ -549,9 +573,27 @@ async function runEngineStep(): Promise<void> {
 
     const vState = getVehicleState()
     if (!vState.connected) {
+      const blockReason = resolveChargeStartBlockReason(vState) ?? 'Vehicle not connected to proxy'
+      const changed = !status.chargeStartBlocked || status.chargeStartBlockReason !== blockReason
+      status.chargeStartBlocked = true
+      status.chargeStartBlockReason = blockReason
+      lastChargeStartAttemptMs = 0
       setEnginePhase('paused', 'vehicle_not_connected')
-      status.message = 'Vehicle not connected'
-      pushEngineLog('paused: vehicle not connected')
+      status.message = `${blockReason}. Waiting for cable/connection before retrying`
+      if (changed) {
+        pushEngineLog(`paused: ${blockReason}`)
+      }
+      if (!chargeStartBlockedNotified) {
+        chargeStartBlockedNotified = true
+        dispatchTelegramNotificationEvent('charge_start_blocked', {
+          sessionId: status.sessionId ?? undefined,
+          reason: blockReason,
+          chargingState: vState.chargingState ?? 'unknown',
+          pluggedIn: vState.pluggedIn,
+          vehicleConnected: vState.connected,
+          soc: vState.stateOfCharge ?? 0,
+        }).catch(() => {})
+      }
       return
     }
 
@@ -742,6 +784,17 @@ async function runEngineStep(): Promise<void> {
     switch (action.type) {
       case 'continue_charging':
         if (vState.charging) {
+          if (status.chargeStartBlocked || status.chargeStartBlockReason) {
+            logger.info('✅ [CHARGE_START_UNBLOCKED] Vehicle charging detected — clearing charge_start block', {
+              sessionId: status.sessionId,
+              previousReason: status.chargeStartBlockReason,
+            })
+            pushEngineLog('charge_start block cleared: vehicle entered charging state')
+          }
+          status.chargeStartBlocked = false
+          status.chargeStartBlockReason = null
+          chargeStartBlockedNotified = false
+
           // If evload never sent charge_start in this session (lastChargeStartAttemptMs === 0)
           // the charge was already in progress when the engine started (external charge).
           // Log once on the first tick where we hit this path to make it observable in logs.
@@ -765,6 +818,54 @@ async function runEngineStep(): Promise<void> {
           status.message = `Charging ${actualAmps}A (setpoint ${status.setpointAmps}A), SoC: ${soc}%${status.haThrottled ? ' (HA throttled)' : ''}`
           await adjustAmps(cfg)
         } else {
+          const blockReason = resolveChargeStartBlockReason(vState)
+          if (blockReason) {
+            const changed = !status.chargeStartBlocked || status.chargeStartBlockReason !== blockReason
+            status.chargeStartBlocked = true
+            status.chargeStartBlockReason = blockReason
+            lastChargeStartAttemptMs = 0
+            setEnginePhase('paused', 'charge_start_blocked_vehicle_state')
+            status.message = `${blockReason}. Waiting for cable/connection before retrying`
+
+            if (changed) {
+              logger.warn('⛔ [CHARGE_START_BLOCKED] Charge start retries suspended', {
+                sessionId: status.sessionId,
+                reason: blockReason,
+                chargingState: vState.chargingState,
+                pluggedIn: vState.pluggedIn,
+                vehicleConnected: vState.connected,
+                soc,
+              })
+              pushEngineLog(`charge_start blocked: ${blockReason}`)
+            }
+
+            if (!chargeStartBlockedNotified) {
+              chargeStartBlockedNotified = true
+              dispatchTelegramNotificationEvent('charge_start_blocked', {
+                sessionId: status.sessionId ?? undefined,
+                reason: blockReason,
+                chargingState: vState.chargingState ?? 'unknown',
+                pluggedIn: vState.pluggedIn,
+                vehicleConnected: vState.connected,
+                soc,
+              }).catch(() => {})
+            }
+
+            engineEvents.emit('tick', status)
+            return
+          }
+
+          if (status.chargeStartBlocked || status.chargeStartBlockReason) {
+            logger.info('🔓 [CHARGE_START_UNBLOCKED] Vehicle state recovered — charge_start retries re-enabled', {
+              sessionId: status.sessionId,
+              previousReason: status.chargeStartBlockReason,
+            })
+            pushEngineLog('charge_start block cleared: vehicle state recovered')
+            status.chargeStartBlocked = false
+            status.chargeStartBlockReason = null
+            chargeStartBlockedNotified = false
+          }
+
           const now = Date.now()
           const retryMs = cfg.charging.chargeStartRetryMs
           const retryAllowed = vState.pluggedIn && (now - lastChargeStartAttemptMs >= retryMs)
@@ -784,6 +885,8 @@ async function runEngineStep(): Promise<void> {
                 logger.error('🚨 [CHARGE_START] charge_start failed', { err, vehicleId: vid, sessionId: status.sessionId })
               )
               lastChargeStartAttemptMs = now
+              status.chargeStartBlocked = false
+              status.chargeStartBlockReason = null
               setEnginePhase('paused', 'charge_start_pending_state_update')
               status.message = 'Sent charge_start, waiting vehicle state update'
               pushEngineLog(`charge_start sent: state=${vState.chargingState} soc=${soc}%`)

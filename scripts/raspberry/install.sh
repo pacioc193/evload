@@ -78,10 +78,12 @@ fi
 cd "${INSTALL_DIR}"
 
 # ── Step 4: Install npm deps and build ────────────────────────────────────────
-info "Installing backend dependencies..."
+info "Forcing clean reinstall of backend dependencies..."
+rm -rf backend/node_modules
 npm ci --prefix backend --omit=dev
 
-info "Installing frontend dependencies..."
+info "Forcing clean reinstall of frontend dependencies..."
+rm -rf frontend/node_modules
 npm ci --prefix frontend
 
 info "Building project (backend + frontend)..."
@@ -116,7 +118,12 @@ mkdir -p backend/data
 info "Running Prisma database migration..."
 cd backend
 npx prisma generate
-npx prisma db push --accept-data-loss
+if npx prisma migrate deploy; then
+  info "Prisma migrate deploy completed."
+else
+  warn "Prisma migrate deploy failed, falling back to prisma db push..."
+  npx prisma db push --accept-data-loss
+fi
 cd ..
 
 # ── Step 7: systemd service ───────────────────────────────────────────────────
@@ -146,6 +153,9 @@ EOF
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
 systemctl start  "${SERVICE_NAME}"
+if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
+  error "Service ${SERVICE_NAME} is not active after startup.\n$(journalctl -u ${SERVICE_NAME} -n 120 --no-pager || true)"
+fi
 info "Service ${SERVICE_NAME} enabled and started."
 
 # ── Step 8: Chromium kiosk autostart ─────────────────────────────────────────

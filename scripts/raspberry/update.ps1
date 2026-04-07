@@ -73,12 +73,17 @@ if ($rsyncAvailable) {
 
 Write-Ok "Files synced."
 
-# ── Step 3: DB migration + service restart ────────────────────────────────────
-Write-Step "Applying DB schema and restarting service on RPi..."
+# ── Step 3: Force clean npm reinstall + DB migration + service restart ───────
+Write-Step "Forcing clean npm reinstall, applying DB schema and restarting service on RPi..."
 # Quote InstallDir to handle paths with spaces
 $quotedDir = $InstallDir -replace "'", "'\''"
-$remoteCmd = "cd '${quotedDir}/backend' && npx prisma generate && npx prisma db push --accept-data-loss && sudo systemctl restart evload"
+$remoteCmd = "cd '${quotedDir}' && rm -rf backend/node_modules frontend/node_modules && npm ci --prefix backend --omit=dev && npm ci --prefix frontend && cd backend && npx prisma generate && (npx prisma migrate deploy || npx prisma db push --accept-data-loss) && sudo systemctl restart evload && systemctl is-active --quiet evload"
 & ssh $SshTarget $remoteCmd
+if ($LASTEXITCODE -ne 0) {
+    Write-Warn "evload non attivo dopo restart. Ultimi log remoti:"
+    & ssh $SshTarget "journalctl -u evload -n 120 --no-pager"
+    throw "Remote update failed: evload service is not active"
+}
 Write-Ok "Service restarted."
 
 # ── Step 4: Health check ──────────────────────────────────────────────────────

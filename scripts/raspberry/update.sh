@@ -64,15 +64,24 @@ info "Syncing Prisma schema..."
 rsync -avz "${REPO_ROOT}/backend/prisma/" "${SSH_TARGET}:${INSTALL_DIR}/backend/prisma/" 2>/dev/null || \
   scp -r "${REPO_ROOT}/backend/prisma" "${SSH_TARGET}:${INSTALL_DIR}/backend/"
 
-# ── Step 3: Apply DB migrations on RPi ───────────────────────────────────────
-info "Applying Prisma schema on RPi..."
-ssh "${SSH_TARGET}" "cd '${INSTALL_DIR}/backend' && npx prisma generate && npx prisma db push --accept-data-loss"
+# ── Step 3: Force clean npm reinstall on RPi ─────────────────────────────────
+info "Forcing clean npm reinstall on RPi (backend + frontend)..."
+ssh "${SSH_TARGET}" "cd '${INSTALL_DIR}' && rm -rf backend/node_modules frontend/node_modules && npm ci --prefix backend --omit=dev && npm ci --prefix frontend"
 
-# ── Step 4: Restart service ───────────────────────────────────────────────────
+# ── Step 4: Apply DB migrations on RPi ───────────────────────────────────────
+info "Applying Prisma schema on RPi..."
+ssh "${SSH_TARGET}" "cd '${INSTALL_DIR}/backend' && npx prisma generate && (npx prisma migrate deploy || npx prisma db push --accept-data-loss)"
+
+# ── Step 5: Restart service ───────────────────────────────────────────────────
 info "Restarting evload service..."
 ssh "${SSH_TARGET}" "sudo systemctl restart evload"
+if ! ssh "${SSH_TARGET}" "systemctl is-active --quiet evload"; then
+  warn "evload non attivo dopo restart. Ultimi log remoti:"
+  ssh "${SSH_TARGET}" "journalctl -u evload -n 120 --no-pager" || true
+  exit 1
+fi
 
-# ── Step 5: Health check ──────────────────────────────────────────────────────
+# ── Step 6: Health check ──────────────────────────────────────────────────────
 info "Waiting for evload to come online..."
 HEALTH_URL="http://${RPI_HOST}:${EVLOAD_PORT}/api/health"
 for i in $(seq 1 "${HEALTH_RETRIES}"); do

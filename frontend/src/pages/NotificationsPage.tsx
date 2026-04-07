@@ -144,6 +144,7 @@ const EVENT_EXAMPLE_TEMPLATES: Record<string, string> = {
   engine_started: 'Charging session {{sessionId}} started. Target: {{targetSoc}}%. Ref: {{reason}}',
   home_power_limit_exceeded: 'Power limit exceeded: {{homePowerW}}W (Max: {{limitW}}W). Charging throttled.',
   soc_increased: 'EV Charge: {{soc}}% (+{{deltaSoc}}%)',
+  charge_start_blocked: '⚠️ Charge start blocked: {{reason}}. State={{chargingState}}, pluggedIn={{pluggedIn}}, connected={{vehicleConnected}}, SoC={{soc}}%',
 }
 
 function CollapsibleHeader({
@@ -352,10 +353,17 @@ export default function NotificationsPage() {
           operator: 'increased_by',
           value: 2,
         },
+      },
+      {
+        id: `example-5`,
+        name: 'Charge Start Blocked',
+        enabled: true,
+        event: 'charge_start_blocked',
+        template: '⚠️ Charge start blocked: {{reason}}. State={{chargingState}}, pluggedIn={{pluggedIn}}, connected={{vehicleConnected}}, SoC={{soc}}%',
       }
     ]
     setSettings((prev) => prev ? { ...prev, telegramRules: examples } : prev)
-    setTestResult('Loaded 4 example rules (Advanced conditions included)')
+    setTestResult('Loaded 5 example rules (Advanced conditions included)')
   }
 
   const generateFromScratch = () => {

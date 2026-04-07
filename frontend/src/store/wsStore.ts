@@ -68,6 +68,8 @@ export interface EngineStatus {
   balancingStartedAt: string | null
   phase: 'idle' | 'charging' | 'balancing' | 'complete' | 'paused'
   message: string
+  chargeStartBlocked: boolean
+  chargeStartBlockReason: string | null
   haThrottled: boolean
   accumulatedSessionEnergyKwh: number
   vehicleBatteryEnergyKwh: number

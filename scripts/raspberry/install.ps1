@@ -85,8 +85,10 @@ CHROMIUM=\$(command -v chromium-browser 2>/dev/null || command -v chromium)
 
 cd /opt/evload
 
-# npm install (production only for backend)
+# Force clean npm reinstall (backend + frontend)
+rm -rf backend/node_modules frontend/node_modules
 npm ci --prefix backend --omit=dev
+npm ci --prefix frontend
 
 # .env setup
 if [[ ! -f backend/.env ]]; then
@@ -103,7 +105,7 @@ fi
 mkdir -p backend/data
 
 # Prisma
-cd backend && npx prisma generate && npx prisma db push --accept-data-loss && cd ..
+cd backend && npx prisma generate && (npx prisma migrate deploy || npx prisma db push --accept-data-loss) && cd ..
 
 # systemd
 sudo tee /etc/systemd/system/evload.service >/dev/null <<SVCEOF
@@ -128,6 +130,10 @@ SVCEOF
 sudo systemctl daemon-reload
 sudo systemctl enable evload
 sudo systemctl restart evload
+if ! systemctl is-active --quiet evload; then
+    journalctl -u evload -n 120 --no-pager || true
+    exit 1
+fi
 
 # Kiosk autostart
 AUTOSTART_DIR=/etc/xdg/lxsession/LXDE-pi

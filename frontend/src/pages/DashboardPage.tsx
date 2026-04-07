@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useWsStore } from '../store/wsStore'
 import { startCharging, stopCharging, setPlanMode, wakeVehicle, getNextPlannedCharge, NextPlannedCharge } from '../api/index'
-import { WifiOff, Car, Clock3, Home, Zap as ZapIcon, ChevronDown, ChevronRight } from 'lucide-react'
+import { WifiOff, Car, Clock3, Home, Zap as ZapIcon, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
 import { clsx } from 'clsx'
 import { flog } from '../utils/frontendLogger'
 
@@ -529,6 +529,23 @@ export default function DashboardPage() {
       {demo && (
         <div className="bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 text-xs font-bold uppercase tracking-widest rounded-lg px-3 py-2 text-center">
           Demo Mode Active — Simulated Data
+        </div>
+      )}
+
+      {engine?.chargeStartBlocked && (
+        <div className="bg-amber-500/15 border border-amber-500/50 rounded-2xl p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="text-amber-300 mt-0.5" size={20} />
+            <div>
+              <div className="text-sm font-bold tracking-wide text-amber-200 uppercase">Charging blocked</div>
+              <div className="text-base text-amber-100 mt-1">
+                {engine.chargeStartBlockReason ?? 'Charging cannot start with current vehicle state'}
+              </div>
+              <div className="text-xs text-amber-200/90 mt-2">
+                Connect the charging cable and wait for vehicle connection recovery. Evload suspended automatic charge_start retries to avoid command spam.
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

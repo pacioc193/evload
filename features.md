@@ -5,6 +5,18 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 ## Aggiornamenti Recenti (2026-03-25)
 
+- Hardening install/update script (2026-04-07):
+	- Tutti gli script di installazione/aggiornamento ora forzano reinstall pulita dipendenze npm (`rm -rf node_modules` + `npm ci`).
+	- Update Docker e deploy Proxmox eseguono `docker compose build --no-cache` per rigenerare sempre i layer dipendenze.
+	- Tutti i percorsi deploy/update/install ora eseguono sync schema robusto: `prisma migrate deploy` con fallback automatico a `prisma db push --accept-data-loss`.
+	- In caso di restart fallito del servizio/container, gli script stampano automaticamente gli ultimi log (`journalctl`/`docker compose logs`) e terminano con errore.
+	- Nuova gestione engine per `charge_start` con veicolo/cavo disconnesso: retry sospesi finché lo stato non rientra, con messaggio esplicito nello stato engine.
+	- Nuovo evento notifiche Telegram `charge_start_blocked` con payload contestuale (`reason`, `chargingState`, `pluggedIn`, `vehicleConnected`, `soc`, `sessionId`).
+	- Notifications UI: aggiunto template predefinito per `charge_start_blocked` nel builder eventi e nel pacchetto "Load examples".
+	- Dashboard: avviso visuale dedicato quando il blocco `charge_start` è attivo.
+	- Layout: menu laterale collassabile con bottone hamburger (desktop + drawer mobile).
+	- Obiettivo: eliminare drift/incompletezza di `node_modules` post-update (es. modulo runtime mancante `googleapis`).
+
 - Vehicle energy baseline al session start:
 	- `charge_energy_added` letto dal proxy Tesla non viene sempre azzerato tra sessioni.
 	- Al primo campionamento di ogni sessione, il valore viene catturato come baseline e sottratto da tutti i campioni successivi.

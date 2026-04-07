@@ -36,11 +36,13 @@ else
   fi
 fi
 
-echo "[*] Installing root dependencies..."
-npm install --no-audit --no-fund
+echo "[*] Forcing clean reinstall of root dependencies..."
+rm -rf node_modules
+npm ci --no-audit --no-fund
 
-echo "[*] Installing backend dependencies..."
-npm --prefix backend install --no-audit --no-fund
+echo "[*] Forcing clean reinstall of backend dependencies..."
+rm -rf backend/node_modules
+npm --prefix backend ci --include=dev --no-audit --no-fund
 
 echo "[*] Ensuring backend .env exists"
 BACKEND_ENV=backend/.env
@@ -57,12 +59,19 @@ if [ ! -f "$BACKEND_ENV" ] && [ -f "$BACKEND_ENV_EX" ]; then
   echo "[!] Al primo avvio il frontend ti chiedera' di scegliere la password UI."
 fi
 
-echo "[*] Installing frontend dependencies..."
-npm --prefix frontend install --no-audit --no-fund
+echo "[*] Forcing clean reinstall of frontend dependencies..."
+rm -rf frontend/node_modules
+npm --prefix frontend ci --no-audit --no-fund
 
 echo "[*] Running Prisma generate in backend (if applicable)..."
 if command -v npx >/dev/null 2>&1; then
-  npx --prefix backend prisma generate || true
+  npx --prefix backend prisma generate
+  if npx --prefix backend prisma migrate deploy; then
+    echo "[*] Prisma migrate deploy completed."
+  else
+    echo "[!] Prisma migrate deploy failed, falling back to prisma db push..."
+    npx --prefix backend prisma db push --accept-data-loss
+  fi
 fi
 
 echo "[*] Install complete. To start development: npm run dev"

@@ -27,6 +27,12 @@ The project is designed for home charging scenarios where you want to:
 - **Google Drive Backup** — scheduled OAuth2 backup of `config.yaml` + SQLite DB, configurable folder picker, retention management, and restore
 - **Native Proxmox/Ubuntu deployment** via PowerShell scripts (no Docker required)
 - **Raspberry Pi 4 scripts** — full install (bash + PowerShell), remote update via rsync, kiosk setup, display rotation + DPMS
+- **Deterministic dependency refresh on deploy/update**: install and update scripts now force a clean npm reinstall (`node_modules` purge + `npm ci`) to prevent partial or stale dependency trees (for example missing runtime modules like `googleapis`)
+- **Resilient database schema sync** on deploy/update: scripts run `prisma migrate deploy` with automatic fallback to `prisma db push --accept-data-loss` when schema drift blocks startup (for example missing SQLite columns)
+- **Automatic startup diagnostics**: if service/container restart fails, scripts print the latest runtime logs (`journalctl` or `docker compose logs`) before exiting with error
+- **Charge-start disconnected guard**: when EVLoad detects a cable-disconnected or vehicle-disconnected charging state, it suspends repeated `charge_start` retries, emits a dedicated Telegram notification event (`charge_start_blocked`), and exposes a clear dashboard warning until the condition recovers
+- **Notifications builder templates updated**: `charge_start_blocked` now has a ready-to-use default template in the Notifications UI, aligned with the existing event template workflow
+- **Collapsible navigation**: the left sidebar can now be hidden with a classic hamburger button (desktop collapse + mobile slide-out menu) for full-screen dashboard focus
 - **Production-hardened routing**: root path intelligently serves React UI or Home Assistant OAuth identity
 - **Sleep-aware and local-safe**: CSP configuration for LAN HTTP usage and sleep-safe proxy polling
 - Plan mode remains armed across scheduled runs until explicitly switched to Off
