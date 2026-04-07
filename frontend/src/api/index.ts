@@ -143,7 +143,6 @@ export interface AppSettings {
   chargingPollIntervalMs: number
   idlePollIntervalMs: number
   bodyPollIntervalMs: number
-  sleepPollIntervalMs: number
   vehicleDataWindowMs: number
   scheduleLeadTimeSec: number
   rejectUnauthorized: boolean

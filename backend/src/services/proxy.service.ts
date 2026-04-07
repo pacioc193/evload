@@ -75,6 +75,8 @@ export interface ProxyHealthState {
   lastSuccessAt: string | null
   lastEndpoint: SimulatorEndpointKey | null
   error: string | null
+  /** Unix timestamp (ms) when the vehicle_data polling window expires. null when inactive. */
+  vehicleDataWindowExpiresAt: number | null
 }
 
 export const vehicleEvents = new EventEmitter()
@@ -116,7 +118,7 @@ let vehicleState: VehicleState = {
   reason: null,
 }
 
-let proxyHealthState: ProxyHealthState = {
+let proxyHealthState: Omit<ProxyHealthState, 'vehicleDataWindowExpiresAt'> = {
   connected: false,
   lastSuccessAt: null,
   lastEndpoint: null,
@@ -793,18 +795,15 @@ function scheduleNextPoll(): void {
   const cfg = getConfig()
   const isCharging = vehicleState.charging
   const engineRunning = getEngineStatus().running
-  const isAsleep = vehicleState.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP'
   const windowActive = vehicleDataWindowStartMs !== null
     && (Date.now() - vehicleDataWindowStartMs) < cfg.proxy.vehicleDataWindowMs
 
-  // Priority: asleep > charging/engine > idle window active > body-only
-  const interval = isAsleep
-    ? cfg.proxy.sleepPollIntervalMs
-    : (isCharging || engineRunning)
-      ? cfg.proxy.chargingPollIntervalMs
-      : windowActive
-        ? cfg.proxy.idlePollIntervalMs
-        : cfg.proxy.bodyPollIntervalMs
+  // Priority: charging/engine > idle window active > body-only (same interval for awake and asleep)
+  const interval = (isCharging || engineRunning)
+    ? cfg.proxy.chargingPollIntervalMs
+    : windowActive
+      ? cfg.proxy.idlePollIntervalMs
+      : cfg.proxy.bodyPollIntervalMs
 
   pollTimer = setTimeout(async () => {
     try {
@@ -821,7 +820,15 @@ export function getVehicleState(): VehicleState {
 }
 
 export function getProxyHealthState(): ProxyHealthState {
-  return proxyHealthState
+  const cfg = getConfig()
+  const now = Date.now()
+  const expiry = vehicleDataWindowStartMs !== null
+    ? vehicleDataWindowStartMs + cfg.proxy.vehicleDataWindowMs
+    : null
+  return {
+    ...proxyHealthState,
+    vehicleDataWindowExpiresAt: expiry !== null && expiry > now ? expiry : null,
+  }
 }
 
 export function onUserPresenceChange(callback: (presence: UserPresence) => void): void {

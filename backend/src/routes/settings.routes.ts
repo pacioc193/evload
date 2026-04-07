@@ -41,7 +41,6 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     chargingPollIntervalMs: cfg.proxy.chargingPollIntervalMs,
     idlePollIntervalMs: cfg.proxy.idlePollIntervalMs,
     bodyPollIntervalMs: cfg.proxy.bodyPollIntervalMs,
-    sleepPollIntervalMs: cfg.proxy.sleepPollIntervalMs,
     vehicleDataWindowMs: cfg.proxy.vehicleDataWindowMs,
     scheduleLeadTimeSec: cfg.proxy.scheduleLeadTimeSec,
     rejectUnauthorized: cfg.proxy.rejectUnauthorized,
@@ -75,7 +74,6 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     chargingPollIntervalMs: number
     idlePollIntervalMs: number
     bodyPollIntervalMs: number
-    sleepPollIntervalMs: number
     vehicleDataWindowMs: number
     scheduleLeadTimeSec: number
     rejectUnauthorized: boolean
@@ -156,7 +154,6 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.chargingPollIntervalMs !== undefined) proxy['chargingPollIntervalMs'] = incoming.chargingPollIntervalMs
   if (incoming.idlePollIntervalMs !== undefined) proxy['idlePollIntervalMs'] = incoming.idlePollIntervalMs
   if (incoming.bodyPollIntervalMs !== undefined) proxy['bodyPollIntervalMs'] = incoming.bodyPollIntervalMs
-  if (incoming.sleepPollIntervalMs !== undefined) proxy['sleepPollIntervalMs'] = incoming.sleepPollIntervalMs
   if (incoming.vehicleDataWindowMs !== undefined) proxy['vehicleDataWindowMs'] = incoming.vehicleDataWindowMs
   if (incoming.scheduleLeadTimeSec !== undefined) proxy['scheduleLeadTimeSec'] = incoming.scheduleLeadTimeSec
   if (incoming.rejectUnauthorized !== undefined) proxy['rejectUnauthorized'] = incoming.rejectUnauthorized

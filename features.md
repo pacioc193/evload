@@ -190,10 +190,10 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 - `vehicle_data` è chiamato solo:
   - Durante la ricarica attiva (intervallo: `chargingPollIntervalMs`)
   - Entro la finestra vehicle_data dopo una connessione/risveglio (intervallo: `idlePollIntervalMs`, durata finestra: `vehicleDataWindowMs`)
-- Dopo la scadenza della finestra (e non in ricarica), solo `body_controller_state` viene chiamato (intervallo: `bodyPollIntervalMs`) per permettere al veicolo di dormire.
-- Quando confermato dormiente (ASLEEP), solo `body_controller_state` (intervallo: `sleepPollIntervalMs`).
+- Dopo la scadenza della finestra (e non in ricarica), solo `body_controller_state` viene chiamato (intervallo: `bodyPollIntervalMs`). Questo vale sia per il veicolo sveglio che dormiente — non esiste distinzione. `sleepPollIntervalMs` è stato rimosso.
 - All'avvio di una sessione di ricarica (requestWakeMode) la finestra vehicle_data viene riaperta.
 - Una implementazione che chiama sempre vehicle_data quando sveglio è `FAILED`.
+- Il pannello Proxy nelle impostazioni mostra il countdown della finestra dati attiva in tempo reale.
 
 26. Regola di Versioning.
 - Il numero di versione è contenuto in `backend/src/version.ts` (costante `VERSION`) e deve corrispondere a `backend/package.json` e `frontend/package.json`.

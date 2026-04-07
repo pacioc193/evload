@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.3.0'
+export const VERSION = '1.4.0'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.4.0',
+    releasedAt: '2026-04-07',
+    summary: 'Settings overhaul: "?" tooltip overlays for all parameters, proxy panel split into HTTP/TLS|VIN|Finestra dati|Polling ricarica|Body Controller|Scheduler sub-groups, sleepPollIntervalMs removed (bodyPollIntervalMs used for both awake and asleep body-only polling), vehicle data window countdown in proxy status',
+  },
   {
     version: '1.3.0',
     releasedAt: '2026-04-07',

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, type ReactNode } from 'react'
+﻿import { useEffect, useRef, useState, type ReactNode } from 'react'
 import axios from 'axios'
 import {
   getConfig,
@@ -114,6 +114,35 @@ function CollapsiblePanel({
   )
 }
 
+function Tooltip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative inline-flex items-center">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-evload-muted/50 text-evload-muted text-[9px] font-bold leading-none hover:border-evload-accent hover:text-evload-accent transition-colors flex-shrink-0"
+      >?</button>
+      {open && (
+        <div className="absolute z-50 left-0 bottom-full mb-2 w-72 max-w-[90vw] rounded-lg border border-evload-border bg-evload-surface shadow-xl px-3 py-2.5 text-xs text-evload-text leading-relaxed">
+          {text}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Field({
   label, value, onChange, type = 'text', unit, placeholder, description, listId,
 }: {
@@ -121,8 +150,11 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-sm text-evload-muted mb-1">{label}{unit && <span className="ml-1 text-xs">({unit})</span>}</label>
-      {description && <p className="text-[11px] text-evload-muted mb-1">{description}</p>}
+      <label className="flex items-center gap-1 text-sm text-evload-muted mb-1">
+        <span>{label}</span>
+        {unit && <span className="text-xs">({unit})</span>}
+        {description && <Tooltip text={description} />}
+      </label>
       <input
         type={type}
         value={value}
@@ -373,17 +405,14 @@ export default function SettingsPage() {
 
   const numberFields = new Set<keyof AppSettings>([
     'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
-    'chargingPollIntervalMs', 'idlePollIntervalMs', 'bodyPollIntervalMs', 'sleepPollIntervalMs', 'vehicleDataWindowMs', 'scheduleLeadTimeSec',
+    'chargingPollIntervalMs', 'idlePollIntervalMs', 'bodyPollIntervalMs', 'vehicleDataWindowMs', 'scheduleLeadTimeSec',
   ])
 
   const upd = (key: keyof AppSettings) => (val: string) =>
     setSettings((prev) => prev ? { ...prev, [key]: numberFields.has(key) ? Number(val) : val } : prev)
 
-  /**
-   * Helper for poll/window fields stored as milliseconds but shown/edited as seconds.
-   * Returns { value, onChange } props for the Field component.
-   */
-  const secField = (key: 'chargingPollIntervalMs' | 'idlePollIntervalMs' | 'bodyPollIntervalMs' | 'sleepPollIntervalMs' | 'vehicleDataWindowMs') => ({
+  /** Helper for poll/window fields stored as ms but shown/edited as seconds. */
+  const secField = (key: 'chargingPollIntervalMs' | 'idlePollIntervalMs' | 'bodyPollIntervalMs' | 'vehicleDataWindowMs') => ({
     value: settings ? Math.round((settings[key] as number) / 1000) : 0,
     onChange: (val: string) => upd(key)(String(Math.round(Number(val) * 1000))),
   })
@@ -491,6 +520,10 @@ export default function SettingsPage() {
   const proxyLastEndpoint = proxy?.lastEndpoint ?? null
   const proxyLastSuccessAt = proxy?.lastSuccessAt
     ? new Date(proxy.lastSuccessAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null
+  const dataWindowExpiresAt = proxy?.vehicleDataWindowExpiresAt ?? null
+  const dataWindowRemainSec = dataWindowExpiresAt != null
+    ? Math.max(0, Math.round((dataWindowExpiresAt - Date.now()) / 1000))
     : null
 
   const tokenRemainingText = haTokenStatus?.secondsRemaining == null
@@ -716,88 +749,103 @@ export default function SettingsPage() {
                 <div className="mt-1 text-xs text-evload-muted">
                   Last successful proxy call: {proxyLastEndpoint ?? 'unknown'}{proxyLastSuccessAt ? ` at ${proxyLastSuccessAt}` : ''}.
                 </div>
+                <div className="mt-1 text-xs text-evload-muted">
+                  Finestra dati: {dataWindowRemainSec != null && dataWindowRemainSec > 0
+                    ? <span className="text-evload-success font-medium">attiva — {Math.floor(dataWindowRemainSec / 60)}m {dataWindowRemainSec % 60}s rimanenti</span>
+                    : <span className="text-evload-muted">inattiva (solo body_controller_state)</span>}
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Field
-                label="Proxy URL"
-                value={settings.proxyUrl}
-                onChange={upd('proxyUrl')}
-                placeholder="http://proxy.local"
-                description="Base URL for Tesla proxy API integration."
-              />
-              <Field
-                label="Vehicle ID (VIN)"
-                value={settings.vehicleId}
-                onChange={upd('vehicleId')}
-                placeholder="LRW..."
-                description="Vehicle Identification Number used by proxy and command routes."
-              />
-              <div className="lg:col-span-2">
+              <SectionCard title="HTTP / TLS">
                 <Field
-                  label="Vehicle Name"
-                  value={settings.vehicleName}
-                  onChange={upd('vehicleName')}
-                  placeholder="My Model 3"
-                  description="Friendly vehicle name shown in Dashboard and runtime status."
+                  label="Proxy URL"
+                  value={settings.proxyUrl}
+                  onChange={upd('proxyUrl')}
+                  placeholder="http://proxy.local"
+                  description="Base URL for the Tesla proxy API. All vehicle requests are routed through this address."
                 />
-              </div>
-              <Field
-                label="Vehicle Data Window"
-                {...secField('vehicleDataWindowMs')}
-                type="number"
-                unit="sec"
-                description="Duration of the vehicle_data polling window after a wake or connect event. During this window full vehicle data is fetched. After it expires, only body_controller_state is polled until the next charge session (default: 300 s = 5 min)."
-              />
-              <Field
-                label="Charging Poll Interval"
-                {...secField('chargingPollIntervalMs')}
-                type="number"
-                unit="sec"
-                description="How often to poll while the vehicle is actively charging. Both body_controller_state and vehicle_data are fetched (default: 5 s)."
-              />
-              <Field
-                label="Wake Window Poll Interval"
-                {...secField('idlePollIntervalMs')}
-                type="number"
-                unit="sec"
-                description="How often to poll during the vehicle_data window after a wake or connect event. Both body_controller_state and vehicle_data are fetched (default: 10 s)."
-              />
-              <Field
-                label="Body-Only Poll Interval"
-                {...secField('bodyPollIntervalMs')}
-                type="number"
-                unit="sec"
-                description="How often to poll after the vehicle_data window expires and the vehicle is not charging. Only body_controller_state is fetched so the car can fall asleep naturally (default: 60 s)."
-              />
-              <Field
-                label="Sleep Poll Interval"
-                {...secField('sleepPollIntervalMs')}
-                type="number"
-                unit="sec"
-                description="How often to poll while body_controller_state confirms the vehicle is asleep. Only body_controller_state is checked — vehicle_data is never called to avoid waking the car (default: 300 s = 5 min)."
-              />
-              <Field
-                label="Schedule Lead Time"
-                value={settings.scheduleLeadTimeSec}
-                onChange={upd('scheduleLeadTimeSec')}
-                type="number"
-                unit="sec"
-                description="How many seconds before a scheduled charge the scheduler wakes the vehicle (default: 1800 s = 30 min)."
-              />
-              <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
-                <div>
-                  <div className="font-medium text-sm">Verify TLS Certificates</div>
-                  <div className="text-xs text-evload-muted">Disable only for self-signed proxy certificates in trusted local environments.</div>
+                <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-sm">Verifica TLS</span>
+                    <Tooltip text="Se attivo, valida il certificato TLS del proxy. Disabilitare solo per certificati self-signed in ambienti locali fidati." />
+                  </div>
+                  <button
+                    onClick={() => setSettings((prev) => prev ? { ...prev, rejectUnauthorized: !prev.rejectUnauthorized } : prev)}
+                    className="text-evload-accent hover:text-red-400 transition-colors"
+                  >
+                    {settings.rejectUnauthorized ? <ToggleRight size={32} /> : <ToggleLeft size={32} className="text-evload-muted" />}
+                  </button>
                 </div>
-                <button
-                  onClick={() => setSettings((prev) => prev ? { ...prev, rejectUnauthorized: !prev.rejectUnauthorized } : prev)}
-                  className="text-evload-accent hover:text-red-400 transition-colors"
-                >
-                  {settings.rejectUnauthorized ? <ToggleRight size={32} /> : <ToggleLeft size={32} className="text-evload-muted" />}
-                </button>
-              </div>
-              </div>
+              </SectionCard>
+
+              <SectionCard title="VIN / Veicolo">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <Field
+                    label="VIN"
+                    value={settings.vehicleId}
+                    onChange={upd('vehicleId')}
+                    placeholder="LRW..."
+                    description="Vehicle Identification Number usato dal proxy e dai comandi vehicle."
+                  />
+                  <Field
+                    label="Nome veicolo"
+                    value={settings.vehicleName}
+                    onChange={upd('vehicleName')}
+                    placeholder="My Model 3"
+                    description="Nome amichevole mostrato nella Dashboard e nei messaggi di stato."
+                  />
+                </div>
+              </SectionCard>
+
+              <SectionCard title="Finestra dati veicolo">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <Field
+                    label="Durata finestra"
+                    {...secField('vehicleDataWindowMs')}
+                    type="number"
+                    unit="sec"
+                    description="Per quanti secondi dopo un wake o connessione vengono richiesti i dati completi (vehicle_data). Scaduta la finestra, si usa solo body_controller_state. Default: 300 s."
+                  />
+                  <Field
+                    label="Polling dati nella finestra"
+                    {...secField('idlePollIntervalMs')}
+                    type="number"
+                    unit="sec"
+                    description="Intervallo di polling durante la finestra dati attiva: body_controller_state + vehicle_data entrambi. Default: 10 s."
+                  />
+                </div>
+              </SectionCard>
+
+              <SectionCard title="Polling durante ricarica">
+                <Field
+                  label="Intervallo polling ricarica"
+                  {...secField('chargingPollIntervalMs')}
+                  type="number"
+                  unit="sec"
+                  description="Intervallo di polling mentre il veicolo è in ricarica attiva. body_controller_state + vehicle_data entrambi. Default: 5 s."
+                />
+              </SectionCard>
+
+              <SectionCard title="Body Controller">
+                <Field
+                  label="Intervallo polling body"
+                  {...secField('bodyPollIntervalMs')}
+                  type="number"
+                  unit="sec"
+                  description="Intervallo di polling quando la finestra dati è scaduta e la ricarica non è attiva (veicolo sveglio o dormiente). Solo body_controller_state — vehicle_data non viene mai chiamato così il veicolo può addormentarsi. Default: 60 s."
+                />
+              </SectionCard>
+
+              <SectionCard title="Scheduler">
+                <Field
+                  label="Anticipo attivazione"
+                  value={settings.scheduleLeadTimeSec}
+                  onChange={upd('scheduleLeadTimeSec')}
+                  type="number"
+                  unit="sec"
+                  description="Quanti secondi prima dell'orario pianificato lo scheduler risveglia il veicolo. Default: 1800 s = 30 min."
+                />
+              </SectionCard>
             </div>
           </CollapsiblePanel>
 
@@ -820,9 +868,9 @@ export default function SettingsPage() {
           >
             <div className="pt-5 space-y-4">
               <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
-                <div>
-                  <div className="font-medium text-sm">Demo Mode</div>
-                  <div className="text-xs text-evload-muted">Bypass all real HTTP calls with simulated data.</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-sm">Demo Mode</span>
+                  <Tooltip text="Bypassa tutte le chiamate HTTP reali con dati simulati. Utile per testare l'interfaccia senza un proxy attivo." />
                 </div>
                 <button
                   onClick={() => setSettings((prev) => prev ? { ...prev, demo: !prev.demo } : prev)}
@@ -900,9 +948,9 @@ export default function SettingsPage() {
               </SectionCard>
 
               <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
-                <div>
-                  <div className="font-medium text-sm">Stop Charging On Start</div>
-                  <div className="text-xs text-evload-muted">If enabled, EVload stops charging started by the car's internal scheduler before a scheduled EVload session takes control.</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-sm">Stop Charging On Start</span>
+                  <Tooltip text="Se attivo, EVload ferma la ricarica avviata dallo scheduler interno del veicolo prima che una sessione EVload pianificata prenda il controllo." />
                 </div>
                 <button
                   onClick={() => setSettings((prev) => prev ? { ...prev, stopChargeOnManualStart: !prev.stopChargeOnManualStart } : prev)}
