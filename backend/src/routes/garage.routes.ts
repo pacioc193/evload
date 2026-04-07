@@ -32,8 +32,15 @@ router.post('/display', garageActionLimiter, requireAuth, (req, res) => {
 
   execFile('vcgencmd', ['display_power', powerArg], (err, stdout, stderr) => {
     if (err) {
-      logger.warn('GARAGE_DISPLAY: vcgencmd failed', { err, stderr })
-      res.status(500).json({ error: 'vcgencmd not available or failed', detail: stderr })
+      // Distinguish "command not found" from other failures so users get a clear message
+      const notFound = (err as NodeJS.ErrnoException).code === 'ENOENT'
+      if (notFound) {
+        logger.warn('GARAGE_DISPLAY: vcgencmd not found – is this running on a Raspberry Pi with vcgencmd installed?')
+        res.status(503).json({ error: 'vcgencmd not found. Ensure GARAGE_MODE is only enabled on a Raspberry Pi.' })
+      } else {
+        logger.warn('GARAGE_DISPLAY: vcgencmd failed', { err, stderr })
+        res.status(500).json({ error: 'vcgencmd failed', detail: stderr })
+      }
       return
     }
     logger.info(`GARAGE_DISPLAY: display ${on ? 'ON' : 'OFF'}`, { stdout })

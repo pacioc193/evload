@@ -50,6 +50,8 @@ export default function GaragePage() {
   })
   const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dimTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Keep a reference to the active WakeLockSentinel so we can release before requesting a new one
+  const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null)
 
   const saveScreenTimeout = (val: number) => {
     setScreenTimeoutMin(val)
@@ -60,10 +62,18 @@ export default function GaragePage() {
     setScreenDim(false)
     setScreenOff(false)
 
-    // Try Screen Wake Lock API to prevent browser from sleeping
+    // Try Screen Wake Lock API to prevent browser from sleeping.
+    // Release any existing sentinel before requesting a new one to avoid leaks.
     if ('wakeLock' in navigator) {
-      ;(navigator as Navigator & { wakeLock: { request: (type: string) => Promise<unknown> } })
-        .wakeLock.request('screen').catch(() => {})
+      const nav = navigator as Navigator & { wakeLock: { request: (type: string) => Promise<{ release: () => Promise<void> }> } }
+      const prevLock = wakeLockRef.current
+      if (prevLock) {
+        prevLock.release().catch(() => {})
+        wakeLockRef.current = null
+      }
+      nav.wakeLock.request('screen')
+        .then((sentinel) => { wakeLockRef.current = sentinel })
+        .catch(() => {})
     }
 
     // Reset timers
@@ -86,6 +96,11 @@ export default function GaragePage() {
       events.forEach((e) => window.removeEventListener(e, wakeScreen))
       if (activityTimer.current) clearTimeout(activityTimer.current)
       if (dimTimer.current) clearTimeout(dimTimer.current)
+      // Release wake lock on unmount
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {})
+        wakeLockRef.current = null
+      }
     }
   }, [wakeScreen])
 
