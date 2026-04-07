@@ -72,6 +72,9 @@ const ConfigSchema = z.object({
     vehicleName: z.string().default(''),
     normalPollIntervalMs: z.number().min(1000).default(5000),
     idlePollIntervalMs: z.number().min(1000).default(60000),
+    // Polling interval while the vehicle is known to be asleep (body_controller_state = ASLEEP).
+    // Vehicle data is NOT fetched during this interval to avoid waking the vehicle.
+    sleepPollIntervalMs: z.number().min(5000).default(300000),
     scheduleLeadTimeSec: z.number().min(0).default(1800),
     rejectUnauthorized: z.boolean().default(true),
     // If true, stop an autonomous Tesla charge detected after proxy reconnects

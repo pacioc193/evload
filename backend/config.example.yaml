@@ -111,6 +111,11 @@ proxy:
   # Polling interval (ms) when vehicle is not charging and engine is idle
   idlePollIntervalMs: 60000
 
+  # Polling interval (ms) while the vehicle is confirmed asleep (body_controller_state).
+  # vehicle_data is NOT sent during this period so the vehicle can stay asleep.
+  # Default is 5 minutes (300000 ms). Increase to let the vehicle sleep longer undisturbed.
+  sleepPollIntervalMs: 300000
+
   # Anticipatory wake lead time (sec) - wakes vehicle before scheduled charge execution
   scheduleLeadTimeSec: 1800
   

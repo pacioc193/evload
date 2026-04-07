@@ -51,6 +51,7 @@ export type SimulatorEndpointKey =
   | 'vehicle.vehicle_data'
   | 'vehicle.charge_state'
   | 'vehicle.climate_state'
+  | 'vehicle.body_controller_state'
   | 'command.charge_start'
   | 'command.charge_stop'
   | 'command.set_charging_amps'
@@ -327,6 +328,7 @@ const SIMULATOR_ENDPOINT_KEYS: SimulatorEndpointKey[] = [
   'vehicle.vehicle_data',
   'vehicle.charge_state',
   'vehicle.climate_state',
+  'vehicle.body_controller_state',
   'command.charge_start',
   'command.charge_stop',
   'command.set_charging_amps',
@@ -359,6 +361,7 @@ function endpointKeyFromUrl(url: string): SimulatorEndpointKey | null {
       if (endpoint === 'climate_state') return 'vehicle.climate_state'
       return 'vehicle.vehicle_data'
     }
+    if (/\/api\/1\/vehicles\/[^/]+\/body_controller_state$/.test(pathname)) return 'vehicle.body_controller_state'
     if (/\/api\/1\/vehicles\/[^/]+\/data_request\/charge_state$/.test(pathname)) return 'vehicle.charge_state'
     if (/\/api\/1\/vehicles\/[^/]+\/data_request\/climate_state$/.test(pathname)) return 'vehicle.climate_state'
     const commandMatch = pathname.match(/\/api\/1\/vehicles\/[^/]+\/command\/([^/]+)$/)
@@ -442,6 +445,57 @@ function recordSimulatorResponse(endpointKey: SimulatorEndpointKey, payload: unk
   })
 }
 
+interface BodyControllerStateResponse {
+  vehicle_sleep_status?: string
+  user_presence?: string
+  vehicle_lock_state?: string
+  closure_statuses?: Record<string, string>
+}
+
+interface BodyControllerStateEnvelope {
+  response?: {
+    result?: boolean
+    reason?: string
+    vin?: string
+    command?: string
+    response?: BodyControllerStateResponse
+  }
+}
+
+/**
+ * Fetch the body controller state from the proxy.
+ * This endpoint does NOT wake up the vehicle.
+ * Returns the parsed sleep status, or 'VEHICLE_SLEEP_STATUS_UNKNOWN' on any error.
+ */
+async function fetchBodyControllerStatus(vid: string): Promise<{ sleepStatus: VehicleSleepStatus; userPresence: UserPresence }> {
+  const url = `${proxyUrl()}/api/1/vehicles/${vid}/body_controller_state`
+  try {
+    const res = await proxyGet<BodyControllerStateEnvelope>(url, { timeoutMs: 8000 })
+    const inner = res.response?.response
+    const rawSleep = inner?.vehicle_sleep_status ?? ''
+    const rawPresence = inner?.user_presence ?? ''
+
+    const sleepStatus: VehicleSleepStatus =
+      rawSleep === 'VEHICLE_SLEEP_STATUS_ASLEEP'
+        ? 'VEHICLE_SLEEP_STATUS_ASLEEP'
+        : rawSleep === 'VEHICLE_SLEEP_STATUS_AWAKE'
+          ? 'VEHICLE_SLEEP_STATUS_AWAKE'
+          : 'VEHICLE_SLEEP_STATUS_UNKNOWN'
+
+    const userPresence: UserPresence =
+      rawPresence === 'VEHICLE_USER_PRESENCE_PRESENT'
+        ? 'VEHICLE_USER_PRESENCE_PRESENT'
+        : rawPresence === 'VEHICLE_USER_PRESENCE_NOT_PRESENT'
+          ? 'VEHICLE_USER_PRESENCE_NOT_PRESENT'
+          : 'VEHICLE_USER_PRESENCE_UNKNOWN'
+
+    return { sleepStatus, userPresence }
+  } catch (err) {
+    logger.warn('😴[SLEEP_CHECK] body_controller_state fetch failed, assuming unknown', { err })
+    return { sleepStatus: 'VEHICLE_SLEEP_STATUS_UNKNOWN', userPresence: 'VEHICLE_USER_PRESENCE_UNKNOWN' }
+  }
+}
+
 async function pollProxyOnce(): Promise<void> {
   if (pollLock) {
     logger.debug('Proxy poll skipped - previous poll still in progress')
@@ -456,6 +510,34 @@ async function pollProxyOnce(): Promise<void> {
       return
     }
 
+    // ── Step 1: Check sleep status via body_controller_state (does NOT wake vehicle) ──
+    const { sleepStatus: bodyControllerSleepStatus, userPresence: bodyControllerUserPresence } = await fetchBodyControllerStatus(vid)
+
+    if (bodyControllerSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP') {
+      // Vehicle is confirmed asleep — do NOT call vehicle_data to avoid waking it.
+      // Update state to reflect sleep, preserve last known charge data.
+      const prevSleepStatus = vehicleState.vehicleSleepStatus
+      vehicleState = {
+        ...vehicleState,
+        vehicleSleepStatus: 'VEHICLE_SLEEP_STATUS_ASLEEP',
+        userPresence: bodyControllerUserPresence,
+        chargingState: 'Sleeping',
+        charging: false,
+        connected: true, // proxy is reachable
+      }
+      if (prevSleepStatus !== 'VEHICLE_SLEEP_STATUS_ASLEEP') {
+        logger.info('😴[SLEEP_DETECTED] Vehicle is asleep – vehicle_data polling suspended', { vehicleId: vid })
+      }
+      vehicleEvents.emit('state', vehicleState)
+      return
+    }
+
+    // Vehicle is awake (or unknown) — log transition from sleep if applicable
+    if (vehicleState.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP') {
+      logger.info('☀️[WAKE_DETECTED] Vehicle woke up – resuming vehicle_data polling', { vehicleId: vid })
+    }
+
+    // ── Step 2: Fetch full vehicle data (only when vehicle is awake) ──
     const vehicleDataRes = await proxyGet<TeslaVehicleDataEnvelope>(`${proxyUrl()}/api/1/vehicles/${vid}/vehicle_data`, { timeoutMs: 8000 })
 
     const fullResponse = vehicleDataRes.response
@@ -666,10 +748,14 @@ function scheduleNextPoll(): void {
   const cfg = getConfig()
   const isCharging = vehicleState.charging
   const engineRunning = getEngineStatus().running
-  
-  const interval = (isCharging || engineRunning)
-    ? cfg.proxy.normalPollIntervalMs 
-    : cfg.proxy.idlePollIntervalMs
+  const isAsleep = vehicleState.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP'
+
+  // Priority order: asleep > active charge/engine > idle
+  const interval = isAsleep
+    ? cfg.proxy.sleepPollIntervalMs
+    : (isCharging || engineRunning)
+      ? cfg.proxy.normalPollIntervalMs
+      : cfg.proxy.idlePollIntervalMs
 
   pollTimer = setTimeout(async () => {
     try {
