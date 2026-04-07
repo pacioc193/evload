@@ -261,49 +261,66 @@ async function proxyGet<T>(url: string, options?: { timeoutMs?: number }): Promi
     })
   }
   const axiosProxy = getAxiosProxy()
-  try {
-    const res = await axiosProxy.get<T>(url, { timeout: options?.timeoutMs ?? 4000 })
-    markProxySuccess(url)
-    const key = endpointKeyFromUrl(url)
-    if (key) {
-      recordSimulatorResponse(key, res.data, 'simulated')
-    }
-    if (debugEnabled()) {
-      logger.debug('Proxy outbound response', {
-        method: 'GET',
-        url,
-        statusCode: res.status,
-        body: sanitizeForLog(res.data),
-      })
-    }
-    return res.data
-  } catch (err) {
-    // Tesla proxy may return non-200 for sleeping/unavailable vehicle —
-    // the proxy itself is reachable, so treat as proxy success but re-parse body.
-    if (axios.isAxiosError(err) && err.response?.data != null) {
-      const body = err.response.data as Record<string, unknown>
-      const innerResponse = (body as Record<string, unknown>)?.response as Record<string, unknown> | undefined
-      const reason = String(innerResponse?.reason ?? body?.reason ?? '')
-      const isVehicleSleepResponse =
-        reason.toLowerCase().includes('sleep') ||
-        reason.toLowerCase().includes('asleep') ||
-        reason.toLowerCase().includes('offline') ||
-        reason.toLowerCase().includes('unavailable')
-      if (isVehicleSleepResponse) {
-        markProxySuccess(url)
-        const key = endpointKeyFromUrl(url)
-        if (key) recordSimulatorResponse(key, err.response.data, 'simulated')
-        logger.debug('Proxy returned non-200 vehicle-state response (proxy reachable)', {
+  const MAX_ATTEMPTS = 3
+  const RETRY_TIMEOUT_MS = 30_000
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const timeoutMs = attempt === 1 ? (options?.timeoutMs ?? 30_000) : RETRY_TIMEOUT_MS
+    try {
+      const res = await axiosProxy.get<T>(url, { timeout: timeoutMs })
+      markProxySuccess(url)
+      const key = endpointKeyFromUrl(url)
+      if (key) {
+        recordSimulatorResponse(key, res.data, 'simulated')
+      }
+      if (debugEnabled()) {
+        logger.debug('Proxy outbound response', {
+          method: 'GET',
           url,
-          statusCode: err.response.status,
-          reason,
+          statusCode: res.status,
+          body: sanitizeForLog(res.data),
         })
-        return err.response.data as T
+      }
+      return res.data
+    } catch (err) {
+      // Tesla proxy may return non-200 for sleeping/unavailable vehicle —
+      // the proxy itself is reachable, so treat as proxy success but re-parse body.
+      if (axios.isAxiosError(err) && err.response?.data != null) {
+        const body = err.response.data as Record<string, unknown>
+        const innerResponse = (body as Record<string, unknown>)?.response as Record<string, unknown> | undefined
+        const reason = String(innerResponse?.reason ?? body?.reason ?? '')
+        const isVehicleSleepResponse =
+          reason.toLowerCase().includes('sleep') ||
+          reason.toLowerCase().includes('asleep') ||
+          reason.toLowerCase().includes('offline') ||
+          reason.toLowerCase().includes('unavailable')
+        if (isVehicleSleepResponse) {
+          markProxySuccess(url)
+          const key = endpointKeyFromUrl(url)
+          if (key) recordSimulatorResponse(key, err.response.data, 'simulated')
+          logger.debug('Proxy returned non-200 vehicle-state response (proxy reachable)', {
+            url,
+            statusCode: err.response.status,
+            reason,
+          })
+          return err.response.data as T
+        }
+      }
+      lastErr = err
+      if (attempt < MAX_ATTEMPTS) {
+        logger.warn('PROXY_GET_RETRY', {
+          url,
+          attempt,
+          maxAttempts: MAX_ATTEMPTS,
+          nextTimeoutMs: RETRY_TIMEOUT_MS,
+          error: String(err),
+        })
       }
     }
-    markProxyError(url, err)
-    throw err
   }
+  // All attempts exhausted — declare proxy lost communication
+  markProxyError(url, lastErr)
+  throw lastErr
 }
 
 async function proxyPost<T>(url: string, body: Record<string, unknown>): Promise<T> {
@@ -316,7 +333,7 @@ async function proxyPost<T>(url: string, body: Record<string, unknown>): Promise
   }
   const axiosProxy = getAxiosProxy()
   try {
-    const res = await axiosProxy.post<T>(url, body, { timeout: 10000 })
+    const res = await axiosProxy.post<T>(url, body, { timeout: 30_000 })
     markProxySuccess(url)
     const key = endpointKeyFromUrl(url)
     if (key) {
@@ -483,7 +500,7 @@ interface BodyControllerStateEnvelope {
 async function fetchBodyControllerStatus(vid: string): Promise<{ sleepStatus: VehicleSleepStatus; userPresence: UserPresence }> {
   const url = `${proxyUrl()}/api/1/vehicles/${vid}/body_controller_state`
   try {
-    const res = await proxyGet<BodyControllerStateEnvelope>(url, { timeoutMs: 8000 })
+    const res = await proxyGet<BodyControllerStateEnvelope>(url, { timeoutMs: 30_000 })
     const inner = res.response?.response
     const rawSleep = inner?.vehicle_sleep_status ?? ''
     const rawPresence = inner?.user_presence ?? ''
@@ -590,7 +607,7 @@ async function pollVehicleData(): Promise<void> {
     if (!vid) return
 
     // ── Step: Fetch full vehicle data ──
-    const vehicleDataRes = await proxyGet<TeslaVehicleDataEnvelope>(`${proxyUrl()}/api/1/vehicles/${vid}/vehicle_data`, { timeoutMs: 8000 })
+    const vehicleDataRes = await proxyGet<TeslaVehicleDataEnvelope>(`${proxyUrl()}/api/1/vehicles/${vid}/vehicle_data`, { timeoutMs: 30_000 })
 
     const fullResponse = vehicleDataRes.response
     const fullBody = fullResponse?.response
@@ -911,7 +928,7 @@ export async function updateProxyDataRequest(
     })
   }
   try {
-    const res = await getAxiosProxy().put<unknown>(url, body, { timeout: 10000 })
+    const res = await getAxiosProxy().put<unknown>(url, body, { timeout: 30_000 })
     markProxySuccess(url)
     const key = endpointKeyFromUrl(url)
     if (key) {
