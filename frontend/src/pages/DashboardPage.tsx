@@ -91,31 +91,38 @@ function EvccSocBar({
     onTargetChange(Math.round(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * 100))
   }
 
-  const handleClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
+  const handlePointerDown: React.PointerEventHandler<HTMLDivElement> = (e) => {
     if (readonly) return
+    e.preventDefault() // prevent page scroll on touch
+    e.currentTarget.setPointerCapture(e.pointerId) // route all future pointer events here even if finger/cursor leaves
     resolveRatio(e.clientX)
   }
 
-  const handleMouseDown: React.MouseEventHandler<HTMLDivElement> = () => {
+  const handlePointerMove: React.PointerEventHandler<HTMLDivElement> = (e) => {
     if (readonly) return
-    const onMove = (e: MouseEvent) => resolveRatio(e.clientX)
-    const onUp = () => {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
+    resolveRatio(e.clientX)
+  }
+
+  const handlePointerUp: React.PointerEventHandler<HTMLDivElement> = (e) => {
+    if (readonly) return
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    resolveRatio(e.clientX)
   }
 
   return (
     <div
       ref={sliderRef}
       className={clsx(
-        'relative h-8 rounded-lg bg-evload-bg border border-evload-border overflow-visible',
+        'relative h-8 rounded-lg bg-evload-bg border border-evload-border overflow-visible select-none',
         readonly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
       )}
-      onClick={handleClick}
-      onMouseDown={handleMouseDown}
+      style={{ touchAction: 'none' }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
       role="slider"
       aria-valuemin={0}
       aria-valuemax={100}
@@ -134,8 +141,8 @@ function EvccSocBar({
         />
       )}
       <div
-        className="absolute -top-3 h-14 w-3 rounded-full bg-evload-success shadow-lg border border-evload-bg"
-        style={{ left: `calc(${safeTarget}% - 6px)` }}
+        className="absolute -top-3 h-14 w-4 rounded-full bg-evload-success shadow-lg border border-evload-bg"
+        style={{ left: `calc(${safeTarget}% - 8px)` }}
         title={`Target ${safeTarget}%`}
       />
       {safeCarLimit != null && (
