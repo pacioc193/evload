@@ -183,17 +183,16 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 - Il backend deve esporre il valore via GET `/api/settings` e accettare l'aggiornamento via PATCH `/api/settings`.
 - Il frontend deve mostrare un campo UI dedicato con label chiara e descrizione per ogni parametro.
 - Aggiungere un parametro al solo config.yaml/schema Zod senza esporlo in Settings è `FAILED`.
-- Questo include (ma non si limita a): `proxy.chargingPollIntervalMs`, `proxy.idlePollIntervalMs`, `proxy.bodyPollIntervalMs`, `proxy.sleepPollIntervalMs`, `proxy.vehicleDataWindowMs`, `charging.startAmps`, e qualsiasi nuovo parametro aggiunto in futuro.
+- Questo include (ma non si limita a): `proxy.chargingPollIntervalMs`, `proxy.windowPollIntervalMs`, `proxy.bodyPollIntervalMs`, `proxy.vehicleDataWindowMs`, `charging.startAmps`, e qualsiasi nuovo parametro aggiunto in futuro.
 
-25. Strategia di Polling Smart per vehicle_data.
-- `body_controller_state` è sempre chiamato a ogni ciclo di polling (non sveglia il veicolo).
-- `vehicle_data` è chiamato solo:
-  - Durante la ricarica attiva (intervallo: `chargingPollIntervalMs`)
-  - Entro la finestra vehicle_data dopo una connessione/risveglio (intervallo: `idlePollIntervalMs`, durata finestra: `vehicleDataWindowMs`)
-- Dopo la scadenza della finestra (e non in ricarica), solo `body_controller_state` viene chiamato (intervallo: `bodyPollIntervalMs`). Questo vale sia per il veicolo sveglio che dormiente — non esiste distinzione. `sleepPollIntervalMs` è stato rimosso.
-- All'avvio di una sessione di ricarica (requestWakeMode) la finestra vehicle_data viene riaperta.
-- Una implementazione che chiama sempre vehicle_data quando sveglio è `FAILED`.
-- Il pannello Proxy nelle impostazioni mostra il countdown della finestra dati attiva in tempo reale.
+25. Strategia di Polling Smart per vehicle_data — Two Independent Timers.
+- Due timer indipendenti: **body timer** (sempre attivo, intervallo: `bodyPollIntervalMs`) e **vehicle data timer** (condizionale).
+- **Body timer**: chiama sempre `body_controller_state` a intervallo fisso (`bodyPollIntervalMs`). Non sveglia il veicolo. Gestisce le transizioni sleep/wake e apre/chiude la finestra vehicle_data.
+- **Vehicle data timer**: chiamato SOLO quando la finestra è attiva (intervallo: `windowPollIntervalMs`) o quando il veicolo è in ricarica/engine running (intervallo: `chargingPollIntervalMs`). Si ferma automaticamente quando nessuna condizione è attiva.
+- `bodyPollIntervalMs` è indipendente dallo stato della finestra o della ricarica — non viene mai sovrascritto.
+- All'avvio di una sessione di ricarica (requestWakeMode) la finestra vehicle_data viene riaperta e il vehicle data timer viene avviato.
+- Una implementazione con un singolo timer che sovrascrive bodyPollIntervalMs durante la finestra è `FAILED`.
+- Il pannello Proxy nelle impostazioni mostra il countdown della finestra dati attiva e lo stato sleep del veicolo in tempo reale.
 
 26. Regola di Versioning.
 - Il numero di versione è contenuto in `backend/src/version.ts` (costante `VERSION`) e deve corrispondere a `backend/package.json` e `frontend/package.json`.

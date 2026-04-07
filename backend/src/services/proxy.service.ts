@@ -126,8 +126,10 @@ let proxyHealthState: ProxyHealthState = {
   vehicleDataWindowExpiresAt: null,
 }
 
-let pollLock = false
-let pollTimer: NodeJS.Timeout | null = null
+let bodyPollLock = false
+let vehicleDataPollLock = false
+let bodyPollTimer: NodeJS.Timeout | null = null
+let vehicleDataPollTimer: NodeJS.Timeout | null = null
 
 /**
  * Timestamp (ms) when the vehicle_data polling window was last started.
@@ -507,12 +509,12 @@ async function fetchBodyControllerStatus(vid: string): Promise<{ sleepStatus: Ve
   }
 }
 
-async function pollProxyOnce(): Promise<void> {
-  if (pollLock) {
-    logger.debug('Proxy poll skipped - previous poll still in progress')
+async function pollBodyController(): Promise<void> {
+  if (bodyPollLock) {
+    logger.debug('Body controller poll skipped - previous poll still in progress')
     return
   }
-  pollLock = true
+  bodyPollLock = true
   try {
     const vid = vehicleId()
     if (!vid) {
@@ -522,75 +524,77 @@ async function pollProxyOnce(): Promise<void> {
     }
 
     const cfg = getConfig()
+    const { sleepStatus, userPresence } = await fetchBodyControllerStatus(vid)
+    const prevSleepStatus = vehicleState.vehicleSleepStatus
 
-    // ── Step 1: Always check sleep/presence via body_controller_state (never wakes vehicle) ──
-    const { sleepStatus: bodyControllerSleepStatus, userPresence: bodyControllerUserPresence } = await fetchBodyControllerStatus(vid)
-
-    if (bodyControllerSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP') {
-      // Vehicle is confirmed asleep — do NOT call vehicle_data to avoid waking it.
-      // Clear the vehicle_data window so that on wake we start fresh.
-      const prevSleepStatus = vehicleState.vehicleSleepStatus
-      vehicleDataWindowStartMs = null
+    if (sleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP') {
+      // If the vehicle just went to sleep, close the vehicle_data window and stop the vehicle data timer.
+      if (vehicleDataWindowStartMs !== null) {
+        vehicleDataWindowStartMs = null
+        scheduleVehicleDataPoll() // will detect no window/no charging and clear the timer
+      }
       vehicleState = {
         ...vehicleState,
         vehicleSleepStatus: 'VEHICLE_SLEEP_STATUS_ASLEEP',
-        userPresence: bodyControllerUserPresence,
+        userPresence,
         chargingState: 'Sleeping',
         charging: false,
-        connected: true, // proxy is reachable
+        connected: true,
       }
       if (prevSleepStatus !== 'VEHICLE_SLEEP_STATUS_ASLEEP') {
         logger.info('😴[SLEEP_DETECTED] Vehicle is asleep – vehicle_data polling suspended', { vehicleId: vid })
       }
-      vehicleEvents.emit('state', vehicleState)
-      return
-    }
-
-    // Vehicle is awake (or unknown) — start vehicle_data window on wake transition
-    if (vehicleState.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP') {
-      logger.info('☀️[WAKE_DETECTED] Vehicle woke up – opening vehicle_data window', { vehicleId: vid })
-      vehicleDataWindowStartMs = Date.now()
-    }
-
-    // ── Step 2: Decide whether to fetch vehicle_data ──
-    // vehicle_data is fetched when:
-    //  a) Vehicle is actively charging (always keep fresh data during charge)
-    //  b) Within the vehicleDataWindowMs after a wake or connect event
-    // After the window expires (and not charging), only body_controller_state is polled
-    // so the vehicle can fall back to sleep naturally.
-    const isCurrentlyCharging = vehicleState.charging
-    const engineRunning = getEngineStatus().running
-    const windowActive = vehicleDataWindowStartMs !== null
-      && (Date.now() - vehicleDataWindowStartMs) < cfg.proxy.vehicleDataWindowMs
-    const shouldFetchVehicleData = isCurrentlyCharging || engineRunning || windowActive
-
-    if (!shouldFetchVehicleData) {
-      // Body-only poll: update sleep status and user presence, keep last known vehicle data
-      const prevBodySleepStatus = vehicleState.vehicleSleepStatus
+    } else {
+      // Vehicle is awake (or unknown). On wake transition, open the vehicle_data window and start its timer.
+      if (prevSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP') {
+        logger.info('☀️[WAKE_DETECTED] Vehicle woke up – opening vehicle_data window', { vehicleId: vid })
+        vehicleDataWindowStartMs = Date.now()
+        scheduleVehicleDataPoll() // start polling vehicle_data now that window is open
+      }
       vehicleState = {
         ...vehicleState,
-        vehicleSleepStatus: bodyControllerSleepStatus,
-        userPresence: bodyControllerUserPresence,
+        vehicleSleepStatus: sleepStatus,
+        userPresence,
         connected: true,
       }
-      if (prevBodySleepStatus !== bodyControllerSleepStatus) {
-        logger.info('😴[BODY_ONLY] vehicle_data window expired – body-only polling active', {
-          vehicleId: vid,
-          sleepStatus: bodyControllerSleepStatus,
-          userPresence: bodyControllerUserPresence,
-        })
-      }
-      vehicleEvents.emit('state', vehicleState)
-      return
     }
 
-    // ── Step 3: Fetch full vehicle data (window active or charging) ──
+    vehicleEvents.emit('state', vehicleState)
+  } catch (err) {
+    logger.error('Body controller poll error', { err })
+  } finally {
+    bodyPollLock = false
+  }
+}
+
+async function pollVehicleData(): Promise<void> {
+  if (vehicleDataPollLock) {
+    logger.debug('Vehicle data poll skipped - previous poll still in progress')
+    return
+  }
+
+  const cfg = getConfig()
+  const isCurrentlyCharging = vehicleState.charging
+  const engineRunning = getEngineStatus().running
+  const windowActive = vehicleDataWindowStartMs !== null
+    && (Date.now() - vehicleDataWindowStartMs) < cfg.proxy.vehicleDataWindowMs
+
+  if (!isCurrentlyCharging && !engineRunning && !windowActive) {
+    // Nothing to do — the timer should not have been scheduled, but guard here just in case.
+    return
+  }
+
+  vehicleDataPollLock = true
+  try {
+    const vid = vehicleId()
+    if (!vid) return
+
+    // ── Step: Fetch full vehicle data ──
     const vehicleDataRes = await proxyGet<TeslaVehicleDataEnvelope>(`${proxyUrl()}/api/1/vehicles/${vid}/vehicle_data`, { timeoutMs: 8000 })
 
     const fullResponse = vehicleDataRes.response
     const fullBody = fullResponse?.response
     const cd = fullBody?.charge_state ?? null
-
     const cl = fullBody?.climate_state ?? null
     const vd = fullBody?.vehicle_state ?? null
     const vehicleReachable = fullResponse?.result === true
@@ -610,7 +614,6 @@ async function pollProxyOnce(): Promise<void> {
     } else if (prevConnected && !nextConnected) {
       vehicleEvents.emit('disconnected', vehicleState)
       dispatchTelegramNotificationEvent('vehicle_disconnected', { vehicleId: vid }).catch(() => {})
-      // Emit proxy_error when connection is lost
       dispatchTelegramNotificationEvent('proxy_error', { vehicleId: vid, reason: 'Connection lost' }).catch(() => {})
     }
 
@@ -633,9 +636,9 @@ async function pollProxyOnce(): Promise<void> {
 
     const chargingState = cd?.charging_state || (vehicleAsleep ? 'Sleeping' : 'Disconnected')
     const charging = chargingState === 'Charging'
-    
-    const sleepStatus: VehicleSleepStatus = vehicleAsleep 
-      ? 'VEHICLE_SLEEP_STATUS_ASLEEP' 
+
+    const sleepStatus: VehicleSleepStatus = vehicleAsleep
+      ? 'VEHICLE_SLEEP_STATUS_ASLEEP'
       : 'VEHICLE_SLEEP_STATUS_AWAKE'
     const cableType = normalizeTeslaNilLike(cd?.conn_charge_cable ?? null)
     const chargePortLatch = normalizeTeslaNilLike(cd?.charge_port_latch ?? null)
@@ -646,7 +649,7 @@ async function pollProxyOnce(): Promise<void> {
       || cableType
     )
 
-    logger.debug('Proxy poll parsed', {
+    logger.debug('Vehicle data poll parsed', {
       httpResult: fullResponse?.result,
       reason: fullResponse?.reason,
       vehicleReachable,
@@ -711,8 +714,6 @@ async function pollProxyOnce(): Promise<void> {
     vehicleEvents.emit('state', vehicleState)
 
     // ── Charging state transition logs ────────────────────────────────────────
-    // These fire on every poll cycle; they are the canonical record of charging
-    // activity observed via the proxy regardless of who started the charge.
     if (!prevCharging && charging) {
       logger.info('🔌 [PROXY_POLL] Vehicle entered Charging state (detected via poll)', {
         vehicleId: vid,
@@ -749,7 +750,7 @@ async function pollProxyOnce(): Promise<void> {
       dispatchTelegramNotificationEvent('vehicle_not_in_garage', { vehicleId: vid, reason: 'Cable disconnected' }).catch(() => {})
     }
   } catch (err) {
-    logger.error('Proxy poll error', { err })
+    logger.error('Vehicle data poll error', { err })
     const prevConnected = vehicleState.connected
     const nextConnected = false
     vehicleState = { ...vehicleState, connected: nextConnected, reason: String(err), error: String(err) }
@@ -759,40 +760,71 @@ async function pollProxyOnce(): Promise<void> {
     }
     vehicleEvents.emit('state', vehicleState)
   } finally {
-    pollLock = false
+    vehicleDataPollLock = false
   }
 }
 
 export function startProxyPoll(): void {
-  if (pollTimer) return
-  logger.info('Starting proxy polling with vehicle_data refresh')
-  scheduleNextPoll()
+  if (bodyPollTimer) return
+  logger.info('Starting proxy polling — body timer always on, vehicle_data timer conditional')
+  scheduleBodyPoll()
+  scheduleVehicleDataPoll() // will start if window/charging, otherwise no-op
 }
 
 export function stopProxyPoll(): void {
-  if (pollTimer) {
-    clearTimeout(pollTimer)
-    pollTimer = null
+  if (bodyPollTimer) {
+    clearTimeout(bodyPollTimer)
+    bodyPollTimer = null
+  }
+  if (vehicleDataPollTimer) {
+    clearTimeout(vehicleDataPollTimer)
+    vehicleDataPollTimer = null
   }
   logger.info('Proxy polling stopped')
 }
 
 export async function triggerImmediatePoll(): Promise<void> {
-  if (pollTimer) {
-    clearTimeout(pollTimer)
-    pollTimer = null
+  if (bodyPollTimer) {
+    clearTimeout(bodyPollTimer)
+    bodyPollTimer = null
+  }
+  if (vehicleDataPollTimer) {
+    clearTimeout(vehicleDataPollTimer)
+    vehicleDataPollTimer = null
   }
   logger.debug('Proxy immediate poll triggered')
   try {
-    await pollProxyOnce()
+    await pollBodyController()
   } catch (err) {
-    logger.error('Unhandled immediate poll rejection', { err })
+    logger.error('Unhandled immediate body poll rejection', { err })
   }
-  scheduleNextPoll()
+  try {
+    await pollVehicleData()
+  } catch (err) {
+    logger.error('Unhandled immediate vehicle data poll rejection', { err })
+  }
+  scheduleBodyPoll()
+  scheduleVehicleDataPoll()
 }
 
-function scheduleNextPoll(): void {
-  if (pollTimer) clearTimeout(pollTimer)
+function scheduleBodyPoll(): void {
+  if (bodyPollTimer) clearTimeout(bodyPollTimer)
+  const cfg = getConfig()
+  bodyPollTimer = setTimeout(async () => {
+    try {
+      await pollBodyController()
+    } catch (err) {
+      logger.error('Unhandled body poll rejection', { err })
+    }
+    scheduleBodyPoll()
+  }, cfg.proxy.bodyPollIntervalMs)
+}
+
+function scheduleVehicleDataPoll(): void {
+  if (vehicleDataPollTimer) {
+    clearTimeout(vehicleDataPollTimer)
+    vehicleDataPollTimer = null
+  }
 
   const cfg = getConfig()
   const isCharging = vehicleState.charging
@@ -800,20 +832,22 @@ function scheduleNextPoll(): void {
   const windowActive = vehicleDataWindowStartMs !== null
     && (Date.now() - vehicleDataWindowStartMs) < cfg.proxy.vehicleDataWindowMs
 
-  // Priority: charging/engine > idle window active > body-only (same interval for awake and asleep)
+  if (!isCharging && !engineRunning && !windowActive) {
+    // No condition requires vehicle_data — timer stays stopped.
+    return
+  }
+
   const interval = (isCharging || engineRunning)
     ? cfg.proxy.chargingPollIntervalMs
-    : windowActive
-      ? cfg.proxy.idlePollIntervalMs
-      : cfg.proxy.bodyPollIntervalMs
+    : cfg.proxy.windowPollIntervalMs
 
-  pollTimer = setTimeout(async () => {
+  vehicleDataPollTimer = setTimeout(async () => {
     try {
-      await pollProxyOnce()
+      await pollVehicleData()
     } catch (err) {
-      logger.error('Unhandled poll rejection', { err })
+      logger.error('Unhandled vehicle data poll rejection', { err })
     }
-    scheduleNextPoll()
+    scheduleVehicleDataPoll()
   }, interval)
 }
 
@@ -854,8 +888,8 @@ export async function requestWakeMode(sendWakeCommand = false): Promise<void> {
   vehicleDataWindowStartMs = Date.now()
   logger.info('☀️[WAKE_MODE] vehicle_data window opened (requestWakeMode)')
 
-  if (pollTimer) clearTimeout(pollTimer)
-  scheduleNextPoll()
+  if (vehicleDataPollTimer) clearTimeout(vehicleDataPollTimer)
+  scheduleVehicleDataPoll()
 }
 
 export async function sendProxyCommand(vehicleId: string, command: string, body?: Record<string, unknown>): Promise<unknown> {

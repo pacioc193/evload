@@ -141,7 +141,7 @@ export interface AppSettings {
   vehicleId: string
   vehicleName: string
   chargingPollIntervalMs: number
-  idlePollIntervalMs: number
+  windowPollIntervalMs: number
   bodyPollIntervalMs: number
   vehicleDataWindowMs: number
   scheduleLeadTimeSec: number

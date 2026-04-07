@@ -405,14 +405,14 @@ export default function SettingsPage() {
 
   const numberFields = new Set<keyof AppSettings>([
     'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
-    'chargingPollIntervalMs', 'idlePollIntervalMs', 'bodyPollIntervalMs', 'vehicleDataWindowMs', 'scheduleLeadTimeSec',
+    'chargingPollIntervalMs', 'windowPollIntervalMs', 'bodyPollIntervalMs', 'vehicleDataWindowMs', 'scheduleLeadTimeSec',
   ])
 
   const upd = (key: keyof AppSettings) => (val: string) =>
     setSettings((prev) => prev ? { ...prev, [key]: numberFields.has(key) ? Number(val) : val } : prev)
 
   /** Helper for poll/window fields stored as ms but shown/edited as seconds. */
-  const secField = (key: 'chargingPollIntervalMs' | 'idlePollIntervalMs' | 'bodyPollIntervalMs' | 'vehicleDataWindowMs') => ({
+  const secField = (key: 'chargingPollIntervalMs' | 'windowPollIntervalMs' | 'bodyPollIntervalMs' | 'vehicleDataWindowMs') => ({
     value: settings ? Math.round((settings[key] as number) / 1000) : 0,
     onChange: (val: string) => upd(key)(String(Math.round(Number(val) * 1000))),
   })
@@ -745,6 +745,14 @@ export default function SettingsPage() {
                   {proxyConnected ? 'Proxy connection is healthy' : isVehicleSleeping ? 'Proxy reachable — vehicle sleeping' : 'Proxy connection is down'}
                 </div>
                 <div className="mt-1 text-xs text-evload-muted">Vehicle: {vehicleStatusLabel}</div>
+                <div className="mt-1 text-xs text-evload-muted">
+                  Sleep state:{' '}
+                  {vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP'
+                    ? <span className="text-yellow-400 font-medium">Sleeping 😴</span>
+                    : vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_AWAKE'
+                      ? <span className="text-evload-success font-medium">Awake ☀️</span>
+                      : <span className="text-evload-muted">Unknown</span>}
+                </div>
                 <div className="mt-1 text-xs text-evload-muted">Reason: {runtimeReason}</div>
                 <div className="mt-1 text-xs text-evload-muted">
                   Last successful proxy call: {proxyLastEndpoint ?? 'unknown'}{proxyLastSuccessAt ? ` at ${proxyLastSuccessAt}` : ''}.
@@ -797,6 +805,16 @@ export default function SettingsPage() {
                 </div>
               </SectionCard>
 
+              <SectionCard title="Body Controller">
+                <Field
+                  label="Body Poll Interval"
+                  {...secField('bodyPollIntervalMs')}
+                  type="number"
+                  unit="sec"
+                  description="How often body_controller_state is polled. This timer always runs, regardless of window or charging state, and never wakes the vehicle. Default: 60 s."
+                />
+              </SectionCard>
+
               <SectionCard title="Vehicle Data Window">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <Field
@@ -804,14 +822,14 @@ export default function SettingsPage() {
                     {...secField('vehicleDataWindowMs')}
                     type="number"
                     unit="sec"
-                    description="How many seconds after a wake or connect event full vehicle_data is requested. Once the window expires, only body_controller_state is polled (default: 300 s)."
+                    description="How many seconds after a wake or connect event vehicle_data is requested. Once the window expires (and charging is not active), vehicle_data polling stops. Default: 300 s."
                   />
                   <Field
                     label="Window Poll Interval"
-                    {...secField('idlePollIntervalMs')}
+                    {...secField('windowPollIntervalMs')}
                     type="number"
                     unit="sec"
-                    description="Polling interval while the data window is active: both body_controller_state and vehicle_data are fetched (default: 10 s)."
+                    description="How often vehicle_data is fetched while the data window is active and the vehicle is not charging. Independent of the body poll timer. Default: 10 s."
                   />
                 </div>
               </SectionCard>
@@ -822,17 +840,7 @@ export default function SettingsPage() {
                   {...secField('chargingPollIntervalMs')}
                   type="number"
                   unit="sec"
-                  description="Polling interval while the vehicle is actively charging. Both body_controller_state and vehicle_data are fetched (default: 5 s)."
-                />
-              </SectionCard>
-
-              <SectionCard title="Body Controller">
-                <Field
-                  label="Body Poll Interval"
-                  {...secField('bodyPollIntervalMs')}
-                  type="number"
-                  unit="sec"
-                  description="Polling interval after the data window has expired and charging is not active (awake or asleep). Only body_controller_state is fetched — vehicle_data is never called so the car can fall asleep naturally (default: 60 s)."
+                  description="How often vehicle_data is fetched while the vehicle is actively charging or the engine is running. Independent of the body poll timer. Default: 5 s."
                 />
               </SectionCard>
 

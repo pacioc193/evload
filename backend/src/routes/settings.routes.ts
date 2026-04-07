@@ -39,7 +39,7 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     vehicleId: cfg.proxy.vehicleId,
     vehicleName: cfg.proxy.vehicleName,
     chargingPollIntervalMs: cfg.proxy.chargingPollIntervalMs,
-    idlePollIntervalMs: cfg.proxy.idlePollIntervalMs,
+    windowPollIntervalMs: cfg.proxy.windowPollIntervalMs,
     bodyPollIntervalMs: cfg.proxy.bodyPollIntervalMs,
     vehicleDataWindowMs: cfg.proxy.vehicleDataWindowMs,
     scheduleLeadTimeSec: cfg.proxy.scheduleLeadTimeSec,
@@ -72,7 +72,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     vehicleId: string
     vehicleName: string
     chargingPollIntervalMs: number
-    idlePollIntervalMs: number
+    windowPollIntervalMs: number
     bodyPollIntervalMs: number
     vehicleDataWindowMs: number
     scheduleLeadTimeSec: number
@@ -152,7 +152,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.vehicleId !== undefined) proxy['vehicleId'] = incoming.vehicleId
   if (incoming.vehicleName !== undefined) proxy['vehicleName'] = incoming.vehicleName
   if (incoming.chargingPollIntervalMs !== undefined) proxy['chargingPollIntervalMs'] = incoming.chargingPollIntervalMs
-  if (incoming.idlePollIntervalMs !== undefined) proxy['idlePollIntervalMs'] = incoming.idlePollIntervalMs
+  if (incoming.windowPollIntervalMs !== undefined) proxy['windowPollIntervalMs'] = incoming.windowPollIntervalMs
   if (incoming.bodyPollIntervalMs !== undefined) proxy['bodyPollIntervalMs'] = incoming.bodyPollIntervalMs
   if (incoming.vehicleDataWindowMs !== undefined) proxy['vehicleDataWindowMs'] = incoming.vehicleDataWindowMs
   if (incoming.scheduleLeadTimeSec !== undefined) proxy['scheduleLeadTimeSec'] = incoming.scheduleLeadTimeSec

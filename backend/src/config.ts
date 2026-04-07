@@ -70,14 +70,13 @@ const ConfigSchema = z.object({
     url: z.string().default('http://localhost:8080'),
     vehicleId: z.string().default(''),
     vehicleName: z.string().default(''),
-    // Interval (ms) used when actively charging — both body_controller_state and vehicle_data are fetched.
+    // Interval (ms) for vehicle_data polls while the vehicle is actively charging or the engine is running.
     chargingPollIntervalMs: z.number().min(1000).default(5000),
-    // Interval (ms) during the vehicle_data wake window (after wake/connect, before window expires).
-    // Both body_controller_state and vehicle_data are fetched.
-    idlePollIntervalMs: z.number().min(1000).default(10000),
-    // Interval (ms) when the vehicle_data window has expired and the vehicle is not charging.
-    // Only body_controller_state is fetched (both awake and asleep); vehicle_data is NOT called
-    // so the car can fall asleep naturally and stay asleep.
+    // Interval (ms) for vehicle_data polls during the vehicle_data window (after wake/connect).
+    // vehicle_data is fetched at this rate while the window is active and charging is not active.
+    windowPollIntervalMs: z.number().min(1000).default(10000),
+    // Interval (ms) for body_controller_state polls. This timer runs ALWAYS, independent of the
+    // data window or charging state, and never wakes the vehicle.
     bodyPollIntervalMs: z.number().min(1000).default(60000),
     // How long (ms) to keep polling vehicle_data after a wake or connect event.
     // After this window, only body_controller_state is polled until the next charge session starts.
