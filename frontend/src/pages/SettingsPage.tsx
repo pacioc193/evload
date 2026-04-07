@@ -215,6 +215,7 @@ export default function SettingsPage() {
   const ha = useWsStore((s) => s.ha)
   const proxy = useWsStore((s) => s.proxy)
   const vehicle = useWsStore((s) => s.vehicle)
+  const engine = useWsStore((s) => s.engine)
   const haConnected = ha?.connected ?? false
   const haServiceError = ha?.error ?? null
 
@@ -760,7 +761,9 @@ export default function SettingsPage() {
                 <div className="mt-1 text-xs text-evload-muted">
                   Data window: {dataWindowRemainSec != null && dataWindowRemainSec > 0
                     ? <span className="text-evload-success font-medium">active — {Math.floor(dataWindowRemainSec / 60)}m {dataWindowRemainSec % 60}s remaining</span>
-                    : <span className="text-evload-muted">inactive (body_controller_state only)</span>}
+                    : (vehicle?.charging || engine?.running)
+                      ? <span className="text-evload-success font-medium">inactive — vehicle_data polled (charging active)</span>
+                      : <span className="text-evload-muted">inactive — body_controller_state only</span>}
                 </div>
               </div>
 
