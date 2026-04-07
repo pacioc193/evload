@@ -372,8 +372,8 @@ export default function SettingsPage() {
   }
 
   const numberFields = new Set<keyof AppSettings>([
-    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
-    'normalPollIntervalMs', 'idlePollIntervalMs', 'scheduleLeadTimeSec',
+    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
+    'normalPollIntervalMs', 'idlePollIntervalMs', 'sleepPollIntervalMs', 'scheduleLeadTimeSec',
   ])
 
   const upd = (key: keyof AppSettings) => (val: string) =>
@@ -750,6 +750,14 @@ export default function SettingsPage() {
                 description="Slow refresh interval when engine is idle to allow vehicle sleep (e.g. 60000ms)."
               />
               <Field
+                label="Sleep Poll Interval"
+                value={settings.sleepPollIntervalMs}
+                onChange={upd('sleepPollIntervalMs')}
+                type="number"
+                unit="ms"
+                description="Polling interval while vehicle is confirmed asleep via body_controller_state. Vehicle data is NOT fetched during sleep to avoid waking it (e.g. 300000ms = 5 min)."
+              />
+              <Field
                 label="Schedule Lead Time"
                 value={settings.scheduleLeadTimeSec}
                 onChange={upd('scheduleLeadTimeSec')}
@@ -863,8 +871,9 @@ export default function SettingsPage() {
               </SectionCard>
 
               <SectionCard title="Current Limits">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                  <Field label="Start A" value={settings.defaultAmps} onChange={upd('defaultAmps')} type="number" description="Initial current request when session starts." />
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <Field label="Default Target A" value={settings.defaultAmps} onChange={upd('defaultAmps')} type="number" description="Default target charging current for new sessions." />
+                  <Field label="First Cmd A" value={settings.startAmps} onChange={upd('startAmps')} type="number" description="Current applied on the very first charge command before ramp-up. Must be within Min–Max range." />
                   <Field label="Min A" value={settings.minAmps} onChange={upd('minAmps')} type="number" description="Lower bound for dynamic throttling." />
                   <Field label="Max A" value={settings.maxAmps} onChange={upd('maxAmps')} type="number" description="Upper bound for ramp and target setpoint." />
                 </div>

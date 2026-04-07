@@ -178,6 +178,13 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 - Variabili opzionali (da tenere come placeholder commentati nel template): `TELEGRAM_BOT_TOKEN`, `HA_CLIENT_ID`, `HA_CLIENT_SECRET`, `APP_URL`, `FRONTEND_URL`, `PORT`, `LOG_LEVEL`.
 - Ogni modifica alla policy `.env` deve aggiornare `backend/.env.example` e la sezione Environment Variables in `README.md`.
 
+24. Tutti i valori configurabili devono essere presenti nella pagina Impostazioni.
+- Ogni parametro presente nello schema Zod del backend (`config.ts`) deve essere esposto e modificabile dalla pagina Settings del frontend.
+- Il backend deve esporre il valore via GET `/api/settings` e accettare l'aggiornamento via PATCH `/api/settings`.
+- Il frontend deve mostrare un campo UI dedicato con label chiara e descrizione per ogni parametro.
+- Aggiungere un parametro al solo config.yaml/schema Zod senza esporlo in Settings è `FAILED`.
+- Questo include (ma non si limita a): `proxy.sleepPollIntervalMs`, `charging.startAmps`, e qualsiasi nuovo parametro aggiunto in futuro.
+
 ## Protocollo Di Verifica Per Ogni Step
 
 Per ogni item `F-XX`:

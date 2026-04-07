@@ -40,11 +40,13 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     vehicleName: cfg.proxy.vehicleName,
     normalPollIntervalMs: cfg.proxy.normalPollIntervalMs,
     idlePollIntervalMs: cfg.proxy.idlePollIntervalMs,
+    sleepPollIntervalMs: cfg.proxy.sleepPollIntervalMs,
     scheduleLeadTimeSec: cfg.proxy.scheduleLeadTimeSec,
     rejectUnauthorized: cfg.proxy.rejectUnauthorized,
     batteryCapacityKwh: cfg.charging.batteryCapacityKwh,
     energyPriceEurPerKwh: cfg.charging.energyPriceEurPerKwh,
     defaultAmps: cfg.charging.defaultAmps,
+    startAmps: cfg.charging.startAmps,
     maxAmps: cfg.charging.maxAmps,
     minAmps: cfg.charging.minAmps,
     stopChargeOnManualStart: cfg.charging.stopChargeOnManualStart,
@@ -70,11 +72,13 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     vehicleName: string
     normalPollIntervalMs: number
     idlePollIntervalMs: number
+    sleepPollIntervalMs: number
     scheduleLeadTimeSec: number
     rejectUnauthorized: boolean
     batteryCapacityKwh: number
     energyPriceEurPerKwh: number
     defaultAmps: number
+    startAmps: number
     maxAmps: number
     minAmps: number
     stopChargeOnManualStart: boolean
@@ -147,6 +151,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.vehicleName !== undefined) proxy['vehicleName'] = incoming.vehicleName
   if (incoming.normalPollIntervalMs !== undefined) proxy['normalPollIntervalMs'] = incoming.normalPollIntervalMs
   if (incoming.idlePollIntervalMs !== undefined) proxy['idlePollIntervalMs'] = incoming.idlePollIntervalMs
+  if (incoming.sleepPollIntervalMs !== undefined) proxy['sleepPollIntervalMs'] = incoming.sleepPollIntervalMs
   if (incoming.scheduleLeadTimeSec !== undefined) proxy['scheduleLeadTimeSec'] = incoming.scheduleLeadTimeSec
   if (incoming.rejectUnauthorized !== undefined) proxy['rejectUnauthorized'] = incoming.rejectUnauthorized
   parsed['proxy'] = proxy
@@ -155,6 +160,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.batteryCapacityKwh !== undefined) charging['batteryCapacityKwh'] = incoming.batteryCapacityKwh
   if (incoming.energyPriceEurPerKwh !== undefined) charging['energyPriceEurPerKwh'] = incoming.energyPriceEurPerKwh
   if (incoming.defaultAmps !== undefined) charging['defaultAmps'] = incoming.defaultAmps
+  if (incoming.startAmps !== undefined) charging['startAmps'] = incoming.startAmps
   if (incoming.maxAmps !== undefined) charging['maxAmps'] = incoming.maxAmps
   if (incoming.minAmps !== undefined) charging['minAmps'] = incoming.minAmps
   if (incoming.stopChargeOnManualStart !== undefined) charging['stopChargeOnManualStart'] = incoming.stopChargeOnManualStart

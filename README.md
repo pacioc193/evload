@@ -31,6 +31,9 @@ The project is designed for home charging scenarios where you want to:
 - **Resilient database schema sync** on deploy/update: scripts run `prisma migrate deploy` with automatic fallback to `prisma db push --accept-data-loss` when schema drift blocks startup (for example missing SQLite columns)
 - **Automatic startup diagnostics**: if service/container restart fails, scripts print the latest runtime logs (`journalctl` or `docker compose logs`) before exiting with error
 - **Charge-start disconnected guard**: when EVLoad detects a cable-disconnected or vehicle-disconnected charging state, it suspends repeated `charge_start` retries, emits a dedicated Telegram notification event (`charge_start_blocked`), and exposes a clear dashboard warning until the condition recovers
+- **Cable-not-connected banner**: Dashboard shows a prominent orange warning when the vehicle is connected to the proxy but the charging cable is not plugged in
+- **body_controller_state-driven sleep detection**: Sleep status is determined by polling `body_controller_state` (which never wakes the vehicle); `vehicleSleepStatus` and `userPresence` are surfaced in the Dashboard vehicle card. When asleep, the Dashboard shows a "Sleeping" badge and suspends `vehicle_data` polling
+- **Configurable sleep poll interval** (`proxy.sleepPollIntervalMs`, default 300000 ms): controls how often body_controller_state is checked while the vehicle is asleep; configurable from the Settings Proxy panel
 - **Notifications builder templates updated**: `charge_start_blocked` now has a ready-to-use default template in the Notifications UI, aligned with the existing event template workflow
 - **Collapsible navigation**: the left sidebar can now be hidden with a classic hamburger button (desktop collapse + mobile slide-out menu) for full-screen dashboard focus
 - **Production-hardened routing**: root path intelligently serves React UI or Home Assistant OAuth identity

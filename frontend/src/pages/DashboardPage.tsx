@@ -484,7 +484,7 @@ export default function DashboardPage() {
   const proxyConnected = proxy?.connected ?? false
   const vehicleInGarage = vehicle?.connected ?? false
   const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
-  const carStatusLabel = vehicleInGarage ? 'In garage' : isVehicleSleeping ? 'Sleeping' : 'Not in garage / unreachable'
+  const carStatusLabel = isVehicleSleeping ? 'Sleeping' : vehicleInGarage ? 'In garage' : 'Not in garage / unreachable'
   const statusReason = vehicle?.reason ?? proxy?.error ?? vehicle?.error ?? 'No reason available yet'
   const controlsDisabled = loading || !!failsafe?.active
 
@@ -543,6 +543,20 @@ export default function DashboardPage() {
               </div>
               <div className="text-xs text-amber-200/90 mt-2">
                 Connect the charging cable and wait for vehicle connection recovery. Evload suspended automatic charge_start retries to avoid command spam.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {vehicleInGarage && !vehicle.pluggedIn && !isVehicleSleeping && (
+        <div className="bg-orange-500/15 border border-orange-500/50 rounded-2xl p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="text-orange-300 mt-0.5" size={20} />
+            <div>
+              <div className="text-sm font-bold tracking-wide text-orange-200 uppercase">Cable not connected</div>
+              <div className="text-base text-orange-100 mt-1">
+                The charging cable is not plugged in. Connect the cable to start or schedule charging.
               </div>
             </div>
           </div>
@@ -654,6 +668,16 @@ export default function DashboardPage() {
               </h2>
               <p className="text-sm text-evload-muted mt-1">Proxy: {proxyConnected ? 'Online' : 'Offline'}</p>
               <p className="text-sm text-evload-muted">Car: {carStatusLabel}</p>
+              {isVehicleSleeping && (
+                <span className="inline-flex items-center mt-1 rounded-full border border-indigo-400/40 bg-indigo-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-indigo-300">
+                  😴 Sleeping — vehicle_data polling suspended
+                </span>
+              )}
+              {vehicle.userPresence === 'VEHICLE_USER_PRESENCE_PRESENT' && (
+                <span className="inline-flex items-center mt-1 rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-300">
+                  👤 User present
+                </span>
+              )}
               <p className="text-xs text-evload-muted mt-1">Reason: {statusReason}</p>
               {canWakeVehicle && (
                 <button
