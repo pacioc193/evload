@@ -236,7 +236,6 @@ export default function DashboardPage() {
   const failsafe = useWsStore((s) => s.failsafe)
   const charging = useWsStore((s) => s.charging)
   const wsConnected = useWsStore((s) => s.connected)
-  const wsLastUpdate = useWsStore((s) => s.lastUpdate)
   const demo = useWsStore((s) => s.demo)
 
   // Derive proxy connectivity early — used to guard stale vehicle telemetry in ETA/power display
@@ -251,7 +250,10 @@ export default function DashboardPage() {
   const [waking, setWaking] = useState(false)
   const [nextCharge, setNextCharge] = useState<NextPlannedCharge | null>(null)
   const [vehicleDetailsExpanded, setVehicleDetailsExpanded] = useState(() => readStoredBoolean(VEHICLE_DETAILS_PANEL_STORAGE_KEY, false))
-  const [chargingStartedAtMs, setChargingStartedAtMs] = useState<number | null>(null)
+  // Derive session start time from the authoritative backend field (survives page navigation, avoids inflated averages)
+  const chargingStartedAtMs = engine?.sessionStartedAt
+    ? new Date(engine.sessionStartedAt).getTime()
+    : null
 
   useEffect(() => {
     if (!engine?.mode) return
@@ -376,7 +378,8 @@ export default function DashboardPage() {
     batteryCapacityKwh,
   })
   const remainingEnergyKwh = Math.max(0, ((effectiveTargetSoc - soc) / 100) * batteryCapacityKwh)
-  const nowTsMs = wsLastUpdate ? new Date(wsLastUpdate).getTime() : Date.now()
+  // Use wall-clock time for elapsed: chargingStartedAtMs is the DB session startedAt (real-world clock)
+  const nowTsMs = Date.now()
   const chargingElapsedMs = chargingStartedAtMs != null && nowTsMs > chargingStartedAtMs
     ? nowTsMs - chargingStartedAtMs
     : null
@@ -442,17 +445,6 @@ export default function DashboardPage() {
   const engineMessageLabel = engine?.message
     ? engine.message.charAt(0).toUpperCase() + engine.message.slice(1)
     : 'Idle'
-
-  useEffect(() => {
-    const tsMs = wsLastUpdate ? new Date(wsLastUpdate).getTime() : Date.now()
-    if (!Number.isFinite(tsMs)) return
-
-    if (engine?.sessionId != null) {
-      setChargingStartedAtMs((prev) => prev ?? tsMs)
-    } else {
-      setChargingStartedAtMs(null)
-    }
-  }, [wsLastUpdate, engine?.sessionId])
 
   const applyMode = async (mode: ChargeMode) => {
     if (mode === 'plan' && timeToTarget.error) return

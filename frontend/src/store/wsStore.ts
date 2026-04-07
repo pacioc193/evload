@@ -62,6 +62,8 @@ export interface EngineStatus {
   running: boolean
   mode: 'off' | 'plan' | 'on'
   sessionId: number | null
+  /** ISO timestamp of when the current charging session started. Null when no session is active. */
+  sessionStartedAt: string | null
   targetSoc: number
   targetAmps: number
   setpointAmps: number

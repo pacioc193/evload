@@ -14,6 +14,8 @@ export interface EngineStatus {
   running: boolean
   mode: 'off' | 'plan' | 'on'
   sessionId: number | null
+  /** ISO timestamp of when the current charging session started, null when no session is active. */
+  sessionStartedAt: string | null
   targetSoc: number
   targetAmps: number
   setpointAmps: number
@@ -36,6 +38,7 @@ let status: EngineStatus = {
   running: false,
   mode: 'off',
   sessionId: null,
+  sessionStartedAt: null,
   targetSoc: 80,
   targetAmps: 16,
   setpointAmps: 16,
@@ -129,6 +132,7 @@ export async function initializeEngineState(): Promise<void> {
       running: false,
       mode: 'plan',
       sessionId: null,
+      sessionStartedAt: null,
       targetSoc: restoredTargetSoc,
       targetAmps: restoredTargetAmps,
       setpointAmps: restoredTargetAmps,
@@ -331,6 +335,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     },
   })
   status.sessionId = session.id
+  status.sessionStartedAt = session.startedAt.toISOString()
   logger.info('🚀 [START_ENGINE] Charging session started', {
     sessionId: session.id,
     targetSoc,
@@ -435,6 +440,7 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
     running: false,
     mode: planArmed ? 'plan' : 'off',
     sessionId: null,
+    sessionStartedAt: null,
     phase: 'idle',
     message: planArmed ? 'Plan armed — waiting for scheduled start' : 'Engine stopped',
     chargeStartBlocked: false,
