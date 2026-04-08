@@ -426,7 +426,7 @@ export default function SettingsPage() {
   // ── OTA Update: load initial status and start polling ──────────────────────
   const refreshOtaStatus = useCallback(async () => {
     try {
-      const s = await getUpdateStatus()
+      const s = await getUpdateStatus(otaBranch || undefined)
       setOtaStatus(s)
       if (!otaBranch) setOtaBranch(s.currentBranch)
     } catch { /* ignore */ }
@@ -542,7 +542,7 @@ export default function SettingsPage() {
   const handleOtaFetch = async () => {
     setOtaFetching(true)
     try {
-      const res = await triggerFetch()
+      const res = await triggerFetch(otaBranch || undefined)
       setOtaStatus((prev) => prev ? { ...prev, localCommit: res.localCommit, remoteCommit: res.remoteCommit, behindCount: res.behindCount } : prev)
     } catch { /* ignore */ } finally {
       setOtaFetching(false)

@@ -23,7 +23,8 @@ const fetchLimiter = rateLimit({ windowMs: 60 * 1000, max: 6 })
 
 // GET /api/update/status
 // Returns: update state + current branch + available branches + local/remote commit info
-router.get('/status', limiter, requireAuth, async (_req, res) => {
+// Optional ?branch= to get remote info for a specific branch (e.g. the target branch selected in UI)
+router.get('/status', limiter, requireAuth, async (req, res) => {
   try {
     const [updaterStatus, currentBranch, branches, localCommit] = await Promise.all([
       Promise.resolve(getUpdaterStatus()),
@@ -31,10 +32,14 @@ router.get('/status', limiter, requireAuth, async (_req, res) => {
       getGitBranches(),
       getLocalCommit(),
     ])
-    // remote commit + behind count for current branch (uses local tracking refs — no network)
+    // Use the requested branch for remote comparison (defaults to currently checked-out branch)
+    const targetBranch =
+      typeof req.query['branch'] === 'string' && req.query['branch'].trim()
+        ? req.query['branch'].trim()
+        : currentBranch
     const [remoteCommit, behindCount] = await Promise.all([
-      getRemoteCommit(currentBranch),
-      getBehindCount(currentBranch),
+      getRemoteCommit(targetBranch),
+      getBehindCount(targetBranch),
     ])
     res.json({
       ...updaterStatus,
@@ -50,16 +55,20 @@ router.get('/status', limiter, requireAuth, async (_req, res) => {
 })
 
 // POST /api/update/fetch — fetch remote without switching branch (refresh remote tracking refs)
-router.post('/fetch', fetchLimiter, requireAuth, async (_req, res) => {
+// Optional body { branch } to get remote info for a specific target branch
+router.post('/fetch', fetchLimiter, requireAuth, async (req, res) => {
   try {
     await fetchRemote()
     const [currentBranch, localCommit] = await Promise.all([
       getCurrentBranch(),
       getLocalCommit(),
     ])
+    const { branch: bodyBranch } = req.body as { branch?: string }
+    const targetBranch =
+      typeof bodyBranch === 'string' && bodyBranch.trim() ? bodyBranch.trim() : currentBranch
     const [remoteCommit, behindCount] = await Promise.all([
-      getRemoteCommit(currentBranch),
-      getBehindCount(currentBranch),
+      getRemoteCommit(targetBranch),
+      getBehindCount(targetBranch),
     ])
     res.json({ success: true, localCommit, remoteCommit, behindCount })
   } catch (err) {

@@ -461,13 +461,13 @@ export interface UpdateStatusResponse {
   behindCount: number
 }
 
-export async function getUpdateStatus() {
-  const res = await api.get('/update/status')
+export async function getUpdateStatus(branch?: string) {
+  const res = await api.get('/update/status', branch ? { params: { branch } } : {})
   return res.data as UpdateStatusResponse
 }
 
-export async function triggerFetch() {
-  const res = await api.post('/update/fetch')
+export async function triggerFetch(branch?: string) {
+  const res = await api.post('/update/fetch', branch ? { branch } : {})
   return res.data as { success: boolean; localCommit: CommitInfo | null; remoteCommit: CommitInfo | null; behindCount: number }
 }
 
