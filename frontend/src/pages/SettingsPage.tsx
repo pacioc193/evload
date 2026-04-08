@@ -33,7 +33,7 @@ import {
   type CommitInfo,
 } from '../api/index'
 import { changePassword } from '../api/auth'
-import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch, UploadCloud, RefreshCw, Trash2, FolderOpen, GitCommit, ArrowDown, RotateCcw, Terminal, CheckCircle, XCircle, Loader2, CloudDownload } from 'lucide-react'
+import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch, UploadCloud, RefreshCw, Trash2, FolderOpen, GitCommit, ArrowDown, RotateCcw, Terminal, CheckCircle, XCircle, Loader2, Download } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useNavigate } from 'react-router-dom'
 import { useWsStore } from '../store/wsStore'
@@ -459,7 +459,7 @@ export default function SettingsPage() {
     }
   }, [otaLogs])
 
-  const handleSaveConfig = async () => {
+  const handleSave = async () => {
     setSaving(true)
     setConfigMessage('')
     try {
@@ -1161,7 +1161,7 @@ export default function SettingsPage() {
           <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4 space-y-4">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-evload-muted font-semibold">
-                <CloudDownload size={14} />
+                <Download size={14} />
                 OTA Update
               </div>
               <span className="text-[10px] text-evload-muted bg-evload-surface border border-evload-border rounded-full px-2 py-0.5 flex items-center gap-1">
