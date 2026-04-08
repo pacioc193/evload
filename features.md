@@ -3,6 +3,26 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Aggiornamenti Recenti (2026-04-08) — v1.5.3
+
+- **OTA Update panel in Settings / Versioning**:
+  - Nuovo pannello "OTA Update" dentro la sezione Versioning delle Impostazioni.
+  - **Card commit locale vs remoto**: mostra hash corto, messaggio, autore e data sia per HEAD locale che per `origin/<branch>`. Badge "N commit disponibili" (giallo) oppure "✓ aggiornato" (verde).
+  - **Auto-check ogni 60 s**: `startAutoFetch()` avvia un `setInterval` nel backend che esegue `git fetch --all --prune` ogni 60 secondi (senza network call sulla pagina). Non gira durante un aggiornamento attivo.
+  - **Branch selector**: dropdown con tutti i branch remoti; il branch corrente è marcato con `(current)`.
+  - **Pulsante "Fetch ora"**: trigger manuale di `POST /api/update/fetch` per aggiornare subito le info remote.
+  - **Pulsante "Avvia Aggiornamento"**: `POST /api/update/start` con `{ branch }`. Esegue in background (processo bash detached): `git fetch → git reset --hard origin/<branch> → npm ci → prisma migrate → build-prod.sh → systemctl/pm2 restart`.
+  - **Log di build in tempo reale**: polling `GET /api/update/logs?from=<byte>` ogni 1 s mentre l'aggiornamento è in corso. Log appesi in una `<pre>` con auto-scroll e max-height 18rem.
+  - **Badge stato**: idle/in corso/completato/errore con icone animate.
+  - **Warning sessione attiva**: avviso giallo se il motore sta caricando.
+  - **Persistenza**: `updater.log` e `updater.status.json` scritti in `<repo_root>/` → sopravvivono al riavvio del servizio.
+  - **Tutti gli endpoint protetti da JWT** (`requireAuth`): `GET /api/update/status`, `POST /api/update/fetch`, `POST /api/update/start`, `GET /api/update/logs`.
+  - Rate limit: 60 req/min per status/logs, 6 req/min per fetch, 3 aggiornamenti ogni 5 min per start.
+
+- **Fix grafici statistiche (solo 1h visibile)**:
+  - `GET /api/sessions/:id` aveva `take: 3600` (hardcoded = 1 ora a 1 pt/s). Sostituito con downsampling intelligente: se `totalPoints ≤ 1000` restituisce tutto; altrimenti usa SQLite `ROW_NUMBER()` per selezionare 1000 punti distribuiti uniformemente + ultimo punto sempre incluso.
+  - Frontend: asse X dei grafici ora usa minuti trascorsi dall'inizio sessione (proporzionale, non indice) con `tickFormatter="Xmin"`.
+
 ## Aggiornamenti Recenti (2026-04-08) — v1.5.2
 
 - **Fix modalità dopo fine ricarica (manuale vs plan)**:

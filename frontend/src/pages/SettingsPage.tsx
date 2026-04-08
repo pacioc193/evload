@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, type ReactNode } from 'react'
+﻿import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import axios from 'axios'
 import {
   getConfig,
@@ -25,9 +25,15 @@ import {
   type BackupStatus,
   type DriveBackupFile,
   type DriveFolderInfo,
+  getUpdateStatus,
+  triggerFetch,
+  startOtaUpdate,
+  getOtaLogs,
+  type UpdateStatusResponse,
+  type CommitInfo,
 } from '../api/index'
 import { changePassword } from '../api/auth'
-import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch, UploadCloud, RefreshCw, Trash2, FolderOpen } from 'lucide-react'
+import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch, UploadCloud, RefreshCw, Trash2, FolderOpen, GitCommit, ArrowDown, RotateCcw, Terminal, CheckCircle, XCircle, Loader2, CloudDownload } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useNavigate } from 'react-router-dom'
 import { useWsStore } from '../store/wsStore'
@@ -173,7 +179,69 @@ function logLevelColor(level: string): string {
   return 'text-evload-muted'
 }
 
-export default function SettingsPage() {
+function CommitCard({
+  label,
+  commit,
+  branch,
+  highlight,
+  behindCount,
+}: {
+  label: string
+  commit: CommitInfo | null
+  branch: string
+  highlight: 'local' | 'behind' | 'uptodate'
+  behindCount?: number
+}) {
+  const borderColor =
+    highlight === 'behind'
+      ? 'border-yellow-500/50'
+      : highlight === 'uptodate'
+        ? 'border-green-500/40'
+        : 'border-evload-border'
+
+  return (
+    <div className={`rounded-lg border ${borderColor} bg-evload-surface px-4 py-3 space-y-2`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-xs text-evload-muted font-semibold uppercase tracking-wide">
+          <GitBranch size={12} />
+          {label}
+        </div>
+        {highlight === 'behind' && behindCount != null && behindCount > 0 && (
+          <span className="flex items-center gap-1 text-[10px] font-semibold text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 rounded-full px-2 py-0.5">
+            <ArrowDown size={10} />
+            {behindCount} commit {behindCount === 1 ? 'disponibile' : 'disponibili'}
+          </span>
+        )}
+        {highlight === 'uptodate' && (
+          <span className="text-[10px] text-green-400 bg-green-500/10 border border-green-500/30 rounded-full px-2 py-0.5">
+            ✓ aggiornato
+          </span>
+        )}
+      </div>
+      {commit ? (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs bg-evload-bg border border-evload-border rounded px-1.5 py-0.5 text-evload-text">
+              {commit.shortHash}
+            </span>
+            <span className="text-xs text-evload-muted">{branch}</span>
+          </div>
+          <div className="flex items-start gap-1.5">
+            <GitCommit size={12} className="text-evload-muted mt-0.5 shrink-0" />
+            <span className="text-sm text-evload-text leading-snug">{commit.message}</span>
+          </div>
+          <div className="text-xs text-evload-muted">
+            {commit.author} · {new Date(commit.date).toLocaleString()}
+          </div>
+        </>
+      ) : (
+        <div className="text-sm text-evload-muted italic">Nessuna informazione disponibile</div>
+      )}
+    </div>
+  )
+}
+
+
   const [configContent, setConfigContent] = useState('')
   const [saving, setSaving] = useState(false)
   const [configMessage, setConfigMessage] = useState('')
@@ -185,6 +253,14 @@ export default function SettingsPage() {
   const [settingsMsg, setSettingsMsg] = useState('')
   const [settingsMsgPanel, setSettingsMsgPanel] = useState('')
   const [expandedPanels, setExpandedPanels] = useState<Record<PanelKey, boolean>>(() => readExpandedPanels())
+
+  // OTA Update
+  const [otaStatus, setOtaStatus] = useState<UpdateStatusResponse | null>(null)
+  const [otaBranch, setOtaBranch] = useState<string>('')
+  const [otaLogs, setOtaLogs] = useState<string>('')
+  const [otaLogOffset, setOtaLogOffset] = useState<number>(0)
+  const [otaFetching, setOtaFetching] = useState(false)
+  const logBoxRef = useRef<HTMLPreElement>(null)
   
   // Security / Password Change
   const [currentPassword, setCurrentPassword] = useState('')
@@ -344,7 +420,45 @@ export default function SettingsPage() {
     window.localStorage.setItem(SETTINGS_PANEL_STATE_KEY, JSON.stringify(expandedPanels))
   }, [expandedPanels])
 
-  const handleSave = async () => {
+  // ── OTA Update: load initial status and start polling ──────────────────────
+  const refreshOtaStatus = useCallback(async () => {
+    try {
+      const s = await getUpdateStatus()
+      setOtaStatus(s)
+      if (!otaBranch) setOtaBranch(s.currentBranch)
+    } catch { /* ignore */ }
+  }, [otaBranch])
+
+  // Poll status every 5 s (light — no network, just local git refs + file stat)
+  useEffect(() => {
+    refreshOtaStatus()
+    const id = setInterval(refreshOtaStatus, 5_000)
+    return () => clearInterval(id)
+  }, [refreshOtaStatus])
+
+  // When an update is running, poll log tail every second
+  useEffect(() => {
+    if (otaStatus?.state !== 'running') return
+    const id = setInterval(async () => {
+      try {
+        const { content, totalBytes } = await getOtaLogs(otaLogOffset)
+        if (content) {
+          setOtaLogs((prev) => prev + content)
+          setOtaLogOffset(totalBytes)
+        }
+      } catch { /* ignore */ }
+    }, 1_000)
+    return () => clearInterval(id)
+  }, [otaStatus?.state, otaLogOffset])
+
+  // Auto-scroll log box to bottom when new lines arrive
+  useEffect(() => {
+    if (logBoxRef.current) {
+      logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight
+    }
+  }, [otaLogs])
+
+
     setSaving(true)
     setConfigMessage('')
     try {
@@ -420,6 +534,28 @@ export default function SettingsPage() {
 
   const togglePanel = (key: PanelKey) => {
     setExpandedPanels((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const handleOtaFetch = async () => {
+    setOtaFetching(true)
+    try {
+      const res = await triggerFetch()
+      setOtaStatus((prev) => prev ? { ...prev, localCommit: res.localCommit, remoteCommit: res.remoteCommit, behindCount: res.behindCount } : prev)
+    } catch { /* ignore */ } finally {
+      setOtaFetching(false)
+    }
+  }
+
+  const handleOtaStart = async () => {
+    if (!otaBranch) return
+    setOtaLogs('')
+    setOtaLogOffset(0)
+    try {
+      await startOtaUpdate(otaBranch)
+      await refreshOtaStatus()
+    } catch (err) {
+      flog.error('OTA', 'Failed to start update', { error: String(err) })
+    }
   }
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -1016,6 +1152,123 @@ export default function SettingsPage() {
                     <div className="text-xs text-evload-muted mt-1">{entry.summary}</div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── OTA Update ────────────────────────────────────────────────── */}
+          <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4 space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-evload-muted font-semibold">
+                <CloudDownload size={14} />
+                OTA Update
+              </div>
+              <span className="text-[10px] text-evload-muted bg-evload-surface border border-evload-border rounded-full px-2 py-0.5 flex items-center gap-1">
+                <RotateCcw size={10} />
+                auto-check ogni 60 s
+              </span>
+            </div>
+
+            {/* Commit cards */}
+            {otaStatus && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <CommitCard
+                  label="Locale (HEAD)"
+                  commit={otaStatus.localCommit}
+                  branch={otaStatus.currentBranch}
+                  highlight="local"
+                />
+                <CommitCard
+                  label={`Remoto (origin/${otaBranch || otaStatus.currentBranch})`}
+                  commit={otaStatus.remoteCommit}
+                  branch={otaBranch || otaStatus.currentBranch}
+                  highlight={otaStatus.behindCount > 0 ? 'behind' : 'uptodate'}
+                  behindCount={otaStatus.behindCount}
+                />
+              </div>
+            )}
+
+            {/* Branch selector + action row */}
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex-1 min-w-[160px]">
+                <label className="block text-xs text-evload-muted mb-1">Branch target</label>
+                <select
+                  value={otaBranch}
+                  onChange={(e) => setOtaBranch(e.target.value)}
+                  disabled={otaStatus?.state === 'running'}
+                  className="w-full rounded-lg border border-evload-border bg-evload-bg px-3 py-2 text-sm text-evload-text disabled:opacity-50"
+                >
+                  {(otaStatus?.branches ?? []).map((b) => (
+                    <option key={b} value={b}>{b}{b === otaStatus?.currentBranch ? ' (current)' : ''}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={handleOtaFetch}
+                disabled={otaFetching || otaStatus?.state === 'running'}
+                title="Aggiorna info remote (git fetch)"
+                className="flex items-center gap-1.5 rounded-lg border border-evload-border bg-evload-surface px-3 py-2 text-sm text-evload-text hover:bg-evload-border/50 disabled:opacity-50 transition-colors"
+              >
+                <RefreshCw size={14} className={otaFetching ? 'animate-spin' : ''} />
+                Fetch ora
+              </button>
+              <button
+                onClick={handleOtaStart}
+                disabled={!otaBranch || otaStatus?.state === 'running'}
+                className={clsx(
+                  'flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors',
+                  otaStatus?.state === 'running'
+                    ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 cursor-not-allowed'
+                    : 'bg-evload-accent/90 hover:bg-evload-accent text-white disabled:opacity-50'
+                )}
+              >
+                {otaStatus?.state === 'running'
+                  ? <><Loader2 size={14} className="animate-spin" /> In corso…</>
+                  : <><UploadCloud size={14} /> Avvia Aggiornamento</>
+                }
+              </button>
+            </div>
+
+            {/* Engine-running warning */}
+            {engine?.running && (
+              <div className="flex items-center gap-2 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400">
+                <span>⚠️</span>
+                <span>Una sessione di ricarica è attiva. L'aggiornamento la interromperà al riavvio del servizio.</span>
+              </div>
+            )}
+
+            {/* Status badge */}
+            {otaStatus?.state && otaStatus.state !== 'idle' && (
+              <div className={clsx(
+                'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm',
+                otaStatus.state === 'running' && 'border-yellow-500/40 bg-yellow-500/10 text-yellow-300',
+                otaStatus.state === 'success' && 'border-green-500/40 bg-green-500/10 text-green-300',
+                otaStatus.state === 'error' && 'border-red-500/40 bg-red-500/10 text-red-300',
+              )}>
+                {otaStatus.state === 'running' && <Loader2 size={14} className="animate-spin" />}
+                {otaStatus.state === 'success' && <CheckCircle size={14} />}
+                {otaStatus.state === 'error' && <XCircle size={14} />}
+                <span>
+                  {otaStatus.state === 'running' && `Aggiornamento in corso su "${otaStatus.branch}"…`}
+                  {otaStatus.state === 'success' && `Completato (branch: ${otaStatus.branch}) — ${otaStatus.endedAt ? new Date(otaStatus.endedAt).toLocaleTimeString() : ''}`}
+                  {otaStatus.state === 'error' && `Fallito (exit: ${otaStatus.exitCode}) — ${otaStatus.endedAt ? new Date(otaStatus.endedAt).toLocaleTimeString() : ''}`}
+                </span>
+              </div>
+            )}
+
+            {/* Live log viewer */}
+            {otaLogs && (
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs text-evload-muted">
+                  <Terminal size={12} />
+                  Log di build
+                </div>
+                <pre
+                  ref={logBoxRef}
+                  className="max-h-72 overflow-y-auto rounded-lg border border-evload-border bg-black/60 p-3 text-[11px] leading-relaxed text-green-300 font-mono whitespace-pre-wrap"
+                >
+                  {otaLogs}
+                </pre>
               </div>
             )}
           </div>

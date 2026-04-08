@@ -22,12 +22,14 @@ import settingsRoutes from './routes/settings.routes'
 import versionRoutes from './routes/version.routes'
 import garageRoutes from './routes/garage.routes'
 import backupRoutes from './routes/backup.routes'
+import updateRoutes from './routes/update.routes'
 import { startHaPoll } from './services/ha.service'
 import { startProxyPoll } from './services/proxy.service'
 import { startFleetSimulator, stopFleetSimulator } from './services/fleet-simulator.service'
 import { initTelegram, registerTelegramCommand } from './services/telegram.service'
 import { initFailsafe } from './services/failsafe.service'
 import { startScheduler } from './services/scheduler.service'
+import { startAutoFetch } from './services/updater.service'
 import { initWebSocketServer, stopWebSocketServer } from './ws/broadcaster'
 import { startEngine, stopEngine, getEngineStatus, initializeEngineState, initExternalChargeGuard } from './engine/charging.engine'
 import { isFailsafeActive } from './services/failsafe.service'
@@ -239,6 +241,7 @@ app.use('/api/settings', settingsRoutes)
 app.use('/api/version', versionRoutes)
 app.use('/api/garage', garageRoutes)
 app.use('/api/backup', backupRoutes)
+app.use('/api/update', updateRoutes)
 
 const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
 
@@ -347,6 +350,7 @@ async function bootstrap(): Promise<void> {
   startFleetSimulator()
   startProxyPoll()
   startScheduler()
+  startAutoFetch()
 
   // Backup scheduler: check every minute if a scheduled backup should run
   setInterval(() => {

@@ -435,3 +435,47 @@ export async function restoreBackup(fileId: string) {
   const res = await api.post('/backup/restore', { fileId })
   return res.data as { success: boolean }
 }
+
+// ─── OTA Update ───────────────────────────────────────────────────────────────
+
+export interface CommitInfo {
+  hash: string
+  shortHash: string
+  message: string
+  author: string
+  date: string
+}
+
+export interface UpdateStatusResponse {
+  state: 'idle' | 'running' | 'success' | 'error'
+  branch: string | null
+  startedAt: string | null
+  endedAt: string | null
+  exitCode: number | null
+  logSizeBytes: number
+  currentBranch: string
+  branches: string[]
+  localCommit: CommitInfo | null
+  remoteCommit: CommitInfo | null
+  behindCount: number
+}
+
+export async function getUpdateStatus() {
+  const res = await api.get('/update/status')
+  return res.data as UpdateStatusResponse
+}
+
+export async function triggerFetch() {
+  const res = await api.post('/update/fetch')
+  return res.data as { success: boolean; localCommit: CommitInfo | null; remoteCommit: CommitInfo | null; behindCount: number }
+}
+
+export async function startOtaUpdate(branch: string) {
+  const res = await api.post('/update/start', { branch })
+  return res.data as { success: boolean; branch: string }
+}
+
+export async function getOtaLogs(from = 0) {
+  const res = await api.get(`/update/logs?from=${from}`)
+  return res.data as { content: string; totalBytes: number }
+}

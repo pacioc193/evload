@@ -17,6 +17,11 @@ export interface VersionHistoryEntry {
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
   {
+    version: '1.5.3',
+    releasedAt: '2026-04-08',
+    summary: 'OTA Update panel in Settings/Versioning: branch selector, local vs remote commit cards with "N commits available" badge, auto git-fetch every 60 s, Start Update button, live scrollable build log, JWT-protected /api/update/* endpoints',
+  },
+  {
     version: '1.5.2',
     releasedAt: '2026-04-08',
     summary: 'Fix manual charge mode: startEngine(fromPlan=false) resets planArmed so manual sessions report mode=on and return to off after completion; plan sessions stay on plan. Slider now shows engine.targetSoc while charging; slider locked (readonly) during active session; diagnostic flog entries for targetSoc seed/drag/send path',
