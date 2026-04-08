@@ -323,7 +323,7 @@ async function proxyGet<T>(url: string, options?: { timeoutMs?: number }): Promi
   throw lastErr
 }
 
-async function proxyPost<T>(url: string, body: Record<string, unknown>): Promise<T> {
+async function proxyPost<T>(url: string, body: Record<string, unknown>, timeoutMs = 30_000): Promise<T> {
   if (debugEnabled()) {
     logger.debug('Proxy outbound request', {
       method: 'POST',
@@ -333,7 +333,7 @@ async function proxyPost<T>(url: string, body: Record<string, unknown>): Promise
   }
   const axiosProxy = getAxiosProxy()
   try {
-    const res = await axiosProxy.post<T>(url, body, { timeout: 30_000 })
+    const res = await axiosProxy.post<T>(url, body, { timeout: timeoutMs })
     markProxySuccess(url)
     const key = endpointKeyFromUrl(url)
     if (key) {
@@ -349,6 +349,18 @@ async function proxyPost<T>(url: string, body: Record<string, unknown>): Promise
     }
     return res.data
   } catch (err) {
+    // If the proxy responded with an HTTP error code, the proxy itself IS reachable —
+    // the failure is a vehicle-level issue (sleeping, command rejected, etc.).
+    // Do NOT flip proxy offline; the frequent body_controller_state polls already
+    // manage proxy connectivity. Only mark offline on network-level errors (no response).
+    if (axios.isAxiosError(err) && err.response != null) {
+      logger.warn('🚧[PROXY_CMD_ERROR] Proxy returned HTTP error (proxy reachable, vehicle issue)', {
+        url,
+        statusCode: err.response.status,
+        error: String(err),
+      })
+      throw err
+    }
     markProxyError(url, err)
     throw err
   }
@@ -909,9 +921,9 @@ export async function requestWakeMode(sendWakeCommand = false): Promise<void> {
   scheduleVehicleDataPoll()
 }
 
-export async function sendProxyCommand(vehicleId: string, command: string, body?: Record<string, unknown>): Promise<unknown> {
+export async function sendProxyCommand(vehicleId: string, command: string, body?: Record<string, unknown>, timeoutMs?: number): Promise<unknown> {
   const url = `${proxyUrl()}/api/1/vehicles/${vehicleId}/command/${command}`
-  return proxyPost<unknown>(url, body ?? {})
+  return proxyPost<unknown>(url, body ?? {}, timeoutMs)
 }
 
 export async function updateProxyDataRequest(
@@ -944,6 +956,15 @@ export async function updateProxyDataRequest(
     }
     return res.data
   } catch (err) {
+    // Proxy responded with HTTP error → proxy is reachable, don't mark offline
+    if (axios.isAxiosError(err) && err.response != null) {
+      logger.warn('🚧[PROXY_PUT_ERROR] Proxy returned HTTP error (proxy reachable, vehicle issue)', {
+        url,
+        statusCode: err.response.status,
+        error: String(err),
+      })
+      throw err
+    }
     markProxyError(url, err)
     throw err
   }
