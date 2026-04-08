@@ -1031,3 +1031,26 @@ Requisito: "I comandi inviati dal pannello garage devono risvegliare eventualmen
 - C5: Timeout 90 s (copre: wake ~40 s + BLE ~5 s + buffer).
 - C6: `vehicle.routes.ts`: semplificato — nessuna logica di pre-wake manuale. Log diagnostico se il veicolo è in sleep al momento del comando.
 - C7: Tutti i comandi del charging engine (`charge_start`, `charge_stop`, `set_charging_amps`, `wake_up`) e dello scheduler (`auto_conditioning_start/stop`, `set_temps`) usano la stessa `sendProxyCommand` e beneficiano di `?wait=true`.
+
+## F-59 Log Export con Filtro Temporale
+
+Requisito: "Il pannello Logs deve permettere di filtrare i log per intervallo temporale prima del download."
+Accettazione:
+- C1: Backend `/api/settings/logs/backend` accetta query param `since` con valori `1h`, `6h`, `24h`, `7d`.
+- C2: Quando `since` è specificato, legge il file di log, filtra le righe JSON dove `timestamp >= cutoff`, restituisce solo quelle.
+- C3: Quando `since` non è specificato, comportamento invariato (stream completo del file).
+- C4: Frontend: select "Time range" nel pannello Backend Logs con opzioni All / 1h / 6h / 24h / 7d.
+- C5: `downloadBackendLog(type, since?)` passa il parametro `since` come query string.
+- C6: Stato `logSince` inizializzato a `''` (All logs).
+
+## F-60 Verbose Logging e LOG_LEVEL Support
+
+Requisito: "Logging verboso per diagnostica proxy/engine; LOG_LEVEL configurabile via env var."
+Accettazione:
+- C1: `pollBodyController`: aggiunto `logger.debug` al tick iniziale e `logger.verbose` dopo la risposta con `sleepStatus` e `userPresence`.
+- C2: `pollVehicleData`: aggiunto `logger.debug` al tick con contesto `isCurrentlyCharging`, `engineRunning`, `windowActive`.
+- C3: `runEngineStep`: aggiunto `logger.verbose` dopo ogni tick con `enginePhase`, `soc`, `actualAmps`, `targetAmps`, `chargingState`, `homePowerW`, `vehicleSleepStatus`.
+- C4: `.env.example` aggiornato con descrizione estesa di `LOG_LEVEL` (tutti i livelli) e `GARAGE_MODE`.
+- C5: `docker-compose.yml` aggiunto `LOG_LEVEL` e `GARAGE_MODE` all'environment section.
+- C6: `README.md` env table aggiornata con `LOG_LEVEL` livelli completi e `GARAGE_MODE`.
+- C7: Pannello Logs spostato dopo il pannello Backup nella Settings UI.

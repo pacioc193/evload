@@ -628,6 +628,18 @@ async function runEngineStep(): Promise<void> {
     status.currentAmps = actualAmps
     pushEngineLog(`tick: soc=${soc}% actual=${actualAmps}A state=${vState.chargingState ?? 'unknown'} home=${getHaState().powerW ?? 0}W`)
 
+    logger.verbose('⚙️[ENGINE_TICK] cycle tick', {
+      enginePhase: status.phase,
+      running: status.running,
+      soc,
+      actualAmps,
+      targetAmps: status.targetAmps,
+      targetSoc: status.targetSoc,
+      chargingState: vState.chargingState,
+      homePowerW: getHaState().powerW ?? 0,
+      vehicleSleepStatus: vState.vehicleSleepStatus,
+    })
+
     const haThrottleAmps = computeHaAllowedAmps(cfg, vState)
 
     // If HA is offline, reset all HA throttle state and continue charging normally

@@ -230,9 +230,9 @@ export async function getTelegramPlaceholders() {
  * Download the backend combined or error log as a file.
  * Triggers a browser file download.
  */
-export async function downloadBackendLog(type: 'combined' | 'error' = 'combined'): Promise<void> {
+export async function downloadBackendLog(type: 'combined' | 'error' = 'combined', since?: string): Promise<void> {
   const res = await api.get(`/settings/logs/backend`, {
-    params: { type },
+    params: { type, ...(since ? { since } : {}) },
     responseType: 'blob',
   })
   const blob = new Blob([res.data as BlobPart], { type: 'text/plain;charset=utf-8' })

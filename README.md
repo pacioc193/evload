@@ -533,7 +533,8 @@ The backend requires environment configuration at startup, typically via a `.env
 | `APP_URL` | Optional. If omitted, backend auto-detects a LAN URL for HA OAuth |
 | `FRONTEND_URL` | Optional. Useful in dev to redirect OAuth callback to Vite frontend |
 | `PORT` | Optional backend HTTP port (default `3001`) |
-| `LOG_LEVEL` | Optional backend log level (default `info`) |
+| `LOG_LEVEL` | Optional backend log level: `error` \| `warn` \| `info` \| `verbose` \| `debug` \| `silly` (default `info`). Use `debug` or `verbose` for troubleshooting. |
+| `GARAGE_MODE` | Set to `true` on Raspberry Pi to enable physical display control via `vcgencmd display_power`. |
 | `SESSION_HOURS` | Optional. JWT session duration in hours issued at login (default `24`) |
 | `CORS_ORIGIN` | Optional. Allowed CORS origin in production; leave empty to allow all origins |
 
@@ -711,3 +712,13 @@ Current repository validation path typically includes:
 Detailed implementation notes and acceptance backlog live in `features.md`.
 
 For the current EVLoad-to-proxy runtime behavior, see the dedicated communication section in `features.md`.
+
+## Troubleshooting
+
+### Proxy shows offline but vehicle is connected
+
+The proxy status reflects the last `body_controller_state` poll result. If the vehicle is asleep, EVLoad reports it as asleep (not offline). Set `LOG_LEVEL=debug` in `.env` to see each poll tick in the logs — look for `🔄[POLL_BODY]` entries. If the vehicle is actually awake but the proxy still shows offline, check that `proxy.url` in `config.yaml` is reachable from the backend.
+
+### Commands fail in the garage panel when car is asleep
+
+This is expected behaviour. All commands sent via EVLoad use `?wait=true`, which instructs the Tesla BLE proxy to auto-wake the vehicle before executing the command. The proxy may take up to ~40 seconds to wake the vehicle; EVLoad uses a 90-second timeout. If the command still times out, check that your proxy is running and reachable, and that the vehicle has BLE connectivity.

@@ -24,7 +24,7 @@ import garageRoutes from './routes/garage.routes'
 import backupRoutes from './routes/backup.routes'
 import updateRoutes from './routes/update.routes'
 import { startHaPoll } from './services/ha.service'
-import { startProxyPoll } from './services/proxy.service'
+import { startProxyPoll, getVehicleState, getProxyHealthState } from './services/proxy.service'
 import { startFleetSimulator, stopFleetSimulator } from './services/fleet-simulator.service'
 import { initTelegram, registerTelegramCommand } from './services/telegram.service'
 import { initFailsafe } from './services/failsafe.service'
@@ -227,7 +227,16 @@ ensureConfigYaml()
 loadConfig()
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+  const vState = getVehicleState()
+  const proxyHealth = getProxyHealthState()
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    proxy: {
+      connected: proxyHealth.connected,
+      vehicleSleepStatus: vState.vehicleSleepStatus,
+    },
+  })
 })
 
 app.use('/api/auth', authRoutes)
@@ -368,10 +377,24 @@ bootstrap().catch((err) => {
 })
 
 process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down')
+  logger.info('SIGTERM received, starting graceful shutdown')
+  const shutdownTimeout = setTimeout(() => {
+    logger.warn('Graceful shutdown timeout – forcing exit')
+    process.exit(1)
+  }, 10_000)
+  shutdownTimeout.unref()
+
+  stopEngine({ forceOff: false }).catch(() => {})
   stopFleetSimulator()
   stopWebSocketServer()
-  server.close(() => process.exit(0))
+  server.close(() => {
+    logger.info('HTTP server closed, exiting')
+    process.exit(0)
+  })
+})
+
+process.on('SIGINT', () => {
+  process.emit('SIGTERM')
 })
 
 process.on('unhandledRejection', (reason) => {

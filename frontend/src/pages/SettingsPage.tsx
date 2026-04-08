@@ -273,6 +273,7 @@ function CommitCard({
   const [logMsg, setLogMsg] = useState('')
   const [logError, setLogError] = useState(false)
   const [logBusy, setLogBusy] = useState(false)
+  const [logSince, setLogSince] = useState('')
 
   // Backup panel
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
@@ -667,13 +668,13 @@ function CommitCard({
     ? 'Unknown'
     : `${Math.floor(haTokenStatus.secondsRemaining / 60)}m ${haTokenStatus.secondsRemaining % 60}s`
 
-  const handleDownloadBackendLog = async (type: 'combined' | 'error') => {
+  const handleDownloadBackendLog = async (type: 'combined' | 'error', since?: string) => {
     setLogBusy(true)
     setLogMsg('')
     setLogError(false)
     try {
       flog.info('LOGS', `Backend ${type} log download requested`)
-      await downloadBackendLog(type)
+      await downloadBackendLog(type, since || undefined)
       flog.info('LOGS', `Backend ${type} log downloaded`)
       setLogMsg(`Backend ${type} log downloaded`)
     } catch (err) {
@@ -1364,93 +1365,6 @@ function CommitCard({
         </div>
       </CollapsiblePanel>
 
-      <CollapsiblePanel
-        title="Logs"
-        subtitle="Download backend and frontend logs for diagnostics and troubleshooting."
-        expanded={expandedPanels.logs}
-        onToggle={() => togglePanel('logs')}
-        action={<FileText size={18} className="text-evload-muted" />}
-      >
-        <div className="pt-5 space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Backend logs */}
-            <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4 space-y-3">
-              <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Backend Logs</h4>
-              <p className="text-xs text-evload-muted">Server-side logs including engine operations, charging commands, HA events, and errors.</p>
-              <div className="flex flex-col gap-2">
-                <button
-                  onClick={() => handleDownloadBackendLog('combined')}
-                  disabled={logBusy}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
-                >
-                  <FileDown size={14} />Download combined.log
-                </button>
-                <button
-                  onClick={() => handleDownloadBackendLog('error')}
-                  disabled={logBusy}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
-                >
-                  <FileDown size={14} />Download error.log
-                </button>
-              </div>
-            </div>
-
-            {/* Frontend logs */}
-            <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4 space-y-3">
-              <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Frontend Logs</h4>
-              <p className="text-xs text-evload-muted">Browser-side log buffer capturing user actions, settings changes, and client-side errors.</p>
-              <div className="flex flex-col gap-2">
-                <button
-                  onClick={handleDownloadFrontendLog}
-                  disabled={logBusy}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
-                >
-                  <FileDown size={14} />Download locally ({getLogEntries().length} entries)
-                </button>
-                <button
-                  onClick={handleUploadAndDownloadFrontendLog}
-                  disabled={logBusy}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
-                >
-                  <FileDown size={14} />{logBusy ? 'Working...' : 'Upload & download from server'}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Recent frontend log entries preview */}
-          {expandedPanels.logs && (() => {
-            const entries = getLogEntries().slice(-20).reverse()
-            if (entries.length === 0) return null
-            return (
-              <div className="space-y-2">
-                <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Recent Frontend Events (last 20)</h4>
-                <div className="rounded-lg border border-evload-border bg-evload-bg overflow-hidden">
-                  <div className="max-h-64 overflow-y-auto font-mono text-xs p-3 space-y-0.5">
-                    {entries.map((e, i) => (
-                      <div key={i} className={logLevelColor(e.level)}>
-                        <span className="opacity-60">{new Date(e.ts).toLocaleTimeString()}</span>
-                        {' '}
-                        <span className="font-bold">[{e.tag}]</span>
-                        {' '}
-                        {e.msg}
-                        {e.meta ? <span className="opacity-50"> {JSON.stringify(e.meta)}</span> : null}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )
-          })()}
-
-          {logMsg && (
-            <p className={`text-sm ${logError ? 'text-evload-error' : 'text-evload-success'}`}>
-              {logMsg}
-            </p>
-          )}
-        </div>
-      </CollapsiblePanel>
-
       {/* ── Google Drive Backup ─────────────────────────────────────────── */}
       <CollapsiblePanel
         title="Backup Google Drive"
@@ -1717,6 +1631,107 @@ function CommitCard({
             <code>GOOGLE_CLIENT_ID</code> e <code>GOOGLE_CLIENT_SECRET</code> nel file <code>.env</code>.
             Vedi <strong>docs/SETUP_GUIDE.md</strong> per la guida completa.
           </p>
+        </div>
+      </CollapsiblePanel>
+
+      <CollapsiblePanel
+        title="Logs"
+        subtitle="Download backend and frontend logs for diagnostics and troubleshooting."
+        expanded={expandedPanels.logs}
+        onToggle={() => togglePanel('logs')}
+        action={<FileText size={18} className="text-evload-muted" />}
+      >
+        <div className="pt-5 space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Backend logs */}
+            <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4 space-y-3">
+              <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Backend Logs</h4>
+              <p className="text-xs text-evload-muted">Server-side logs including engine operations, charging commands, HA events, and errors.</p>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-evload-muted shrink-0">Time range:</label>
+                  <select
+                    value={logSince}
+                    onChange={e => setLogSince(e.target.value)}
+                    className="flex-1 bg-evload-bg border border-evload-border rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-evload-accent"
+                  >
+                    <option value="">All logs</option>
+                    <option value="1h">Last 1 hour</option>
+                    <option value="6h">Last 6 hours</option>
+                    <option value="24h">Last 24 hours</option>
+                    <option value="7d">Last 7 days</option>
+                  </select>
+                </div>
+                <button
+                  onClick={() => handleDownloadBackendLog('combined', logSince)}
+                  disabled={logBusy}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
+                >
+                  <FileDown size={14} />Download combined.log
+                </button>
+                <button
+                  onClick={() => handleDownloadBackendLog('error', logSince)}
+                  disabled={logBusy}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
+                >
+                  <FileDown size={14} />Download error.log
+                </button>
+              </div>
+            </div>
+
+            {/* Frontend logs */}
+            <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4 space-y-3">
+              <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Frontend Logs</h4>
+              <p className="text-xs text-evload-muted">Browser-side log buffer capturing user actions, settings changes, and client-side errors.</p>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={handleDownloadFrontendLog}
+                  disabled={logBusy}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
+                >
+                  <FileDown size={14} />Download locally ({getLogEntries().length} entries)
+                </button>
+                <button
+                  onClick={handleUploadAndDownloadFrontendLog}
+                  disabled={logBusy}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
+                >
+                  <FileDown size={14} />{logBusy ? 'Working...' : 'Upload & download from server'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent frontend log entries preview */}
+          {expandedPanels.logs && (() => {
+            const entries = getLogEntries().slice(-20).reverse()
+            if (entries.length === 0) return null
+            return (
+              <div className="space-y-2">
+                <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Recent Frontend Events (last 20)</h4>
+                <div className="rounded-lg border border-evload-border bg-evload-bg overflow-hidden">
+                  <div className="max-h-64 overflow-y-auto font-mono text-xs p-3 space-y-0.5">
+                    {entries.map((e, i) => (
+                      <div key={i} className={logLevelColor(e.level)}>
+                        <span className="opacity-60">{new Date(e.ts).toLocaleTimeString()}</span>
+                        {' '}
+                        <span className="font-bold">[{e.tag}]</span>
+                        {' '}
+                        {e.msg}
+                        {e.meta ? <span className="opacity-50"> {JSON.stringify(e.meta)}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
+          {logMsg && (
+            <p className={`text-sm ${logError ? 'text-evload-error' : 'text-evload-success'}`}>
+              {logMsg}
+            </p>
+          )}
         </div>
       </CollapsiblePanel>
 

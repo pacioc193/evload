@@ -6,6 +6,13 @@
 # config.yaml is in .gitignore (not committed)
 
 # ============================================================
+# ENVIRONMENT VARIABLES (set in .env file, not here)
+# ============================================================
+# LOG_LEVEL: error | warn | info | verbose | debug | silly (default: info)
+# GARAGE_MODE: true | false (enable physical display control on RPi via vcgencmd)
+# PORT: HTTP port (default: 3001)
+
+# ============================================================
 # DEMO MODE
 # ============================================================
 demo: false

@@ -552,8 +552,10 @@ async function pollBodyController(): Promise<void> {
       return
     }
 
+    logger.debug('🔄[POLL_BODY] body_controller_state poll tick', { vehicleId: vid })
     const cfg = getConfig()
     const { sleepStatus, userPresence } = await fetchBodyControllerStatus(vid)
+    logger.verbose('🔄[POLL_BODY] body_controller_state response', { vehicleId: vid, sleepStatus, userPresence })
     const prevSleepStatus = vehicleState.vehicleSleepStatus
 
     if (sleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP') {
@@ -618,6 +620,7 @@ async function pollVehicleData(): Promise<void> {
     const vid = vehicleId()
     if (!vid) return
 
+    logger.debug('🔄[POLL_DATA] vehicle_data poll tick', { vehicleId: vid, isCurrentlyCharging, engineRunning, windowActive })
     // ── Step: Fetch full vehicle data ──
     const vehicleDataRes = await proxyGet<TeslaVehicleDataEnvelope>(`${proxyUrl()}/api/1/vehicles/${vid}/vehicle_data`, { timeoutMs: 30_000 })
 

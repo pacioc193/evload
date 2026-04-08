@@ -121,4 +121,53 @@ describe('vehicle routes', () => {
     expect(res.body.error).toContain('Failsafe active')
     expect(mockSendProxyCommand).not.toHaveBeenCalled()
   })
+
+  test('POST /command/wake_up with no vehicleId returns 400', async () => {
+    mockGetConfig.mockReturnValue({ proxy: { vehicleId: '' } })
+    const app = await createApp()
+
+    const res = await request(app)
+      .post('/command/wake_up')
+      .send({})
+      .expect(400)
+
+    expect(res.body.error).toContain('No vehicle ID')
+    expect(mockSendProxyCommand).not.toHaveBeenCalled()
+  })
+
+  test('POST /command/unknown_cmd returns 400 with "Unknown command"', async () => {
+    const app = await createApp()
+
+    const res = await request(app)
+      .post('/command/unknown_cmd')
+      .send({})
+      .expect(400)
+
+    expect(res.body.error).toContain('Unknown command')
+    expect(mockSendProxyCommand).not.toHaveBeenCalled()
+  })
+
+  test('POST /command/charge_start (valid, no failsafe) calls sendProxyCommand and returns success', async () => {
+    const app = await createApp()
+
+    const res = await request(app)
+      .post('/command/charge_start')
+      .send({})
+      .expect(200)
+
+    expect(res.body.success).toBe(true)
+    expect(mockSendProxyCommand).toHaveBeenCalledWith('VIN-TEST-1', 'charge_start', {})
+  })
+
+  test('POST /command/charge_start returns 500 when sendProxyCommand throws', async () => {
+    mockSendProxyCommand.mockRejectedValueOnce(new Error('BLE failure'))
+    const app = await createApp()
+
+    const res = await request(app)
+      .post('/command/charge_start')
+      .send({})
+      .expect(500)
+
+    expect(res.body.error).toBeDefined()
+  })
 })

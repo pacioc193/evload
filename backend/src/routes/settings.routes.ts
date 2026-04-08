@@ -390,10 +390,21 @@ router.get('/telegram/placeholders', limiter, requireAuth, (_req, res) => {
 
 const logDownloadLimiter = rateLimit({ windowMs: 60 * 1000, max: 10 })
 
+function parseSinceDuration(since: string | undefined): number | null {
+  if (!since) return null
+  if (since === '1h') return 60 * 60 * 1000
+  if (since === '6h') return 6 * 60 * 60 * 1000
+  if (since === '24h') return 24 * 60 * 60 * 1000
+  if (since === '7d') return 7 * 24 * 60 * 60 * 1000
+  return null
+}
+
 router.get('/logs/backend', logDownloadLimiter, requireAuth, (req, res) => {
   const type = (req.query.type as string) === 'error' ? 'error' : 'combined'
   const filename = type === 'error' ? 'error.log' : 'combined.log'
   const logPath = path.join(LOG_DIR, filename)
+  const since = req.query.since as string | undefined
+  const duration = parseSinceDuration(since)
 
   if (!fs.existsSync(logPath)) {
     res.status(404).json({ error: `Log file '${filename}' not found` })
@@ -405,13 +416,42 @@ router.get('/logs/backend', logDownloadLimiter, requireAuth, (req, res) => {
     type,
     filename,
     sizeBytes: stat.size,
+    since: since ?? 'all',
     remoteIp: req.ip,
   })
 
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
   res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-  res.setHeader('Content-Length', stat.size)
 
+  if (duration !== null) {
+    // Time-filtered download: read file, parse JSON lines, filter by timestamp
+    try {
+      const cutoffIso = new Date(Date.now() - duration).toISOString()
+      const content = fs.readFileSync(logPath, 'utf8')
+      const filtered = content
+        .split('\n')
+        .filter(line => {
+          if (!line.trim()) return false
+          try {
+            const parsed = JSON.parse(line) as { timestamp?: string }
+            return typeof parsed.timestamp === 'string' && parsed.timestamp >= cutoffIso
+          } catch {
+            return false
+          }
+        })
+        .join('\n')
+      res.setHeader('Content-Length', Buffer.byteLength(filtered, 'utf8'))
+      res.send(filtered)
+    } catch (err) {
+      logger.error('Failed to filter backend log file', { err, filename })
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to read log file' })
+      }
+    }
+    return
+  }
+
+  res.setHeader('Content-Length', stat.size)
   const stream = fs.createReadStream(logPath)
   stream.on('error', (err) => {
     logger.error('Failed to stream backend log file', { err, filename })

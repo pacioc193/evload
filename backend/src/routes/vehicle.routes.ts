@@ -56,6 +56,12 @@ router.post('/command/:cmd', limiter, requireAuth, async (req, res) => {
     return
   }
 
+  // Warn if vehicleId doesn't look like a standard Tesla VIN (17 chars) or numeric test ID
+  const vin = vid.trim()
+  if (vin.length > 0 && vin.length !== 17 && !/^\d+$/.test(vin)) {
+    logger.warn('[VIN] vehicleId does not look like a standard Tesla VIN', { vehicleId: vin })
+  }
+
   // sendProxyCommand always uses ?wait=true, so the proxy handles auto-wake
   // + BLE command execution synchronously with a 90 s timeout.
   // Log sleep state for diagnostics only.
