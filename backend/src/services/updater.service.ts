@@ -39,18 +39,23 @@ function loadStatus(): UpdaterStatus {
     // OTA script itself), the in-memory close handler never fires.  The bash script writes its
     // final exit code to EXIT_FILE via `trap EXIT`.  Reconcile here so the UI shows the correct
     // outcome instead of being stuck on 'running' or showing a false 'error'.
-    if (s.state === 'running') {
+    if (s.state === 'running' || (s.state === 'error' && s.exitCode === null)) {
+      // Also re-check when state is error+exitCode=null: signature of a signal-kill race where
+      // the old Node.js wrote 'error' after bash was SIGTERM'd by systemd's cgroup kill.
       try {
         const exitCodeStr = fs.readFileSync(EXIT_FILE, 'utf-8').trim()
+        if (!exitCodeStr) return s  // file exists but empty — still being written, keep as-is
         const exitCode = parseInt(exitCodeStr, 10)
+        if (isNaN(exitCode)) return s  // invalid content, skip
         const resolved: UpdaterStatus = {
           ...s,
           state: exitCode === 0 ? 'success' : 'error',
-          exitCode: isNaN(exitCode) ? null : exitCode,
-          endedAt: new Date().toISOString(),
+          exitCode,
+          endedAt: s.endedAt ?? new Date().toISOString(),
         }
         saveStatus(resolved)
         try { fs.unlinkSync(EXIT_FILE) } catch { /* ignore */ }
+        logger.info('🔄 [UPDATER] Reconciled status from exit sentinel', { exitCode, state: resolved.state })
         return resolved
       } catch {
         // EXIT_FILE absent — update is genuinely still running or was hard-killed without a trace
@@ -229,8 +234,16 @@ export function startUpdate(branch: string): { started: boolean; reason?: string
   // Close the fd in the parent — the child has its own reference
   try { fs.closeSync(logFd) } catch { /* ignore */ }
 
-  proc.on('close', (code) => {
-    // Normal path: Node.js was NOT restarted during the update
+  proc.on('close', (code, signal) => {
+    if (code === null) {
+      // Bash was killed by a signal (e.g. systemd cgroup kill during `systemctl restart evload`).
+      // The bash script pre-writes updater.exit before calling systemctl, so the new Node.js
+      // process will reconcile state correctly via loadStatus().  Do NOT overwrite status with
+      // 'error' here — leave it as 'running' so the reconciliation path can resolve it.
+      logger.warn('🔄 [UPDATER] Update process killed by signal — state will be reconciled by incoming process', { signal })
+      return
+    }
+    // Normal exit path: Node.js was NOT restarted during the update
     cachedStatus = {
       ...cachedStatus,
       state: code === 0 ? 'success' : 'error',
@@ -311,6 +324,11 @@ echo ""
 echo "🚀 [5/5] Restarting service..."
 if systemctl is-active --quiet evload 2>/dev/null; then
     echo "  → Restarting via systemctl..."
+    # Pre-write success sentinel BEFORE restart.
+    # systemd's default KillMode=control-group terminates this bash process (same cgroup as Node.js).
+    # By writing the sentinel now, the new Node.js can reconcile state to 'success' even if
+    # this process dies before the EXIT trap fires.
+    printf '0' > "$REPO/updater.exit"
     systemctl restart evload
     sleep 3
     if systemctl is-active --quiet evload; then

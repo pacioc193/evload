@@ -88,6 +88,7 @@ Environment=NODE_ENV=production
 ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
 RestartSec=10
+KillMode=process
 
 [Install]
 WantedBy=multi-user.target

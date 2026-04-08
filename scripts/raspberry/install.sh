@@ -142,6 +142,7 @@ EnvironmentFile=${INSTALL_DIR}/backend/.env
 ExecStart=/usr/bin/node dist/index.js
 Restart=always
 RestartSec=5
+KillMode=process
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=evload
