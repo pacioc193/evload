@@ -135,8 +135,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Avvio esecuzione sul server..."
-ssh -t "$ServerUser@$ServerIP" "sed -i 's/
-//g' /root/install_evload.sh && chmod +x /root/install_evload.sh && bash /root/install_evload.sh"
+ssh -t "$ServerUser@$ServerIP" "chmod +x /root/install_evload.sh && bash /root/install_evload.sh"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "❌ Deploy remoto fallito. Controlla i log mostrati sopra." -ForegroundColor Red

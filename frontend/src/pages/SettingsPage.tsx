@@ -241,7 +241,7 @@ function CommitCard({
   )
 }
 
-
+export default function SettingsPage() {
   const [configContent, setConfigContent] = useState('')
   const [saving, setSaving] = useState(false)
   const [configMessage, setConfigMessage] = useState('')
@@ -459,7 +459,7 @@ function CommitCard({
     }
   }, [otaLogs])
 
-
+  const handleSaveConfig = async () => {
     setSaving(true)
     setConfigMessage('')
     try {
