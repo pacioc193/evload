@@ -26,13 +26,37 @@ export interface UpdaterStatus {
 const REPO_ROOT = path.resolve(process.cwd(), '..')
 const LOG_FILE = path.join(REPO_ROOT, 'updater.log')
 const STATUS_FILE = path.join(REPO_ROOT, 'updater.status.json')
+// Written by the bash script itself via `trap EXIT` — survives Node.js restarts
+const EXIT_FILE = path.join(REPO_ROOT, 'updater.exit')
 
 let cachedStatus: UpdaterStatus = loadStatus()
 
 function loadStatus(): UpdaterStatus {
   try {
     const raw = fs.readFileSync(STATUS_FILE, 'utf-8')
-    return JSON.parse(raw) as UpdaterStatus
+    const s = JSON.parse(raw) as UpdaterStatus
+    // If the service was restarted mid-update (e.g. by `systemctl restart evload` inside the
+    // OTA script itself), the in-memory close handler never fires.  The bash script writes its
+    // final exit code to EXIT_FILE via `trap EXIT`.  Reconcile here so the UI shows the correct
+    // outcome instead of being stuck on 'running' or showing a false 'error'.
+    if (s.state === 'running') {
+      try {
+        const exitCodeStr = fs.readFileSync(EXIT_FILE, 'utf-8').trim()
+        const exitCode = parseInt(exitCodeStr, 10)
+        const resolved: UpdaterStatus = {
+          ...s,
+          state: exitCode === 0 ? 'success' : 'error',
+          exitCode: isNaN(exitCode) ? null : exitCode,
+          endedAt: new Date().toISOString(),
+        }
+        saveStatus(resolved)
+        try { fs.unlinkSync(EXIT_FILE) } catch { /* ignore */ }
+        return resolved
+      } catch {
+        // EXIT_FILE absent — update is genuinely still running or was hard-killed without a trace
+      }
+    }
+    return s
   } catch {
     return { state: 'idle', branch: null, startedAt: null, endedAt: null, exitCode: null }
   }
@@ -154,6 +178,7 @@ export function startUpdate(branch: string): { started: boolean; reason?: string
   }
 
   try { fs.writeFileSync(LOG_FILE, '') } catch { /* ignore */ }
+  try { fs.unlinkSync(EXIT_FILE) } catch { /* ignore */ }
 
   cachedStatus = {
     state: 'running',
@@ -179,19 +204,33 @@ export function startUpdate(branch: string): { started: boolean; reason?: string
     return { started: false, reason: msg }
   }
 
-  const logStream = fs.createWriteStream(LOG_FILE, { flags: 'w' })
+  // Open the log file directly as the child's stdout/stderr.
+  // This avoids a broken-pipe (SIGPIPE) when Node.js is restarted mid-update by
+  // `systemctl restart evload` inside the OTA script — the bash process keeps
+  // writing to the file even after the Node.js parent is gone.
+  let logFd: number
+  try {
+    logFd = fs.openSync(LOG_FILE, 'w')
+  } catch (err) {
+    const msg = `Failed to open log file: ${String(err)}`
+    logger.error('🚨 [UPDATER] ' + msg)
+    cachedStatus = { ...cachedStatus, state: 'error', endedAt: new Date().toISOString(), exitCode: -1 }
+    saveStatus(cachedStatus)
+    return { started: false, reason: msg }
+  }
 
   const proc = spawn('bash', [scriptPath], {
     cwd: REPO_ROOT,
     detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', logFd, logFd],
     env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=2048' },
   })
 
-  proc.stdout?.on('data', (d: Buffer) => logStream.write(d))
-  proc.stderr?.on('data', (d: Buffer) => logStream.write(d))
+  // Close the fd in the parent — the child has its own reference
+  try { fs.closeSync(logFd) } catch { /* ignore */ }
 
   proc.on('close', (code) => {
+    // Normal path: Node.js was NOT restarted during the update
     cachedStatus = {
       ...cachedStatus,
       state: code === 0 ? 'success' : 'error',
@@ -199,16 +238,16 @@ export function startUpdate(branch: string): { started: boolean; reason?: string
       exitCode: code,
     }
     saveStatus(cachedStatus)
-    logStream.end()
     logger.info('🔄 [UPDATER] Update process finished', { exitCode: code })
     try { fs.unlinkSync(scriptPath) } catch { /* ignore */ }
+    try { fs.unlinkSync(EXIT_FILE) } catch { /* ignore */ }
   })
 
   proc.on('error', (err) => {
-    logStream.write(`\n❌ Spawn error: ${err.message}\n`)
+    const msg = `\n❌ Spawn error: ${err.message}\n`
+    try { fs.appendFileSync(LOG_FILE, msg) } catch { /* ignore */ }
     cachedStatus = { ...cachedStatus, state: 'error', endedAt: new Date().toISOString(), exitCode: -1 }
     saveStatus(cachedStatus)
-    logStream.end()
   })
 
   proc.unref()
@@ -221,6 +260,10 @@ function buildUpdateScript(branch: string): string {
 set -e
 export NODE_OPTIONS="--max-old-space-size=2048"
 REPO='${escapedRoot}'
+
+# Write our exit code to a sentinel file on exit so the new Node.js process can
+# reconcile a stale 'running' state if the service was restarted mid-update.
+trap 'echo $? > "$REPO/updater.exit"' EXIT
 
 echo "╔══════════════════════════════════════════╗"
 echo "║        EVLoad OTA Updater                ║"
