@@ -42,12 +42,38 @@ interface SessionDetail {
   totalTelemetryPoints?: number
 }
 
+function formatChartTimeTick(tsMs: number): string {
+  const d = new Date(tsMs)
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatChartTimeLabel(tsMs: number): string {
+  const d = new Date(tsMs)
+  return d.toLocaleString([], {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
 function formatDuration(startedAt: string, endedAt: string | null): string {
   const end = endedAt ? new Date(endedAt) : new Date()
   const diff = end.getTime() - new Date(startedAt).getTime()
   const hours = Math.floor(diff / 3600000)
   const minutes = Math.floor((diff % 3600000) / 60000)
   return `${hours}h ${minutes}m`
+}
+
+function csvEscape(value: string | number | null | undefined): string {
+  if (value == null) return ''
+  const raw = String(value)
+  if (raw.includes(',') || raw.includes('"') || raw.includes('\n')) {
+    return `"${raw.replace(/"/g, '""')}"`
+  }
+  return raw
 }
 
 export default function StatisticsPage() {
@@ -95,6 +121,56 @@ export default function StatisticsPage() {
     finally { setSessionLoading(false) }
   }
 
+  const downloadSelectedSessionCsv = () => {
+    if (!selectedSession) return
+
+    const sessionStart = new Date(selectedSession.startedAt)
+    const safeDate = `${sessionStart.getFullYear()}-${String(sessionStart.getMonth() + 1).padStart(2, '0')}-${String(sessionStart.getDate()).padStart(2, '0')}_${String(sessionStart.getHours()).padStart(2, '0')}-${String(sessionStart.getMinutes()).padStart(2, '0')}`
+    const filename = `evload-session-${selectedSession.id}-${safeDate}.csv`
+
+    const headerRows = [
+      ['session_id', selectedSession.id],
+      ['started_at', selectedSession.startedAt],
+      ['ended_at', selectedSession.endedAt ?? ''],
+      ['total_energy_kwh', selectedSession.totalEnergyKwh],
+      ['meter_energy_kwh', selectedSession.meterEnergyKwh ?? selectedSession.totalEnergyKwh],
+      ['vehicle_energy_kwh', selectedSession.vehicleEnergyKwh ?? ''],
+      ['charging_efficiency_pct', selectedSession.chargingEfficiencyPct ?? ''],
+      ['total_cost_eur', selectedSession.totalCostEur],
+      ['energy_price_eur_per_kwh', selectedSession.energyPriceEurPerKwh],
+      ['telemetry_points', selectedSession.telemetry.length],
+      ['total_telemetry_points', selectedSession.totalTelemetryPoints ?? selectedSession.telemetry.length],
+    ]
+
+    const telemetryHeader = ['recorded_at', 'voltage_v', 'current_a', 'state_of_charge_pct', 'charger_power_kw']
+    const telemetryRows = selectedSession.telemetry.map((t) => [
+      t.recordedAt,
+      t.voltageV,
+      t.currentA,
+      t.stateOfCharge,
+      t.chargerPower,
+    ])
+
+    const csvLines = [
+      ...headerRows.map((row) => row.map((value) => csvEscape(value)).join(',')),
+      '',
+      telemetryHeader.map((value) => csvEscape(value)).join(','),
+      ...telemetryRows.map((row) => row.map((value) => csvEscape(value)).join(',')),
+    ]
+
+    const csvContent = csvLines.join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = window.URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    anchor.style.display = 'none'
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    window.URL.revokeObjectURL(url)
+  }
+
   const handleDeleteSession = async (session: Session) => {
     if (pendingDeleteSessionId !== session.id) {
       setPendingDeleteSessionId(session.id)
@@ -126,12 +202,11 @@ export default function StatisticsPage() {
 
   const telemetryData = (() => {
     if (!selectedSession?.telemetry.length) return []
-    const t0 = new Date(selectedSession.telemetry[0].recordedAt).getTime()
     return selectedSession.telemetry.map((t) => {
-      const elapsedMin = (new Date(t.recordedAt).getTime() - t0) / 60000
+      const recordedAtMs = new Date(t.recordedAt).getTime()
       return {
-        time: Math.round(elapsedMin * 10) / 10, // elapsed minutes from session start (1 dp)
-        label: new Date(t.recordedAt).toLocaleTimeString(),
+        time: recordedAtMs,
+        label: formatChartTimeLabel(recordedAtMs),
         voltage: t.voltageV,
         current: t.currentA,
         soc: t.stateOfCharge,
@@ -217,6 +292,17 @@ export default function StatisticsPage() {
 
         <div className="lg:col-span-2 space-y-4">
           {sessionLoading && <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center text-evload-muted">Loading...</div>}
+          {selectedSession && !sessionLoading && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={downloadSelectedSessionCsv}
+                className="rounded-md border border-evload-border px-3 py-1.5 text-xs font-medium text-evload-text hover:bg-evload-border/40"
+              >
+                Download CSV
+              </button>
+            </div>
+          )}
           {selectedSession && !sessionLoading && telemetryData.length > 0 && (
             <>
               <div className="bg-evload-surface border border-evload-border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
@@ -257,9 +343,9 @@ export default function StatisticsPage() {
                 <ResponsiveContainer width="100%" height={180}>
                   <AreaChart data={telemetryData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(v: number) => `${Math.round(v)}min`} tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
+                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatChartTimeTick} tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
                     <YAxis domain={[0, 100]} tick={{ fill: '#888', fontSize: 10 }} />
-                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => `+${v}min`} />
+                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => formatChartTimeLabel(v)} />
                     <Area type="monotone" dataKey="soc" stroke="#22c55e" fill="#22c55e20" name="SoC %" />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -269,10 +355,10 @@ export default function StatisticsPage() {
                 <ResponsiveContainer width="100%" height={180}>
                   <LineChart data={telemetryData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(v: number) => `${Math.round(v)}min`} tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
+                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatChartTimeTick} tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
                     <YAxis yAxisId="power" tick={{ fill: '#888', fontSize: 10 }} />
                     <YAxis yAxisId="current" orientation="right" tick={{ fill: '#888', fontSize: 10 }} />
-                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => `+${v}min`} />
+                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => formatChartTimeLabel(v)} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Line yAxisId="power" type="monotone" dataKey="chargerPower" stroke="#e31937" name="Power (kW)" dot={false} />
                     <Line yAxisId="current" type="monotone" dataKey="current" stroke="#f59e0b" name="Current (A)" dot={false} />
@@ -284,9 +370,9 @@ export default function StatisticsPage() {
                 <ResponsiveContainer width="100%" height={150}>
                   <LineChart data={telemetryData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(v: number) => `${Math.round(v)}min`} tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
+                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatChartTimeTick} tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
                     <YAxis tick={{ fill: '#888', fontSize: 10 }} />
-                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => `+${v}min`} />
+                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => formatChartTimeLabel(v)} />
                     <Line type="monotone" dataKey="voltage" stroke="#60a5fa" name="Voltage (V)" dot={false} />
                   </LineChart>
                 </ResponsiveContainer>

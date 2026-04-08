@@ -40,6 +40,14 @@ function formatHoursToEta(hours: number | null): string {
   return `${h} h ${m} min`
 }
 
+interface MeterEnergySample {
+  tsMs: number
+  meterEnergyKwh: number
+}
+
+const EVLOAD_AVERAGE_WINDOW_MS = 90_000
+const EVLOAD_AVERAGE_MIN_WINDOW_MS = 20_000
+
 function computeTimeToTargetH(params: {
   machineHours: number | null
   stateOfCharge: number
@@ -266,10 +274,7 @@ export default function DashboardPage() {
   const [waking, setWaking] = useState(false)
   const [nextCharge, setNextCharge] = useState<NextPlannedCharge | null>(null)
   const [vehicleDetailsExpanded, setVehicleDetailsExpanded] = useState(() => readStoredBoolean(VEHICLE_DETAILS_PANEL_STORAGE_KEY, false))
-  // Derive session start time from the authoritative backend field (survives page navigation, avoids inflated averages)
-  const chargingStartedAtMs = engine?.sessionStartedAt
-    ? new Date(engine.sessionStartedAt).getTime()
-    : null
+  const meterEnergySamplesRef = useRef<MeterEnergySample[]>([])
 
   useEffect(() => {
     if (!engine?.mode) return
@@ -363,6 +368,34 @@ export default function DashboardPage() {
   const cumulativeChargeCostEur = meterEnergyKwh != null
     ? meterEnergyKwh * energyPriceEurPerKwh
     : null
+
+  useEffect(() => {
+    const currentSessionId = engine?.sessionId ?? null
+    if (currentSessionId == null) {
+      meterEnergySamplesRef.current = []
+      return
+    }
+
+    if (meterEnergyKwh == null || !Number.isFinite(meterEnergyKwh) || meterEnergyKwh < 0) {
+      return
+    }
+
+    const nowMs = Date.now()
+    const samples = meterEnergySamplesRef.current
+    const last = samples.length > 0 ? samples[samples.length - 1] : null
+    if (last == null || nowMs - last.tsMs >= 1000) {
+      samples.push({ tsMs: nowMs, meterEnergyKwh })
+    } else {
+      last.tsMs = nowMs
+      last.meterEnergyKwh = meterEnergyKwh
+    }
+
+    const keepFrom = nowMs - EVLOAD_AVERAGE_WINDOW_MS
+    while (samples.length > 1 && samples[0].tsMs < keepFrom) {
+      samples.shift()
+    }
+  }, [engine?.sessionId, meterEnergyKwh])
+
   const currentRangeKm = vehicle?.batteryRange ?? null
   const autoActualCurrentA = vehicle?.chargerActualCurrent ?? null
   const evloadRequestedCurrentA = engine?.setpointAmps ?? engine?.targetAmps ?? null
@@ -409,20 +442,25 @@ export default function DashboardPage() {
     batteryCapacityKwh,
   })
   const remainingEnergyKwh = Math.max(0, ((effectiveTargetSoc - soc) / 100) * batteryCapacityKwh)
-  // Use wall-clock time for elapsed: chargingStartedAtMs is the DB session startedAt (real-world clock)
-  const nowTsMs = Date.now()
-  const chargingElapsedMs = chargingStartedAtMs != null && nowTsMs > chargingStartedAtMs
-    ? nowTsMs - chargingStartedAtMs
-    : null
-  const evloadAveragePowerKw =
-    chargingElapsedMs != null
-    && chargingElapsedMs >= 10000
-    && meterEnergyKwh != null
-    && meterEnergyKwh > 0
-      ? meterEnergyKwh / (chargingElapsedMs / 3600000)
-      : null
   // Only use live display power as fallback when proxy is connected; stale chargeRateKw would skew ETA
   const fallbackAveragePowerKw = proxyConnected && displayChargePowerKw > 0 ? displayChargePowerKw : null
+  const evloadAveragePowerKw = (() => {
+    const samples = meterEnergySamplesRef.current
+    if (samples.length < 2) return fallbackAveragePowerKw
+
+    const latest = samples[samples.length - 1]
+    const minStartTs = latest.tsMs - EVLOAD_AVERAGE_WINDOW_MS
+    const oldest = samples.find((sample) => sample.tsMs >= minStartTs) ?? samples[0]
+    const deltaMs = latest.tsMs - oldest.tsMs
+    const deltaKwh = latest.meterEnergyKwh - oldest.meterEnergyKwh
+
+    if (deltaMs < EVLOAD_AVERAGE_MIN_WINDOW_MS) return fallbackAveragePowerKw
+    if (!Number.isFinite(deltaKwh) || deltaKwh <= 0) return fallbackAveragePowerKw
+
+    const computed = deltaKwh / (deltaMs / 3600000)
+    if (!Number.isFinite(computed) || computed <= 0) return fallbackAveragePowerKw
+    return Number(computed.toFixed(2))
+  })()
   const usableEvloadAveragePowerKw = evloadAveragePowerKw != null && Number.isFinite(evloadAveragePowerKw) && evloadAveragePowerKw > 0
     ? evloadAveragePowerKw
     : fallbackAveragePowerKw

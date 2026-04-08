@@ -19,6 +19,10 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Version bump 1.5.5**: release metadata updated across backend source-of-truth and all package manifests
+- **Statistics CSV export**: from the selected charging session you can now download a CSV file with session metadata and full telemetry rows
+- **Statistics chart timeline on real timestamps**: session charts now use real telemetry date/time on X axis instead of elapsed charging minutes
+- **Evload average power rewritten**: dashboard average is now computed from a rolling recent-energy window (not whole-session elapsed time), so it converges quickly to real charging power during active charge
 - **Manual OFF stop retry**: when user switches to `Off`, evload now retries `charge_stop` automatically if Tesla proxy returns temporary errors (for example HTTP 503), including immediate retry on proxy reconnect
 - **Ampere setpoint auto-resync**: when Tesla reports a `charge_current_request` different from the engine setpoint, evload now re-sends `set_charging_amps` (cooldown-limited) to recover from stale/inconsistent current requests
 - **Dashboard target SoC persistence by mode**: target SoC is now stored separately for `On` and `Off` modes in backend persistent state; the selected values survive page refreshes and are shared across browsers
@@ -208,6 +212,9 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 
 ## Features
 
+- Statistics page includes a `Download CSV` action for the selected charging session (metadata + telemetry)
+- Statistics charts (SoC, Power/Current, Voltage) use telemetry `recordedAt` datetime on the X axis
+- Dashboard "Evload average" uses a rolling-meter-energy slope over recent samples for responsive ETA and power estimation
 - OFF mode stop resilience: failed `charge_stop` commands are retried in background with bounded attempts and retriggered on proxy reconnect
 - Engine auto-resync for current requests: if Tesla `charge_current_request` diverges from evload setpoint, backend retries `set_charging_amps` until aligned
 - Dashboard target SoC persistence split by mode (`on` / `off`) and shared across browser sessions via backend API

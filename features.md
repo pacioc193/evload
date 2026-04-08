@@ -5,6 +5,29 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 ## Aggiornamenti Recenti (2026-04-08) — v1.5.6
 
+## Aggiornamenti Recenti (2026-04-09) — v1.5.5
+
+- **Version bump**:
+	- Versione aggiornata a `1.5.5` in:
+		- `backend/src/version.ts`
+		- `package.json` root
+		- `backend/package.json`
+		- `frontend/package.json`
+
+- **Statistiche: export CSV sessione selezionata**:
+	- Aggiunto pulsante `Download CSV` nella pagina Statistics.
+	- Il file include metadati sessione (energia, costo, efficienza, tariffa) + tabella telemetria completa.
+
+- **Statistiche: asse X a data/ora reale**:
+	- I grafici sessione (SoC, Potenza/Corrente, Tensione) usano ora `recordedAt` come timeline.
+	- Rimosso asse X in minuti trascorsi di ricarica.
+	- Tooltip e tick mostrano ora data/ora telemetria.
+
+- **Rewrite totale calcolo "Evload average" in Dashboard**:
+	- Rimossa la media su tutta la durata sessione (lenta a convergere dopo fasi di attesa/start).
+	- Nuova logica basata su finestra mobile di energia recente (`accumulatedSessionEnergyKwh`) con slope su campioni temporali.
+	- Fallback alla potenza live solo quando la finestra minima non è ancora sufficiente.
+
 - **Fix OFF non interrompe ricarica con proxy instabile**:
 	- Su `stopEngine({ forceOff: true })` il backend tenta `charge_stop` anche con telemetria veicolo non connessa.
 	- Se il comando fallisce (es. proxy 503), viene attivato retry automatico periodico con limite massimo tentativi.

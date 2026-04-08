@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.5.4'
+export const VERSION = '1.5.5'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.5.5',
+    releasedAt: '2026-04-09',
+    summary: 'Dashboard reliability and UX update: OFF mode now retries charge_stop on temporary proxy failures, Evload average power uses rolling-window energy slope, Statistics charts use real datetime on X axis, and selected session can be exported as CSV',
+  },
   {
     version: '1.5.4',
     releasedAt: '2026-04-08',
