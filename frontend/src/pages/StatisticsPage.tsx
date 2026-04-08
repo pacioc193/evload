@@ -39,6 +39,7 @@ interface SessionDetail {
   totalCostEur: number
   energyPriceEurPerKwh: number
   telemetry: TelemetryPoint[]
+  totalTelemetryPoints?: number
 }
 
 function formatDuration(startedAt: string, endedAt: string | null): string {
@@ -123,14 +124,21 @@ export default function StatisticsPage() {
     }
   }
 
-  const telemetryData = selectedSession?.telemetry.map((t, i) => ({
-    time: i,
-    label: new Date(t.recordedAt).toLocaleTimeString(),
-    voltage: t.voltageV,
-    current: t.currentA,
-    soc: t.stateOfCharge,
-    chargerPower: t.chargerPower,
-  })) ?? []
+  const telemetryData = (() => {
+    if (!selectedSession?.telemetry.length) return []
+    const t0 = new Date(selectedSession.telemetry[0].recordedAt).getTime()
+    return selectedSession.telemetry.map((t) => {
+      const elapsedMin = (new Date(t.recordedAt).getTime() - t0) / 60000
+      return {
+        time: Math.round(elapsedMin * 10) / 10, // elapsed minutes from session start (1 dp)
+        label: new Date(t.recordedAt).toLocaleTimeString(),
+        voltage: t.voltageV,
+        current: t.currentA,
+        soc: t.stateOfCharge,
+        chargerPower: t.chargerPower,
+      }
+    })
+  })()
 
   const totalEnergy = sessions.reduce((sum, s) => sum + s.totalEnergyKwh, 0)
   const avgEnergy = sessions.length ? totalEnergy / sessions.length : 0
@@ -232,15 +240,26 @@ export default function StatisticsPage() {
                   <div className="text-evload-muted uppercase tracking-wide text-xs">Applied Tariff</div>
                   <div className="text-xl font-semibold">{(selectedSession.energyPriceEurPerKwh ?? 0).toFixed(3)} EUR/kWh</div>
                 </div>
+                {selectedSession.totalTelemetryPoints != null && (
+                  <div>
+                    <div className="text-evload-muted uppercase tracking-wide text-xs">Telemetry Points</div>
+                    <div className="text-xl font-semibold">
+                      {telemetryData.length}
+                      {selectedSession.totalTelemetryPoints > telemetryData.length && (
+                        <span className="text-sm text-evload-muted ml-1">/ {selectedSession.totalTelemetryPoints} (downsampled)</span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="bg-evload-surface border border-evload-border rounded-xl p-4">
                 <h3 className="font-medium mb-3 text-sm text-evload-muted">State of Charge (%)</h3>
                 <ResponsiveContainer width="100%" height={180}>
                   <AreaChart data={telemetryData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                    <XAxis dataKey="label" tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
+                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(v: number) => `${Math.round(v)}min`} tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
                     <YAxis domain={[0, 100]} tick={{ fill: '#888', fontSize: 10 }} />
-                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} />
+                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => `+${v}min`} />
                     <Area type="monotone" dataKey="soc" stroke="#22c55e" fill="#22c55e20" name="SoC %" />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -250,10 +269,10 @@ export default function StatisticsPage() {
                 <ResponsiveContainer width="100%" height={180}>
                   <LineChart data={telemetryData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                    <XAxis dataKey="label" tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
+                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(v: number) => `${Math.round(v)}min`} tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
                     <YAxis yAxisId="power" tick={{ fill: '#888', fontSize: 10 }} />
                     <YAxis yAxisId="current" orientation="right" tick={{ fill: '#888', fontSize: 10 }} />
-                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} />
+                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => `+${v}min`} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Line yAxisId="power" type="monotone" dataKey="chargerPower" stroke="#e31937" name="Power (kW)" dot={false} />
                     <Line yAxisId="current" type="monotone" dataKey="current" stroke="#f59e0b" name="Current (A)" dot={false} />
@@ -265,9 +284,9 @@ export default function StatisticsPage() {
                 <ResponsiveContainer width="100%" height={150}>
                   <LineChart data={telemetryData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                    <XAxis dataKey="label" tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
+                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(v: number) => `${Math.round(v)}min`} tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
                     <YAxis tick={{ fill: '#888', fontSize: 10 }} />
-                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} />
+                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => `+${v}min`} />
                     <Line type="monotone" dataKey="voltage" stroke="#60a5fa" name="Voltage (V)" dot={false} />
                   </LineChart>
                 </ResponsiveContainer>

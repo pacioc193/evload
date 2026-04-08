@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.5.2'
+export const VERSION = '1.5.3'
 
 export interface VersionInfo {
   current: string
