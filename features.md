@@ -1016,3 +1016,18 @@ Accettazione letterale:
 Quando un item e' `VERIFIED`, rieseguire i test/build minimi e confermare che non rompe item gia' verificati.
 Se una modifica altera comportamento specifico richiesto, riportare immediatamente `REGRESSION`.
 
+
+## F-58 Comandi Proxy Sincroni + Fix False Proxy-Offline
+
+Requisito: "I comandi inviati dal pannello garage devono risvegliare eventualmente l'auto. Il backend marcava il proxy come offline quando la macchina era in sleep. Tutti i comandi devono usare ?wait=true."
+
+### Proxy false-offline fix
+- C1: `proxyPost`: se il proxy risponde con un HTTP error (`err.response != null`), il proxy è raggiungibile — non viene chiamato `markProxyError`. Solo gli errori di rete (nessuna risposta) marcano il proxy offline.
+- C2: `updateProxyDataRequest` (PUT): stessa logica — HTTP error = proxy raggiungibile, network error = proxy offline.
+- C3: Il proxy health viene gestito dai frequenti poll `body_controller_state` (sempre attivi) — i fallimenti dei comandi non interferiscono con lo stato di connettività.
+
+### Comandi sincroni con ?wait=true
+- C4: `sendProxyCommand` aggiunge sempre `?wait=true` all'URL: il proxy aspetta il completamento BLE prima di rispondere, e gestisce l'auto-wake autonomamente se il veicolo è in sleep.
+- C5: Timeout 90 s (copre: wake ~40 s + BLE ~5 s + buffer).
+- C6: `vehicle.routes.ts`: semplificato — nessuna logica di pre-wake manuale. Log diagnostico se il veicolo è in sleep al momento del comando.
+- C7: Tutti i comandi del charging engine (`charge_start`, `charge_stop`, `set_charging_amps`, `wake_up`) e dello scheduler (`auto_conditioning_start/stop`, `set_temps`) usano la stessa `sendProxyCommand` e beneficiano di `?wait=true`.

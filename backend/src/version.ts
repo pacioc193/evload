@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.5.3'
+export const VERSION = '1.5.4'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.5.4',
+    releasedAt: '2026-04-08',
+    summary: 'Garage commands + charging engine: all proxy commands now use ?wait=true so the proxy waits for BLE completion and auto-wakes the vehicle if asleep (90 s timeout). Fix false proxy-offline: proxyPost/updateProxyDataRequest no longer call markProxyError when the proxy responded with an HTTP error (vehicle issue, not proxy issue). Statistics charts show full session. OTA update panel.',
+  },
   {
     version: '1.5.3',
     releasedAt: '2026-04-08',

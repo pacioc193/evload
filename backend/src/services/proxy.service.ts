@@ -922,8 +922,12 @@ export async function requestWakeMode(sendWakeCommand = false): Promise<void> {
 }
 
 export async function sendProxyCommand(vehicleId: string, command: string, body?: Record<string, unknown>, timeoutMs?: number): Promise<unknown> {
-  const url = `${proxyUrl()}/api/1/vehicles/${vehicleId}/command/${command}`
-  return proxyPost<unknown>(url, body ?? {}, timeoutMs)
+  // ?wait=true instructs the proxy to wait for the BLE command to complete before
+  // returning, and also auto-wakes the vehicle if it is asleep. This makes every
+  // command synchronous and removes the need for manual pre-wake logic on our side.
+  // Timeout is 90 s to cover wake (~40 s) + BLE execution (~5 s) + buffer.
+  const url = `${proxyUrl()}/api/1/vehicles/${vehicleId}/command/${command}?wait=true`
+  return proxyPost<unknown>(url, body ?? {}, timeoutMs ?? 90_000)
 }
 
 export async function updateProxyDataRequest(
