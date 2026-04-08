@@ -19,6 +19,10 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Manual OFF stop retry**: when user switches to `Off`, evload now retries `charge_stop` automatically if Tesla proxy returns temporary errors (for example HTTP 503), including immediate retry on proxy reconnect
+- **Ampere setpoint auto-resync**: when Tesla reports a `charge_current_request` different from the engine setpoint, evload now re-sends `set_charging_amps` (cooldown-limited) to recover from stale/inconsistent current requests
+- **Dashboard target SoC persistence by mode**: target SoC is now stored separately for `On` and `Off` modes in backend persistent state; the selected values survive page refreshes and are shared across browsers
+- **ON-session target adjustment**: the Dashboard SoC slider is editable in both `On` and `Off` modes (still read-only in `Plan`); in `On`, releasing the slider persists the new value and immediately updates the running engine target
 - **Proxy resilience**: `proxyGet` retries up to 3 times (30 s timeout each) only for network-level failures (ECONNREFUSED, ETIMEDOUT) before calling `markProxyError` — if the proxy responds with any HTTP error (503, 4xx, etc.) it is treated as reachable and the error is thrown immediately without retry and without marking the proxy offline, mirroring `proxyPost` behavior; body-controller polling resumes automatically on the next tick
 - **ETA guard on proxy disconnect**: when the proxy is offline, stale `chargeRateKw` and `machineHours` from the last poll are not used for ETA calculation — the dashboard shows "—" or falls back to the meter-based average only
 - **Statistics live reload**: the Statistics page automatically reloads the sessions list when a charging session ends, so cost, efficiency and energy data appear immediately after session stop without a manual refresh
@@ -204,6 +208,10 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 
 ## Features
 
+- OFF mode stop resilience: failed `charge_stop` commands are retried in background with bounded attempts and retriggered on proxy reconnect
+- Engine auto-resync for current requests: if Tesla `charge_current_request` diverges from evload setpoint, backend retries `set_charging_amps` until aligned
+- Dashboard target SoC persistence split by mode (`on` / `off`) and shared across browser sessions via backend API
+- Dashboard SoC slider editable in `on` and `off` (read-only only in `plan`), with live target update during active manual charging sessions
 - Load-aware charging using Home Assistant power entities
 - Charging current ramp logic with configurable bounds and cadence
 - Sleep-aware proxy polling: `GET /vehicle_data` never wakes the vehicle

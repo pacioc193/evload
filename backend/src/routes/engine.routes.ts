@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import rateLimit from 'express-rate-limit'
 import { requireAuth } from '../middleware/auth.middleware'
-import { getEngineStatus, startEngine, stopEngine, setPlanMode } from '../engine/charging.engine'
+import { getEngineStatus, startEngine, stopEngine, setPlanMode, getTargetSocPreferences, setTargetSocPreference } from '../engine/charging.engine'
 import { requestWakeMode, triggerImmediatePoll } from '../services/proxy.service'
 import { isFailsafeActive, getFailsafeReason, resetFailsafe } from '../services/failsafe.service'
 import {
@@ -98,6 +98,45 @@ router.post('/mode', engineActionLimiter, requireAuth, (req, res) => {
   }
   setPlanMode(soc)
   res.json({ success: true, status: getEngineStatus() })
+})
+
+router.get('/targets', engineActionLimiter, requireAuth, (_req, res) => {
+  const prefs = getTargetSocPreferences()
+  res.json({
+    success: true,
+    targets: prefs,
+    status: getEngineStatus(),
+  })
+})
+
+router.patch('/targets', engineActionLimiter, requireAuth, async (req, res) => {
+  const { mode, targetSoc, applyToRunningOnSession } = req.body as {
+    mode?: 'on' | 'off'
+    targetSoc?: number
+    applyToRunningOnSession?: boolean
+  }
+  if (mode !== 'on' && mode !== 'off') {
+    res.status(400).json({ error: 'mode must be "on" or "off"' })
+    return
+  }
+  if (typeof targetSoc !== 'number' || targetSoc < 1 || targetSoc > 100) {
+    res.status(400).json({ error: 'targetSoc must be 1-100' })
+    return
+  }
+
+  try {
+    await setTargetSocPreference(mode, targetSoc, {
+      applyToRunningOnSession: Boolean(applyToRunningOnSession),
+    })
+    res.json({
+      success: true,
+      targets: getTargetSocPreferences(),
+      status: getEngineStatus(),
+    })
+  } catch (err) {
+    logger.error('Engine target preference update error', { err, mode, targetSoc })
+    res.status(500).json({ error: 'Failed to update engine targets' })
+  }
 })
 
 router.post('/failsafe/reset', engineActionLimiter, requireAuth, async (_req, res) => {

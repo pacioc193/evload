@@ -5,11 +5,12 @@ const mockRequestWakeMode = jest.fn().mockResolvedValue(undefined)
 let mockHaConnected = true
 let mockHaPowerW: number = 8450
 let mockHaChargerW: number | null = null
+let mockChargeCurrentRequest = 5
 
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn().mockImplementation(() => ({
     chargingSession: {
-      create: jest.fn().mockResolvedValue({ id: 42 }),
+      create: jest.fn().mockResolvedValue({ id: 42, startedAt: new Date('2026-01-01T00:00:00.000Z') }),
       update: jest.fn().mockResolvedValue({}),
     },
     chargingTelemetry: {
@@ -35,6 +36,8 @@ jest.mock('../../services/proxy.service', () => ({
     stateOfCharge: 30,
     chargerVoltage: 230,
     chargerActualCurrent: 5,
+    chargeCurrentRequest: mockChargeCurrentRequest,
+    chargeCurrentRequestMax: 16,
     chargeRateKw: 0,
     chargingState: 'Charging',
     batteryRange: null,
@@ -95,6 +98,7 @@ describe('F-22 Smart Current Algorithm', () => {
     mockHaConnected = true
     mockHaPowerW = 8450
     mockHaChargerW = null
+    mockChargeCurrentRequest = 5
   })
 
   afterEach(async () => {
@@ -147,5 +151,22 @@ describe('F-22 Smart Current Algorithm', () => {
     const status: EngineStatus = getEngineStatus()
     expect(status.setpointAmps).toBeLessThanOrEqual(5)
     expect(status.setpointAmps).toBeLessThan(16)
+  })
+
+  test('resends set_charging_amps when Tesla requested amps drift from evload setpoint', async () => {
+    const { startEngine, getEngineStatus } = await import('../charging.engine')
+
+    await startEngine(80, 16)
+    await jest.advanceTimersByTimeAsync(1_100)
+
+    const setpoint = getEngineStatus().setpointAmps
+    expect(setpoint).toBe(5)
+
+    mockSendProxyCommand.mockClear()
+    mockChargeCurrentRequest = 4
+
+    await jest.advanceTimersByTimeAsync(10_100)
+
+    expect(mockSendProxyCommand).toHaveBeenCalledWith('RAMPTEST', 'set_charging_amps', { charging_amps: 5 })
   })
 })

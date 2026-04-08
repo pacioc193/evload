@@ -42,6 +42,25 @@ export async function wakeVehicle() {
   return res.data as { success: boolean }
 }
 
+export interface EngineTargetSocPreferences {
+  on: number
+  off: number
+}
+
+export async function getEngineTargetSocPreferences() {
+  const res = await api.get('/engine/targets')
+  return res.data as { success: boolean; targets: EngineTargetSocPreferences }
+}
+
+export async function patchEngineTargetSocPreference(input: {
+  mode: 'on' | 'off'
+  targetSoc: number
+  applyToRunningOnSession?: boolean
+}) {
+  const res = await api.patch('/engine/targets', input)
+  return res.data as { success: boolean; targets: EngineTargetSocPreferences }
+}
+
 export async function getSessions(page = 1, limit = 20) {
   const res = await api.get(`/sessions?page=${page}&limit=${limit}`)
   return res.data as { sessions: unknown[]; total: number; page: number; limit: number }

@@ -3,6 +3,30 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Aggiornamenti Recenti (2026-04-08) — v1.5.6
+
+- **Fix OFF non interrompe ricarica con proxy instabile**:
+	- Su `stopEngine({ forceOff: true })` il backend tenta `charge_stop` anche con telemetria veicolo non connessa.
+	- Se il comando fallisce (es. proxy 503), viene attivato retry automatico periodico con limite massimo tentativi.
+	- Al reconnect del proxy viene eseguito un retry immediato del `charge_stop` pendente.
+
+- **Fix re-sync corrente richiesta Tesla vs setpoint engine**:
+	- Quando il backend rileva mismatch tra setpoint evload e `charge_current_request` riportato dal proxy Tesla, invia nuovamente `set_charging_amps`.
+	- Retry limitato da cooldown per evitare command spam.
+	- Caso tipico risolto: corrente bloccata a 14A mentre target engine/setpoint richiede 16A.
+
+- **Dashboard target SoC persistente per modalità ON/OFF**:
+	- Introdotte preferenze target SoC separate per `on` e `off`, persistite lato backend in `engine_restore_state`.
+	- Aggiunti endpoint autenticati:
+		- `GET /api/engine/targets` (lettura preferenze)
+		- `PATCH /api/engine/targets` (aggiornamento preferenze)
+	- Le preferenze sono condivise tra browser e sopravvivono a refresh/reopen.
+
+- **Slider SoC modificabile in ON e OFF**:
+	- Dashboard: slider non più bloccato durante sessione manuale `on` (resta readonly in `plan`).
+	- In `on`, il commit dello slider salva il target e aggiorna immediatamente il target attivo dell'engine.
+	- In `off`, il commit salva il target predefinito usato per il successivo start manuale.
+
 ## Aggiornamenti Recenti (2026-04-08) — v1.5.5
 
 - **Fix `proxyGet` — errori HTTP non causano più offline marking né retry inutili**:

@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useWsStore } from '../store/wsStore'
-import { startCharging, stopCharging, setPlanMode, wakeVehicle, getNextPlannedCharge, NextPlannedCharge } from '../api/index'
+import {
+  startCharging,
+  stopCharging,
+  setPlanMode,
+  wakeVehicle,
+  getNextPlannedCharge,
+  getEngineTargetSocPreferences,
+  patchEngineTargetSocPreference,
+  NextPlannedCharge,
+} from '../api/index'
 import { WifiOff, Car, Clock3, Home, Zap as ZapIcon, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
 import { clsx } from 'clsx'
 import { flog } from '../utils/frontendLogger'
@@ -70,6 +79,7 @@ function EvccSocBar({
   charging,
   readonly,
   onTargetChange,
+  onTargetCommit,
 }: {
   actualSoc: number
   targetSoc: number
@@ -77,6 +87,7 @@ function EvccSocBar({
   charging: boolean
   readonly: boolean
   onTargetChange: (value: number) => void
+  onTargetCommit?: (value: number) => void
 }) {
   const safeActual = Math.max(0, Math.min(100, actualSoc))
   const safeTarget = Math.max(0, Math.min(100, targetSoc))
@@ -85,10 +96,12 @@ function EvccSocBar({
   const plannedWidth = Math.max(safeActual, safeTarget) - plannedStart
   const sliderRef = useRef<HTMLDivElement>(null)
 
-  const resolveRatio = (clientX: number) => {
-    if (!sliderRef.current) return
+  const resolveRatio = (clientX: number): number | null => {
+    if (!sliderRef.current) return null
     const rect = sliderRef.current.getBoundingClientRect()
-    onTargetChange(Math.round(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * 100))
+    const nextValue = Math.round(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * 100)
+    onTargetChange(nextValue)
+    return nextValue
   }
 
   const handlePointerDown: React.PointerEventHandler<HTMLDivElement> = (e) => {
@@ -108,7 +121,10 @@ function EvccSocBar({
     if (readonly) return
     if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
     e.currentTarget.releasePointerCapture(e.pointerId)
-    resolveRatio(e.clientX)
+    const nextValue = resolveRatio(e.clientX)
+    if (nextValue != null) {
+      onTargetCommit?.(nextValue)
+    }
   }
 
   return (
@@ -241,8 +257,8 @@ export default function DashboardPage() {
   // Derive proxy connectivity early — used to guard stale vehicle telemetry in ETA/power display
   const proxyConnected = proxy?.connected ?? false
 
-  const [manualTargetSoc, setManualTargetSoc] = useState(80)
-  const seededFromCarRef = useRef(false)
+  const [manualTargetSocOn, setManualTargetSocOn] = useState(() => useWsStore.getState().engine?.targetSocOn ?? 80)
+  const [manualTargetSocOff, setManualTargetSocOff] = useState(() => useWsStore.getState().engine?.targetSocOff ?? 80)
   const [chargeMode, setChargeMode] = useState<ChargeMode>(
     () => (useWsStore.getState().engine?.mode as ChargeMode | undefined) ?? 'off'
   )
@@ -265,16 +281,24 @@ export default function DashboardPage() {
   }, [engine?.mode, nextCharge])
 
   useEffect(() => {
-    if (seededFromCarRef.current) return
-    if (vehicle?.chargeLimitSoc == null) return
-    flog.debug('TARGET_SOC', 'Seeding manualTargetSoc from chargeLimitSoc', {
-      chargeLimitSoc: vehicle.chargeLimitSoc,
-      engineRunning: engine?.running ?? false,
-      engineTargetSoc: engine?.targetSoc ?? null,
-    })
-    setManualTargetSoc(vehicle.chargeLimitSoc)
-    seededFromCarRef.current = true
-  }, [vehicle?.chargeLimitSoc, engine?.running, engine?.targetSoc])
+    if (!engine) return
+    if (typeof engine.targetSocOn === 'number' && Number.isFinite(engine.targetSocOn)) {
+      setManualTargetSocOn(engine.targetSocOn)
+    }
+    if (typeof engine.targetSocOff === 'number' && Number.isFinite(engine.targetSocOff)) {
+      setManualTargetSocOff(engine.targetSocOff)
+    }
+  }, [engine?.targetSocOn, engine?.targetSocOff, engine])
+
+  useEffect(() => {
+    if (!wsConnected) return
+    getEngineTargetSocPreferences()
+      .then((res) => {
+        if (typeof res.targets?.on === 'number') setManualTargetSocOn(res.targets.on)
+        if (typeof res.targets?.off === 'number') setManualTargetSocOff(res.targets.off)
+      })
+      .catch(() => {})
+  }, [wsConnected])
 
   useEffect(() => {
     if (!wsConnected) return
@@ -293,13 +317,11 @@ export default function DashboardPage() {
   const soc = Math.max(0, Math.min(100, vehicle?.stateOfCharge ?? 0))
   const carLimitSoc = vehicle?.chargeLimitSoc ?? null
   const isPlanMode = chargeMode === 'plan'
-  // While the engine is actively running (non-plan), always show the engine's authoritative targetSoc
-  // so the slider reflects what was actually sent — regardless of page navigation / remount.
   const effectiveTargetSoc = isPlanMode
-    ? (nextCharge?.targetSoc ?? engine?.targetSoc ?? manualTargetSoc)
-    : (engine?.running && engine?.targetSoc != null)
-      ? engine.targetSoc
-      : manualTargetSoc
+    ? (nextCharge?.targetSoc ?? engine?.targetSoc ?? manualTargetSocOn)
+    : chargeMode === 'on'
+      ? manualTargetSocOn
+      : manualTargetSocOff
 
   // When proxy is disconnected, chargeRateKw is stale — zero it out to avoid ETA and power display errors
   const chargePowerKw = proxyConnected ? Math.max(0, vehicle?.chargeRateKw ?? 0) : 0
@@ -468,7 +490,7 @@ export default function DashboardPage() {
         await stopCharging()
         flog.info('SESSION', 'Charge stopped successfully')
       } else if (mode === 'plan') {
-        const targetSoc = nextCharge?.targetSoc ?? Math.max(1, manualTargetSoc)
+        const targetSoc = nextCharge?.targetSoc ?? Math.max(1, manualTargetSocOn)
         flog.info('SESSION', 'Setting plan mode (user action)', {
           targetSoc,
           scheduledAt: nextCharge?.computedStartAt,
@@ -476,10 +498,11 @@ export default function DashboardPage() {
         await setPlanMode(targetSoc)
         flog.info('SESSION', 'Plan mode set successfully', { targetSoc })
       } else {
-        const targetSoc = Math.max(1, manualTargetSoc)
+        const targetSoc = Math.max(1, manualTargetSocOn)
         flog.info('SESSION', 'Starting charge immediately (user action)', {
           targetSoc,
-          manualTargetSoc,
+          manualTargetSocOn,
+          manualTargetSocOff,
           effectiveTargetSoc,
           engineCurrentTargetSoc: engine?.targetSoc ?? null,
           chargeLimitSoc: vehicle?.chargeLimitSoc ?? null,
@@ -503,6 +526,28 @@ export default function DashboardPage() {
   const carStatusLabel = isVehicleSleeping ? 'Sleeping' : vehicleInGarage ? 'In garage' : 'Not in garage / unreachable'
   const statusReason = vehicle?.reason ?? proxy?.error ?? vehicle?.error ?? 'No reason available yet'
   const controlsDisabled = loading || !!failsafe?.active
+
+  const persistTargetSocPreference = async (mode: 'on' | 'off', targetSoc: number): Promise<void> => {
+    const safeSoc = Math.max(1, Math.min(100, Math.round(targetSoc)))
+    try {
+      await patchEngineTargetSocPreference({
+        mode,
+        targetSoc: safeSoc,
+        applyToRunningOnSession: mode === 'on',
+      })
+      flog.info('TARGET_SOC', 'Persisted target SoC preference', {
+        mode,
+        targetSoc: safeSoc,
+        applyToRunningOnSession: mode === 'on',
+      })
+    } catch (err) {
+      flog.error('TARGET_SOC', 'Failed to persist target SoC preference', {
+        mode,
+        targetSoc: safeSoc,
+        error: String(err),
+      })
+    }
+  }
 
   const handleWakeVehicle = async () => {
     if (waking) return
@@ -717,15 +762,26 @@ export default function DashboardPage() {
               targetSoc={effectiveTargetSoc}
               carLimitSoc={carLimitSoc}
               charging={vehicle.charging}
-              readonly={isPlanMode || (engine?.running ?? false)}
+                readonly={isPlanMode}
               onTargetChange={(v) => {
+                  const targetMode = chargeMode === 'on' ? 'on' : 'off'
                 flog.debug('TARGET_SOC', 'Slider dragged', {
                   newTargetSoc: v,
-                  previousTargetSoc: manualTargetSoc,
+                    targetMode,
+                    previousTargetSocOn: manualTargetSocOn,
+                    previousTargetSocOff: manualTargetSocOff,
                   engineRunning: engine?.running ?? false,
                   engineTargetSoc: engine?.targetSoc ?? null,
                 })
-                setManualTargetSoc(v)
+                  if (chargeMode === 'on') {
+                    setManualTargetSocOn(v)
+                  } else {
+                    setManualTargetSocOff(v)
+                  }
+                }}
+                onTargetCommit={(v) => {
+                  if (chargeMode === 'plan') return
+                  void persistTargetSocPreference(chargeMode === 'on' ? 'on' : 'off', v)
               }}
             />
             {isPlanMode && (
