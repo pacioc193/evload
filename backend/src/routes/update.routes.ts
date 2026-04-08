@@ -5,6 +5,10 @@ import {
   getUpdaterStatus,
   getGitBranches,
   getCurrentBranch,
+  getLocalCommit,
+  getRemoteCommit,
+  getBehindCount,
+  fetchRemote,
   getUpdateLogs,
   startUpdate,
 } from '../services/updater.service'
@@ -14,16 +18,50 @@ const router = Router()
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 })
 // Tighter limit for start: max 3 updates in 5 minutes
 const startLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 3 })
+// Fetch limiter: avoid hammering GitHub
+const fetchLimiter = rateLimit({ windowMs: 60 * 1000, max: 6 })
 
-// GET /api/update/status — returns update state, current branch, available branches, log size
+// GET /api/update/status
+// Returns: update state + current branch + available branches + local/remote commit info
 router.get('/status', limiter, requireAuth, async (_req, res) => {
   try {
-    const [status, currentBranch, branches] = await Promise.all([
+    const [updaterStatus, currentBranch, branches, localCommit] = await Promise.all([
       Promise.resolve(getUpdaterStatus()),
       getCurrentBranch(),
       getGitBranches(),
+      getLocalCommit(),
     ])
-    res.json({ ...status, currentBranch, branches })
+    // remote commit + behind count for current branch (uses local tracking refs — no network)
+    const [remoteCommit, behindCount] = await Promise.all([
+      getRemoteCommit(currentBranch),
+      getBehindCount(currentBranch),
+    ])
+    res.json({
+      ...updaterStatus,
+      currentBranch,
+      branches,
+      localCommit,
+      remoteCommit,
+      behindCount,
+    })
+  } catch (err) {
+    res.status(500).json({ error: String(err) })
+  }
+})
+
+// POST /api/update/fetch — fetch remote without switching branch (refresh remote tracking refs)
+router.post('/fetch', fetchLimiter, requireAuth, async (_req, res) => {
+  try {
+    await fetchRemote()
+    const [currentBranch, localCommit] = await Promise.all([
+      getCurrentBranch(),
+      getLocalCommit(),
+    ])
+    const [remoteCommit, behindCount] = await Promise.all([
+      getRemoteCommit(currentBranch),
+      getBehindCount(currentBranch),
+    ])
+    res.json({ success: true, localCommit, remoteCommit, behindCount })
   } catch (err) {
     res.status(500).json({ error: String(err) })
   }
