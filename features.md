@@ -3,6 +3,16 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Aggiornamenti Recenti (2026-04-08) — v1.5.5
+
+- **Fix `proxyGet` — errori HTTP non causano più offline marking né retry inutili**:
+  - `proxyGet` ora controlla, dopo il filtro sleep-response, se l'errore è un errore HTTP (`err.response != null`). In questo caso il proxy È raggiungibile (ha risposto con un codice di stato), si tratta di un problema a livello veicolo (es. 503).
+  - Comportamento precedente: 3 retry consecutivi su qualsiasi errore → `markProxyError` → proxy marcato offline → soft failsafe → log `PROXY_CONNECTIVITY_TRANSITION` anche se il proxy stava rispondendo.
+  - Comportamento nuovo: su errori HTTP (503, 4xx, ecc.) si lancia immediatamente l'errore senza retry e senza chiamare `markProxyError`. Il poll body-controller continuerà al prossimo tick e recupererà automaticamente la comunicazione quando il proxy torna operativo.
+  - Il retry a 3 tentativi rimane SOLO per failure di rete (ECONNREFUSED, ETIMEDOUT, ecc.) dove il proxy non risponde affatto.
+  - Log dedicato `PROXY_GET_HTTP_ERROR` con `statusCode` e URL per ogni caso HTTP-error.
+  - Allineamento con `proxyPost` che già gestiva gli errori HTTP allo stesso modo (`PROXY_CMD_ERROR`).
+
 ## Aggiornamenti Recenti (2026-04-08) — v1.5.3
 
 ## Aggiornamenti Recenti (2026-04-08) — v1.5.4

@@ -306,6 +306,18 @@ async function proxyGet<T>(url: string, options?: { timeoutMs?: number }): Promi
           return err.response.data as T
         }
       }
+      // If the proxy returned any HTTP response (even an error status), the proxy itself IS
+      // reachable — this is a vehicle-level failure (503, 4xx, etc.), not a network failure.
+      // Don't retry and don't mark the proxy offline. The body poll loop will try again on
+      // the next scheduled tick and will resume communication automatically when recovered.
+      if (axios.isAxiosError(err) && err.response != null) {
+        logger.warn('PROXY_GET_HTTP_ERROR', {
+          url,
+          statusCode: err.response.status,
+          error: String(err),
+        })
+        throw err
+      }
       lastErr = err
       if (attempt < MAX_ATTEMPTS) {
         logger.warn('PROXY_GET_RETRY', {
@@ -318,7 +330,7 @@ async function proxyGet<T>(url: string, options?: { timeoutMs?: number }): Promi
       }
     }
   }
-  // All attempts exhausted — declare proxy lost communication
+  // All attempts exhausted — declare proxy lost communication (network-level failure)
   markProxyError(url, lastErr)
   throw lastErr
 }
