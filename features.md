@@ -3,6 +3,30 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Aggiornamenti Recenti (2026-04-08) — v1.5.2
+
+- **Fix modalità dopo fine ricarica (manuale vs plan)**:
+  - `startEngine` accetta un nuovo parametro `fromPlan: boolean` (default `false`).
+  - Quando `fromPlan=false` (avvio manuale tramite API `/engine/start`), il flag `planArmed` viene resettato a `false` → la sessione riceve `mode='on'` e, a fine ricarica, il motore torna a `mode='off'`.
+  - Quando `fromPlan=true` (avvio da scheduler), `planArmed` resta `true` → la sessione riceve `mode='plan'` e, a fine ricarica, il motore resta `mode='plan'` (piano armato).
+  - Il service scheduler chiama `startEngine(targetSoc, targetAmps, true)`.
+
+- **Fix slider SOC durante sessione attiva**:
+  - `effectiveTargetSoc` usa `engine.targetSoc` (valore autorevole dal backend) quando il motore è in esecuzione in modalità manuale, evitando che un remount della pagina mostri 80% (da `chargeLimitSoc`) invece del valore effettivamente inviato.
+  - Il cursore è `readonly` anche durante una sessione manuale attiva (precedentemente solo in plan mode), impedendo modifiche al target durante la carica.
+
+- **Log diagnostici targetSoc**:
+  - `flog.debug('TARGET_SOC')` quando `manualTargetSoc` viene seminato da `chargeLimitSoc` (con contesto engine running/targetSoc).
+  - `flog.debug('TARGET_SOC')` ad ogni spostamento del cursore (valore precedente/nuovo, stato engine).
+  - `flog.info('SESSION')` arricchito al click Start: include `manualTargetSoc`, `effectiveTargetSoc`, `engineCurrentTargetSoc`, `chargeLimitSoc`.
+
+## Aggiornamenti Recenti (2026-04-08) — v1.5.1
+
+- **Fix media potenza evload gonfiata dopo retry/navigazione**:
+  - `chargingStartedAtMs` era stato locale al componente React → resettato ad ogni remount, producendo tempi trascorsi piccoli e potenza media enorme.
+  - Aggiunto `sessionStartedAt: string | null` in `EngineStatus` (backend + wsStore), impostato al timestamp DB di avvio sessione e azzerato a fine sessione.
+  - Il frontend usa `engine.sessionStartedAt` e `Date.now()` (wall clock) per calcolare `chargingElapsedMs`, eliminando il problema del remount.
+
 ## Aggiornamenti Recenti (2026-04-07) — v1.5.0
 
 - **Proxy resilience — 3 tentativi prima di dichiarare lost communication**:

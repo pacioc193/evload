@@ -248,7 +248,7 @@ export function setPlanMode(targetSoc: number): void {
   persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
 }
 
-export async function startEngine(targetSoc: number, targetAmps?: number): Promise<void> {
+export async function startEngine(targetSoc: number, targetAmps?: number, fromPlan = false): Promise<void> {
   const cfg = getConfig()
   if (status.running) {
     logger.warn('⚠️  [START_ENGINE] Engine already running — ignoring start request', {
@@ -258,6 +258,19 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     })
     pushEngineLog('start ignored: engine already running')
     return
+  }
+
+  // A manual start (fromPlan=false) must disarm any pending plan so that mode is 'on'
+  // and after charge completion the engine returns to 'off', not 'plan'.
+  if (!fromPlan) {
+    if (planArmed) {
+      logger.info('🗓️  [START_ENGINE] Manual start requested while plan was armed — disarming plan', {
+        previousTargetSoc: status.targetSoc,
+        requestedTargetSoc: targetSoc,
+      })
+      pushEngineLog('plan disarmed: manual start requested')
+    }
+    planArmed = false
   }
 
   await requestWakeMode(true)

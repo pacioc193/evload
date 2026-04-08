@@ -267,9 +267,14 @@ export default function DashboardPage() {
   useEffect(() => {
     if (seededFromCarRef.current) return
     if (vehicle?.chargeLimitSoc == null) return
+    flog.debug('TARGET_SOC', 'Seeding manualTargetSoc from chargeLimitSoc', {
+      chargeLimitSoc: vehicle.chargeLimitSoc,
+      engineRunning: engine?.running ?? false,
+      engineTargetSoc: engine?.targetSoc ?? null,
+    })
     setManualTargetSoc(vehicle.chargeLimitSoc)
     seededFromCarRef.current = true
-  }, [vehicle?.chargeLimitSoc])
+  }, [vehicle?.chargeLimitSoc, engine?.running, engine?.targetSoc])
 
   useEffect(() => {
     if (!wsConnected) return
@@ -288,9 +293,13 @@ export default function DashboardPage() {
   const soc = Math.max(0, Math.min(100, vehicle?.stateOfCharge ?? 0))
   const carLimitSoc = vehicle?.chargeLimitSoc ?? null
   const isPlanMode = chargeMode === 'plan'
+  // While the engine is actively running (non-plan), always show the engine's authoritative targetSoc
+  // so the slider reflects what was actually sent — regardless of page navigation / remount.
   const effectiveTargetSoc = isPlanMode
     ? (nextCharge?.targetSoc ?? engine?.targetSoc ?? manualTargetSoc)
-    : manualTargetSoc
+    : (engine?.running && engine?.targetSoc != null)
+      ? engine.targetSoc
+      : manualTargetSoc
 
   // When proxy is disconnected, chargeRateKw is stale — zero it out to avoid ETA and power display errors
   const chargePowerKw = proxyConnected ? Math.max(0, vehicle?.chargeRateKw ?? 0) : 0
@@ -470,6 +479,10 @@ export default function DashboardPage() {
         const targetSoc = Math.max(1, manualTargetSoc)
         flog.info('SESSION', 'Starting charge immediately (user action)', {
           targetSoc,
+          manualTargetSoc,
+          effectiveTargetSoc,
+          engineCurrentTargetSoc: engine?.targetSoc ?? null,
+          chargeLimitSoc: vehicle?.chargeLimitSoc ?? null,
           currentSoc: vehicle?.stateOfCharge,
           vehicleConnected: vehicle?.connected,
           vehiclePluggedIn: vehicle?.pluggedIn,
@@ -704,8 +717,16 @@ export default function DashboardPage() {
               targetSoc={effectiveTargetSoc}
               carLimitSoc={carLimitSoc}
               charging={vehicle.charging}
-              readonly={isPlanMode}
-              onTargetChange={setManualTargetSoc}
+              readonly={isPlanMode || (engine?.running ?? false)}
+              onTargetChange={(v) => {
+                flog.debug('TARGET_SOC', 'Slider dragged', {
+                  newTargetSoc: v,
+                  previousTargetSoc: manualTargetSoc,
+                  engineRunning: engine?.running ?? false,
+                  engineTargetSoc: engine?.targetSoc ?? null,
+                })
+                setManualTargetSoc(v)
+              }}
             />
             {isPlanMode && (
               <div className="mt-1 text-[11px] text-evload-muted">Target set by schedule</div>

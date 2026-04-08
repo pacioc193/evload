@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.5.0'
+export const VERSION = '1.5.2'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,16 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.5.2',
+    releasedAt: '2026-04-08',
+    summary: 'Fix manual charge mode: startEngine(fromPlan=false) resets planArmed so manual sessions report mode=on and return to off after completion; plan sessions stay on plan. Slider now shows engine.targetSoc while charging; slider locked (readonly) during active session; diagnostic flog entries for targetSoc seed/drag/send path',
+  },
+  {
+    version: '1.5.1',
+    releasedAt: '2026-04-08',
+    summary: 'Fix inflated evload average power after proxy retry/navigation: use authoritative sessionStartedAt (DB timestamp) instead of component-local state; nowTsMs uses wall-clock Date.now()',
+  },
   {
     version: '1.5.0',
     releasedAt: '2026-04-07',
