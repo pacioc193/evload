@@ -132,6 +132,7 @@ export async function saveConfig(content: string) {
 
 export interface AppSettings {
   demo: boolean
+  logLevel: 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly'
   haUrl: string
   haPowerEntityId: string
   haChargerEntityId: string
@@ -232,7 +233,7 @@ export async function getTelegramPlaceholders() {
  */
 export async function downloadBackendLog(type: 'combined' | 'error' = 'combined', since?: string): Promise<void> {
   const res = await api.get(`/settings/logs/backend`, {
-    params: { type, ...(since ? { since } : {}) },
+    params: { type, format: 'pretty', ...(since ? { since } : {}) },
     responseType: 'blob',
   })
   const blob = new Blob([res.data as BlobPart], { type: 'text/plain;charset=utf-8' })

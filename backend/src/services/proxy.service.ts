@@ -675,11 +675,7 @@ async function pollVehicleData(): Promise<void> {
     const cableType = normalizeTeslaNilLike(cd?.conn_charge_cable ?? null)
     const chargePortLatch = normalizeTeslaNilLike(cd?.charge_port_latch ?? null)
     const chargePortDoorOpen = typeof cd?.charge_port_door_open === 'boolean' ? cd.charge_port_door_open : null
-    const pluggedIn = Boolean(
-      ['Charging', 'Stopped', 'Complete', 'Connected'].includes(chargingState)
-      || (chargePortLatch && chargePortLatch.toLowerCase() !== 'disengaged')
-      || cableType
-    )
+    const pluggedIn = ['Charging', 'Stopped', 'Complete', 'Connected'].includes(chargingState)
 
     logger.debug('Vehicle data poll parsed', {
       httpResult: fullResponse?.result,

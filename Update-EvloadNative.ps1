@@ -23,13 +23,18 @@ export NODE_OPTIONS="--max-old-space-size=2048"
 echo "🔄 [1/4] Scaricamento aggiornamenti da GitHub..."
 cd /opt/evload
 git fetch --all
-git reset --hard origin/copilot/update-evload-connection-handling
+TARGET_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [ -z "$TARGET_BRANCH" ] || [ "$TARGET_BRANCH" = "HEAD" ]; then
+    TARGET_BRANCH="main"
+fi
+git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+git reset --hard "origin/$TARGET_BRANCH"
 git pull
 
 echo "📦 [2/4] Aggiornamento dipendenze e database..."
 rm -rf backend/node_modules frontend/node_modules
 npm --prefix backend ci --include=dev
-npm --prefix frontend ci
+npm --prefix frontend ci --include=dev
 cd backend
 npx prisma generate
 if npx prisma migrate deploy; then

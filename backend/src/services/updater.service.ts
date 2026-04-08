@@ -233,7 +233,10 @@ echo ""
 echo "🔄 [1/5] Fetching latest changes (branch: ${branch})..."
 cd "$REPO"
 git fetch --all
+git checkout -B "${branch}" "origin/${branch}"
 git reset --hard "origin/${branch}"
+git branch --set-upstream-to="origin/${branch}" "${branch}" >/dev/null 2>&1 || true
+echo "  Checked out branch: $(git rev-parse --abbrev-ref HEAD)"
 echo "  Local HEAD: $(git log -1 --format='%h %s')"
 echo "✅ Source updated to origin/${branch}"
 echo ""
@@ -241,7 +244,7 @@ echo ""
 echo "📦 [2/5] Installing dependencies (may take a few minutes)..."
 rm -rf "$REPO/backend/node_modules" "$REPO/frontend/node_modules"
 npm --prefix "$REPO/backend" ci --include=dev
-npm --prefix "$REPO/frontend" ci
+npm --prefix "$REPO/frontend" ci --include=dev
 echo "✅ Dependencies installed"
 echo ""
 

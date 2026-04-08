@@ -8,7 +8,7 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
-import { logger, sanitizeForLog } from './logger'
+import { logger, sanitizeForLog, setLoggerLevel } from './logger'
 import { loadConfig, getConfig, ensureConfigYaml } from './config'
 import { prisma } from './prisma'
 import authRoutes from './routes/auth.routes'
@@ -225,6 +225,7 @@ ensureEnvFile()
 ensureConfigYaml()
 
 loadConfig()
+setLoggerLevel(getConfig().logLevel)
 
 app.get('/api/health', (_req, res) => {
   const vState = getVehicleState()

@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit'
 import dotenv from 'dotenv'
 import { requireAuth } from '../middleware/auth.middleware'
 import { getConfig, reloadConfig } from '../config'
-import { logger } from '../logger'
+import { logger, setLoggerLevel } from '../logger'
 import { setPassword, verifyPassword } from '../auth'
 import {
   extractMissingTemplatePlaceholders,
@@ -30,6 +30,7 @@ router.get('/', limiter, requireAuth, (_req, res) => {
   const currentToken = process.env.TELEGRAM_BOT_TOKEN
   res.json({
     demo: cfg.demo,
+    logLevel: cfg.logLevel,
     haUrl: cfg.homeAssistant.url,
     haPowerEntityId: cfg.homeAssistant.powerEntityId,
     haChargerEntityId: cfg.homeAssistant.chargerEntityId,
@@ -63,6 +64,7 @@ router.get('/', limiter, requireAuth, (_req, res) => {
 router.patch('/', limiter, requireAuth, (req, res) => {
   const incoming = req.body as Partial<{
     demo: boolean
+    logLevel: 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly'
     haUrl: string
     haPowerEntityId: string
     haChargerEntityId: string
@@ -121,6 +123,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   }
 
   if (incoming.demo !== undefined) parsed['demo'] = incoming.demo
+  if (incoming.logLevel !== undefined) parsed['logLevel'] = incoming.logLevel
 
   const activeCfg = getConfig()
 
@@ -261,7 +264,8 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   }
 
   try {
-    reloadConfig()
+    const nextCfg = reloadConfig()
+    setLoggerLevel(nextCfg.logLevel)
     initTelegram()
   } catch (err) {
     logger.warn('Config reload failed after settings update', { err })
@@ -399,8 +403,33 @@ function parseSinceDuration(since: string | undefined): number | null {
   return null
 }
 
+function formatLogLinePretty(line: string): string {
+  const trimmed = line.trim()
+  if (!trimmed) return ''
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      timestamp?: string
+      level?: string
+      message?: string
+      [key: string]: unknown
+    }
+    const timestamp = typeof parsed.timestamp === 'string' ? parsed.timestamp : 'unknown-time'
+    const level = typeof parsed.level === 'string' ? parsed.level.toUpperCase() : 'INFO'
+    const message = typeof parsed.message === 'string' ? parsed.message : '(no message)'
+    const extras = { ...parsed }
+    delete extras.timestamp
+    delete extras.level
+    delete extras.message
+    const extraPart = Object.keys(extras).length > 0 ? ` ${JSON.stringify(extras)}` : ''
+    return `[${timestamp}] ${level} ${message}${extraPart}`
+  } catch {
+    return trimmed
+  }
+}
+
 router.get('/logs/backend', logDownloadLimiter, requireAuth, (req, res) => {
   const type = (req.query.type as string) === 'error' ? 'error' : 'combined'
+  const format = (req.query.format as string) === 'pretty' ? 'pretty' : 'json'
   const filename = type === 'error' ? 'error.log' : 'combined.log'
   const logPath = path.join(LOG_DIR, filename)
   const since = req.query.since as string | undefined
@@ -423,12 +452,21 @@ router.get('/logs/backend', logDownloadLimiter, requireAuth, (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
   res.setHeader('Content-Type', 'text/plain; charset=utf-8')
 
+  const maybeFormat = (content: string): string => {
+    if (format !== 'pretty') return content
+    return content
+      .split('\n')
+      .map(formatLogLinePretty)
+      .filter(Boolean)
+      .join('\n')
+  }
+
   if (duration !== null) {
     // Time-filtered download: read file, parse JSON lines, filter by timestamp
     try {
       const cutoffIso = new Date(Date.now() - duration).toISOString()
       const content = fs.readFileSync(logPath, 'utf8')
-      const filtered = content
+      const filteredRaw = content
         .split('\n')
         .filter(line => {
           if (!line.trim()) return false
@@ -436,14 +474,30 @@ router.get('/logs/backend', logDownloadLimiter, requireAuth, (req, res) => {
             const parsed = JSON.parse(line) as { timestamp?: string }
             return typeof parsed.timestamp === 'string' && parsed.timestamp >= cutoffIso
           } catch {
-            return false
+            return true
           }
         })
         .join('\n')
+      const filtered = maybeFormat(filteredRaw)
       res.setHeader('Content-Length', Buffer.byteLength(filtered, 'utf8'))
       res.send(filtered)
     } catch (err) {
       logger.error('Failed to filter backend log file', { err, filename })
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to read log file' })
+      }
+    }
+    return
+  }
+
+  if (format === 'pretty') {
+    try {
+      const content = fs.readFileSync(logPath, 'utf8')
+      const pretty = maybeFormat(content)
+      res.setHeader('Content-Length', Buffer.byteLength(pretty, 'utf8'))
+      res.send(pretty)
+    } catch (err) {
+      logger.error('Failed to pretty-format backend log file', { err, filename })
       if (!res.headersSent) {
         res.status(500).json({ error: 'Failed to read log file' })
       }

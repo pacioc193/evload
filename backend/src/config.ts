@@ -34,6 +34,7 @@ const NotificationRuleSchema = z.object({
 
 const ConfigSchema = z.object({
   demo: z.boolean().default(false),
+  logLevel: z.enum(['error', 'warn', 'info', 'verbose', 'debug', 'silly']).default('info'),
   charging: z.object({
     defaultTargetSoc: z.number().min(1).max(100).default(80),
     defaultAmps: z.number().min(1).max(48).default(16),

@@ -179,6 +179,8 @@ function logLevelColor(level: string): string {
   return 'text-evload-muted'
 }
 
+const LOG_LEVEL_OPTIONS: Array<AppSettings['logLevel']> = ['error', 'warn', 'info', 'verbose', 'debug', 'silly']
+
 function CommitCard({
   label,
   commit,
@@ -209,12 +211,12 @@ function CommitCard({
         {highlight === 'behind' && behindCount != null && behindCount > 0 && (
           <span className="flex items-center gap-1 text-[10px] font-semibold text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 rounded-full px-2 py-0.5">
             <ArrowDown size={10} />
-            {behindCount} commit {behindCount === 1 ? 'disponibile' : 'disponibili'}
+            {behindCount} commit {behindCount === 1 ? 'available' : 'available'}
           </span>
         )}
         {highlight === 'uptodate' && (
           <span className="text-[10px] text-green-400 bg-green-500/10 border border-green-500/30 rounded-full px-2 py-0.5">
-            ✓ aggiornato
+            ✓ up to date
           </span>
         )}
       </div>
@@ -235,7 +237,7 @@ function CommitCard({
           </div>
         </>
       ) : (
-        <div className="text-sm text-evload-muted italic">Nessuna informazione disponibile</div>
+        <div className="text-sm text-evload-muted italic">No information available</div>
       )}
     </div>
   )
@@ -676,7 +678,7 @@ export default function SettingsPage() {
       flog.info('LOGS', `Backend ${type} log download requested`)
       await downloadBackendLog(type, since || undefined)
       flog.info('LOGS', `Backend ${type} log downloaded`)
-      setLogMsg(`Backend ${type} log downloaded`)
+      setLogMsg(`Backend ${type} log downloaded (pretty format)`)
     } catch (err) {
       const msg = `Download failed: ${err instanceof Error ? err.message : 'unknown error'}`
       setLogMsg(msg)
@@ -1207,7 +1209,7 @@ export default function SettingsPage() {
               <button
                 onClick={handleOtaFetch}
                 disabled={otaFetching || otaStatus?.state === 'running'}
-                title="Aggiorna info remote (git fetch)"
+                title="Refresh remote info (git fetch)"
                 className="flex items-center gap-1.5 rounded-lg border border-evload-border bg-evload-surface px-3 py-2 text-sm text-evload-text hover:bg-evload-border/50 disabled:opacity-50 transition-colors"
               >
                 <RefreshCw size={14} className={otaFetching ? 'animate-spin' : ''} />
@@ -1225,7 +1227,7 @@ export default function SettingsPage() {
               >
                 {otaStatus?.state === 'running'
                   ? <><Loader2 size={14} className="animate-spin" /> In corso…</>
-                  : <><UploadCloud size={14} /> Avvia Aggiornamento</>
+                  : <><UploadCloud size={14} /> Start Update</>
                 }
               </button>
             </div>
@@ -1234,7 +1236,7 @@ export default function SettingsPage() {
             {engine?.running && (
               <div className="flex items-center gap-2 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400">
                 <span>⚠️</span>
-                <span>Una sessione di ricarica è attiva. L'aggiornamento la interromperà al riavvio del servizio.</span>
+                <span>A charging session is active. The update will interrupt it when the service restarts.</span>
               </div>
             )}
 
@@ -1250,9 +1252,9 @@ export default function SettingsPage() {
                 {otaStatus.state === 'success' && <CheckCircle size={14} />}
                 {otaStatus.state === 'error' && <XCircle size={14} />}
                 <span>
-                  {otaStatus.state === 'running' && `Aggiornamento in corso su "${otaStatus.branch}"…`}
-                  {otaStatus.state === 'success' && `Completato (branch: ${otaStatus.branch}) — ${otaStatus.endedAt ? new Date(otaStatus.endedAt).toLocaleTimeString() : ''}`}
-                  {otaStatus.state === 'error' && `Fallito (exit: ${otaStatus.exitCode}) — ${otaStatus.endedAt ? new Date(otaStatus.endedAt).toLocaleTimeString() : ''}`}
+                  {otaStatus.state === 'running' && `Update running on "${otaStatus.branch}"...`}
+                  {otaStatus.state === 'success' && `Completed (branch: ${otaStatus.branch}) — ${otaStatus.endedAt ? new Date(otaStatus.endedAt).toLocaleTimeString() : ''}`}
+                  {otaStatus.state === 'error' && `Failed (exit: ${otaStatus.exitCode}) — ${otaStatus.endedAt ? new Date(otaStatus.endedAt).toLocaleTimeString() : ''}`}
                 </span>
               </div>
             )}
@@ -1377,7 +1379,7 @@ export default function SettingsPage() {
           <div className="flex items-center gap-3">
             <div className={`w-2.5 h-2.5 rounded-full ${backupStatus?.connected ? 'bg-evload-success' : 'bg-evload-muted'}`} />
             <span className="text-sm">
-              {backupStatus?.connected ? '✅ Google Drive collegato' : '⚪ Google Drive non collegato'}
+              {backupStatus?.connected ? '✅ Google Drive connected' : '⚪ Google Drive not connected'}
             </span>
           </div>
 
@@ -1396,7 +1398,7 @@ export default function SettingsPage() {
           {backupStatus?.connected && (
             <div className="space-y-2">
               <label className="block text-sm text-evload-muted">
-                Cartella di destinazione su Drive
+                Drive destination folder
               </label>
               <div className="flex gap-2">
                 <input
@@ -1436,7 +1438,7 @@ export default function SettingsPage() {
                 <div className="rounded-lg border border-evload-border bg-evload-bg overflow-hidden">
                   {driveFolders.length === 0 ? (
                     <p className="px-3 py-2 text-xs text-evload-muted">
-                      Nessuna cartella trovata nella radice del Drive. Digita il nome che vuoi creare.
+                      No folder found at Drive root. Type the folder name you want to create.
                     </p>
                   ) : (
                     <ul className="max-h-44 overflow-auto divide-y divide-evload-border">
@@ -1464,17 +1466,17 @@ export default function SettingsPage() {
                       onClick={() => setFolderPickerOpen(false)}
                       className="text-xs text-evload-muted hover:text-evload-text"
                     >
-                      Chiudi
+                      Close
                     </button>
                   </div>
                 </div>
               )}
 
               <p className="text-xs text-evload-muted">
-                Percorso relativo nella radice Drive. Supporta sotto-cartelle: <code>Documenti/evload-backups</code>.
-                Le cartelle mancanti vengono create automaticamente.
-                Per cambiare la cartella modifica il campo <code>backup.driveFolderPath</code> in <code>config.yaml</code>
-                (sezione Impostazioni → YAML) oppure clicca "Sfoglia" per selezionare e poi salva via YAML.
+                Relative path under Drive root. Supports nested folders: <code>Documents/evload-backups</code>.
+                Missing folders are created automatically.
+                To change the folder, edit <code>backup.driveFolderPath</code> in <code>config.yaml</code>
+                (Settings section → YAML) or click "Browse" to select and then save via YAML.
               </p>
             </div>
           )}
@@ -1490,7 +1492,7 @@ export default function SettingsPage() {
                     const { url } = await startBackupOAuth()
                     window.location.assign(url)
                   } catch (e) {
-                    setBackupMsg('Errore connessione Google Drive')
+                    setBackupMsg('Google Drive connection error')
                     setBackupError(true)
                     flog.error('BACKUP', 'OAuth start failed', { e })
                     setTimeout(() => setBackupMsg(''), 4000)
@@ -1501,7 +1503,7 @@ export default function SettingsPage() {
                 className="flex items-center gap-2 px-4 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
               >
                 <UploadCloud size={16} />
-                Connetti Google Drive
+                Connect Google Drive
               </button>
             ) : (
               <button
@@ -1512,10 +1514,10 @@ export default function SettingsPage() {
                     await disconnectBackupOAuth()
                     const s = await getBackupStatus()
                     setBackupStatus(s)
-                    setBackupMsg('Google Drive disconnesso')
+                    setBackupMsg('Google Drive disconnected')
                     setBackupError(false)
                   } catch {
-                    setBackupMsg('Errore disconnessione')
+                    setBackupMsg('Disconnect failed')
                     setBackupError(true)
                   } finally {
                     setBackupBusy(false)
@@ -1525,7 +1527,7 @@ export default function SettingsPage() {
                 className="flex items-center gap-2 px-4 py-2 bg-evload-border hover:bg-evload-muted/20 rounded-lg text-sm font-medium disabled:opacity-50"
               >
                 <Trash2 size={16} />
-                Disconnetti
+                Disconnect
               </button>
             )}
 
@@ -1539,12 +1541,12 @@ export default function SettingsPage() {
                     await triggerBackup()
                     const s = await getBackupStatus()
                     setBackupStatus(s)
-                    setBackupMsg('✅ Backup completato')
+                    setBackupMsg('✅ Backup completed')
                     setBackupError(false)
                     const files = await listBackupFiles()
                     setBackupFiles(files.files)
                   } catch (e) {
-                    setBackupMsg('❌ Backup fallito: ' + String(e))
+                    setBackupMsg('❌ Backup failed: ' + String(e))
                     setBackupError(true)
                   } finally {
                     setBackupBusy(false)
@@ -1554,7 +1556,7 @@ export default function SettingsPage() {
                 className="flex items-center gap-2 px-4 py-2 bg-evload-surface border border-evload-border hover:bg-evload-border rounded-lg text-sm font-medium disabled:opacity-50"
               >
                 <RefreshCw size={16} className={backupBusy ? 'animate-spin' : ''} />
-                Esegui Backup Ora
+                Run Backup Now
               </button>
             )}
           </div>
@@ -1567,25 +1569,25 @@ export default function SettingsPage() {
           {backupStatus?.connected && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold">File su Drive</h4>
+                <h4 className="text-sm font-semibold">Files on Drive</h4>
                 <button
                   onClick={async () => {
                     try {
                       const files = await listBackupFiles()
                       setBackupFiles(files.files)
                     } catch {
-                      setBackupMsg('Errore caricamento lista')
+                      setBackupMsg('Failed to load list')
                       setBackupError(true)
                       setTimeout(() => setBackupMsg(''), 4000)
                     }
                   }}
                   className="text-xs text-evload-muted hover:text-evload-text"
                 >
-                  Aggiorna lista
+                  Refresh list
                 </button>
               </div>
               {backupFiles.length === 0 ? (
-                <p className="text-xs text-evload-muted">Nessun backup trovato. Clicca "Aggiorna lista" o esegui il primo backup.</p>
+                <p className="text-xs text-evload-muted">No backup found. Click "Refresh list" or run the first backup.</p>
               ) : (
                 <div className="space-y-1 max-h-56 overflow-auto">
                   {backupFiles.map((f) => (
@@ -1599,15 +1601,15 @@ export default function SettingsPage() {
                       <button
                         disabled={backupBusy}
                         onClick={async () => {
-                          if (!window.confirm(`Ripristinare ${f.name}? L'operazione sovrascriverà config e database.`)) return
+                          if (!window.confirm(`Restore ${f.name}? This will overwrite config and database.`)) return
                           setBackupBusy(true)
                           setBackupMsg('')
                           try {
                             await restoreBackup(f.id)
-                            setBackupMsg('✅ Ripristino completato. Riavvia il servizio per applicare le modifiche.')
+                            setBackupMsg('✅ Restore completed. Restart the service to apply changes.')
                             setBackupError(false)
                           } catch (e) {
-                            setBackupMsg('❌ Ripristino fallito: ' + String(e))
+                            setBackupMsg('❌ Restore failed: ' + String(e))
                             setBackupError(true)
                           } finally {
                             setBackupBusy(false)
@@ -1616,7 +1618,7 @@ export default function SettingsPage() {
                         }}
                         className="shrink-0 px-2 py-1 rounded bg-evload-border hover:bg-evload-accent hover:text-white transition-colors disabled:opacity-40"
                       >
-                        Ripristina
+                        Restore
                       </button>
                     </div>
                   ))}
@@ -1626,10 +1628,10 @@ export default function SettingsPage() {
           )}
 
           <p className="text-xs text-evload-muted pt-2 border-t border-evload-border">
-            Frequenza, orario e cartella si configurano anche tramite il file <code>config.yaml</code> (sezione <code>backup</code>).
-            Per abilitare il backup crea un progetto Google Cloud con l'API Drive abilitata e configura{' '}
-            <code>GOOGLE_CLIENT_ID</code> e <code>GOOGLE_CLIENT_SECRET</code> nel file <code>.env</code>.
-            Vedi <strong>docs/SETUP_GUIDE.md</strong> per la guida completa.
+            Frequency, time and folder can also be configured via <code>config.yaml</code> (section <code>backup</code>).
+            To enable backup, create a Google Cloud project with Drive API enabled and configure{' '}
+            <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> in <code>.env</code>.
+            See <strong>docs/SETUP_GUIDE.md</strong> for the full guide.
           </p>
         </div>
       </CollapsiblePanel>
@@ -1648,6 +1650,25 @@ export default function SettingsPage() {
               <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Backend Logs</h4>
               <p className="text-xs text-evload-muted">Server-side logs including engine operations, charging commands, HA events, and errors.</p>
               <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-evload-muted shrink-0">Severity:</label>
+                  <select
+                    value={settings?.logLevel ?? 'info'}
+                    onChange={(e) => setSettings((prev) => prev ? { ...prev, logLevel: e.target.value as AppSettings['logLevel'] } : prev)}
+                    className="flex-1 bg-evload-bg border border-evload-border rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-evload-accent"
+                  >
+                    {LOG_LEVEL_OPTIONS.map((level) => (
+                      <option key={level} value={level}>{level}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => handleSettingsSave('logs')}
+                    disabled={!settings || logBusy}
+                    className="px-3 py-1 text-xs rounded-lg border border-evload-border hover:border-evload-accent disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                </div>
                 <div className="flex items-center gap-2">
                   <label className="text-xs text-evload-muted shrink-0">Time range:</label>
                   <select

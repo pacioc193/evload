@@ -22,7 +22,7 @@ function readStoredBoolean(storageKey: string, fallback: boolean): boolean {
 
 function formatHoursToEta(hours: number | null): string {
   if (hours == null || !Number.isFinite(hours)) return '—'
-  if (hours <= 0) return 'Completata'
+    if (hours <= 0) return 'Completed'
   const totalMinutes = Math.round(hours * 60)
   const h = Math.floor(totalMinutes / 60)
   const m = totalMinutes % 60

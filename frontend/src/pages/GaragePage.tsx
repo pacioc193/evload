@@ -116,11 +116,11 @@ export default function GaragePage() {
     setStatusMsg(null)
     try {
       await startCharging(targetSoc)
-      setStatusMsg(`✅ Ricarica avviata → ${targetSoc}%`)
+      setStatusMsg(`✅ Charging started -> ${targetSoc}%`)
       setShowSocSlider(false)
       flog.info('GARAGE', 'Charge started', { targetSoc })
     } catch (e) {
-      setStatusMsg('❌ Avvio fallito')
+      setStatusMsg('❌ Start failed')
       flog.error('GARAGE', 'Start failed', { e })
     } finally {
       setBusy(false)
@@ -133,10 +133,10 @@ export default function GaragePage() {
     setStatusMsg(null)
     try {
       await stopCharging()
-      setStatusMsg('⏹ Ricarica fermata')
+      setStatusMsg('⏹ Charging stopped')
       flog.info('GARAGE', 'Charge stopped')
     } catch (e) {
-      setStatusMsg('❌ Stop fallito')
+      setStatusMsg('❌ Stop failed')
       flog.error('GARAGE', 'Stop failed', { e })
     } finally {
       setBusy(false)
@@ -149,10 +149,10 @@ export default function GaragePage() {
     setStatusMsg(null)
     try {
       await sendVehicleCommand('charge_port_open')
-      setStatusMsg('🔌 Porta aperta')
+      setStatusMsg('🔌 Charge port opened')
       flog.info('GARAGE', 'Charge port open')
     } catch (e) {
-      setStatusMsg('❌ Apertura fallita')
+      setStatusMsg('❌ Open command failed')
       flog.error('GARAGE', 'Charge port open failed', { e })
     } finally {
       setBusy(false)
@@ -165,10 +165,10 @@ export default function GaragePage() {
     setStatusMsg(null)
     try {
       await sendVehicleCommand('defrost_max', { on: true })
-      setStatusMsg('🌡️ Sbrinamento attivato')
+      setStatusMsg('🌡️ Defrost enabled')
       flog.info('GARAGE', 'Defrost activated')
     } catch (e) {
-      setStatusMsg('❌ Sbrinamento fallito')
+      setStatusMsg('❌ Defrost failed')
       flog.error('GARAGE', 'Defrost failed', { e })
     } finally {
       setBusy(false)
@@ -194,7 +194,7 @@ export default function GaragePage() {
   const socBarColor = isCharging ? 'bg-green-500' : soc != null && soc >= 80 ? 'bg-blue-500' : 'bg-evload-accent'
 
   // Next scheduled charge info
-  const nextScheduleMsg = engine?.mode === 'plan' ? `Piano armato → ${engine.targetSoc}%` : null
+  const nextScheduleMsg = engine?.mode === 'plan' ? `Plan armed -> ${engine.targetSoc}%` : null
 
   return (
     <div className="relative min-h-screen bg-evload-bg text-evload-text flex flex-col select-none">
@@ -212,7 +212,7 @@ export default function GaragePage() {
           {!screenOff && (
             <div className="text-white/30 text-sm flex flex-col items-center gap-2">
               <Moon size={32} />
-              <span>Tocca per riattivare</span>
+              <span>Tap to wake screen</span>
             </div>
           )}
         </div>
@@ -250,7 +250,7 @@ export default function GaragePage() {
                 {soc != null ? `${soc}%` : '—'}
               </span>
               <span className={clsx('text-lg font-semibold', chargingColor)}>
-                {isCharging ? '⚡ Carica in corso' : engineRunning ? '⏳ Avvio in corso…' : engine?.phase === 'complete' ? '✅ Completata' : '💤 Inattivo'}
+                {isCharging ? '⚡ Charging' : engineRunning ? '⏳ Starting...' : engine?.phase === 'complete' ? '✅ Complete' : '💤 Idle'}
               </span>
             </div>
             {/* Progress bar */}
@@ -274,7 +274,7 @@ export default function GaragePage() {
                 : 'bg-orange-500/10 border border-orange-500/40 text-orange-400'
             )}>
               <Plug size={18} />
-              {vehicle.pluggedIn ? 'Cavo collegato' : 'Cavo non collegato'}
+              {vehicle.pluggedIn ? 'Cable connected' : 'Cable disconnected'}
               {vehicle.cableType && vehicle.pluggedIn && (
                 <span className="ml-auto text-xs font-normal opacity-70">{vehicle.cableType}</span>
               )}
@@ -285,19 +285,19 @@ export default function GaragePage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
             <div className="rounded-xl bg-evload-bg p-3">
               <div className="text-2xl font-bold">{formatKw(vehicle?.chargeRateKw)}</div>
-              <div className="text-xs text-evload-muted mt-1">Potenza ricarica</div>
+              <div className="text-xs text-evload-muted mt-1">Charging power</div>
             </div>
             <div className="rounded-xl bg-evload-bg p-3">
               <div className="text-2xl font-bold">{formatETA(vehicle?.timeToFullChargeH)}</div>
-              <div className="text-xs text-evload-muted mt-1">Fine ricarica</div>
+              <div className="text-xs text-evload-muted mt-1">Charge ETA</div>
             </div>
             <div className="rounded-xl bg-evload-bg p-3">
               <div className="text-2xl font-bold">{formatW(ha?.powerW)}</div>
-              <div className="text-xs text-evload-muted mt-1">Consumo casa</div>
+              <div className="text-xs text-evload-muted mt-1">Home load</div>
             </div>
             <div className="rounded-xl bg-evload-bg p-3">
               <div className="text-2xl font-bold">{vehicle?.chargerActualCurrent != null ? `${vehicle.chargerActualCurrent}A` : '—'}</div>
-              <div className="text-xs text-evload-muted mt-1">Corrente</div>
+              <div className="text-xs text-evload-muted mt-1">Current</div>
             </div>
           </div>
 
@@ -317,8 +317,8 @@ export default function GaragePage() {
         {/* ── Car Options ───────────────────────────────────────── */}
         <div className="rounded-2xl bg-evload-surface border border-evload-border p-4 flex flex-col gap-3">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-widest text-evload-muted mb-0.5">Opzioni Auto</div>
-            <div className="text-[11px] text-evload-muted">Comandi diretti al veicolo — richiede connessione proxy attiva.</div>
+            <div className="text-xs font-semibold uppercase tracking-widest text-evload-muted mb-0.5">Vehicle Controls</div>
+            <div className="text-[11px] text-evload-muted">Direct vehicle commands. Requires active proxy connectivity.</div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
 
@@ -335,9 +335,9 @@ export default function GaragePage() {
                   )}
                 >
                   <Play size={28} />
-                  {showSocSlider ? `Avvia → ${targetSoc}%` : 'Avvia'}
+                  {showSocSlider ? `Start -> ${targetSoc}%` : 'Start'}
                 </button>
-                <p className="text-[10px] text-evload-muted text-center">Avvia sessione di ricarica EVload al target SoC selezionato</p>
+                <p className="text-[10px] text-evload-muted text-center">Start an EVload charging session with the selected SoC target</p>
               </div>
             ) : (
               <div className="flex flex-col gap-1">
@@ -351,9 +351,9 @@ export default function GaragePage() {
                   )}
                 >
                   <Square size={28} />
-                  Ferma
+                  Stop
                 </button>
-                <p className="text-[10px] text-evload-muted text-center">Interrompe la sessione di ricarica attiva e rilascia il controllo EVload</p>
+                <p className="text-[10px] text-evload-muted text-center">Stop the active charging session and release EVload control</p>
               </div>
             )}
 
@@ -368,9 +368,9 @@ export default function GaragePage() {
                 )}
               >
                 <Plug size={28} />
-                Sgancia
+                Unlatch
               </button>
-              <p className="text-[10px] text-evload-muted text-center">Apre il portello del cavo di ricarica per rimuoverlo dal veicolo</p>
+              <p className="text-[10px] text-evload-muted text-center">Open the charge-port door for cable removal</p>
             </div>
 
             <div className="flex flex-col gap-1">
@@ -384,9 +384,9 @@ export default function GaragePage() {
                 )}
               >
                 <Thermometer size={28} />
-                Sbrina
+                Defrost
               </button>
-              <p className="text-[10px] text-evload-muted text-center">Attiva il massimo riscaldamento per sbrinare vetri e abitacolo</p>
+              <p className="text-[10px] text-evload-muted text-center">Enable maximum defrost for windshield and cabin</p>
             </div>
           </div>
         </div>
@@ -394,17 +394,17 @@ export default function GaragePage() {
         {/* ── Screen Options ─────────────────────────────────────── */}
         <div className="rounded-2xl bg-evload-surface border border-evload-border p-4 flex flex-col gap-3">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-widest text-evload-muted mb-0.5">Opzioni Schermo</div>
-            <div className="text-[11px] text-evload-muted">Controlla il comportamento dello schermo tablet in garage.</div>
+            <div className="text-xs font-semibold uppercase tracking-widest text-evload-muted mb-0.5">Screen Options</div>
+            <div className="text-[11px] text-evload-muted">Control tablet screen behavior in garage mode.</div>
           </div>
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <div className="text-sm font-medium">Salvaschermo automatico</div>
+                <div className="text-sm font-medium">Automatic screen saver</div>
                 <div className="text-[11px] text-evload-muted">
                   {screenTimeoutMin === 0
-                    ? 'Disattivato — lo schermo rimane sempre acceso.'
-                    : `Schermo si oscura dopo ${screenTimeoutMin} min di inattività, si spegne completamente dopo la stessa durata.`}
+                    ? 'Disabled — screen stays always on.'
+                    : `Screen dims after ${screenTimeoutMin} min of inactivity, then turns fully off at timeout.`}
                 </div>
               </div>
               <button
@@ -418,12 +418,12 @@ export default function GaragePage() {
                 )}
               >
                 {screenTimeoutMin === 0 ? <Sun size={22} /> : <Moon size={22} />}
-                {screenTimeoutMin === 0 ? 'Attiva' : 'Disattiva'}
+                {screenTimeoutMin === 0 ? 'Enable' : 'Disable'}
               </button>
             </div>
             {screenTimeoutMin > 0 && (
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] text-evload-muted">Minuti di inattività prima dello spegnimento</label>
+                <label className="text-[11px] text-evload-muted">Minutes of inactivity before screen off</label>
                 <div className="flex items-center gap-3">
                   <input
                     type="range"
@@ -455,7 +455,7 @@ export default function GaragePage() {
               </div>
             )}
             <p className="text-[10px] text-evload-muted">
-              Su Raspberry Pi puoi impostare <code>GARAGE_MODE=true</code> nel .env per spegnere fisicamente il display tramite DPMS.
+              On Raspberry Pi, set <code>GARAGE_MODE=true</code> in .env to physically power off the display via DPMS.
             </p>
           </div>
         </div>
@@ -481,14 +481,14 @@ export default function GaragePage() {
                 onClick={() => setShowSocSlider(false)}
                 className="flex-1 py-3 rounded-xl border border-evload-border text-sm font-medium hover:bg-evload-border transition-colors"
               >
-                Annulla
+                Cancel
               </button>
               <button
                 onClick={handleStart}
                 disabled={busy}
                 className="flex-1 py-3 rounded-xl bg-green-600 hover:bg-green-500 text-white text-sm font-semibold disabled:opacity-40 transition-colors"
               >
-                ▶ Avvia → {targetSoc}%
+                ▶ Start → {targetSoc}%
               </button>
             </div>
           </div>

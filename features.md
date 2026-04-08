@@ -5,6 +5,27 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 ## Aggiornamenti Recenti (2026-04-08) — v1.5.3
 
+## Aggiornamenti Recenti (2026-04-08) — v1.5.4
+
+- **Settings / Logs severity selector**:
+	- Added `logLevel` to backend config schema and `/api/settings` GET/PATCH contract.
+	- Runtime logger severity can now be changed from Settings without backend restart.
+	- Allowed levels: `error`, `warn`, `info`, `verbose`, `debug`, `silly`.
+
+- **Human-readable backend log downloads**:
+	- `GET /api/settings/logs/backend` now supports `format=pretty`.
+	- Download from Settings uses pretty format by default for easier manual diagnosis while file logs remain JSON.
+
+- **OTA / native update branch consistency + frontend build reliability**:
+	- OTA updater now checks out the selected branch explicitly (`git checkout -B <branch> origin/<branch>`) before reset/build.
+	- Native updater now restores/updates the current branch explicitly and installs frontend dev dependencies (`npm ci --include=dev`) to prevent `tsc: not found`.
+
+- **Frontend language consistency**:
+	- Garage and related user-facing labels were aligned to English wording.
+
+- **Garage cable state consistency**:
+	- Proxy plugged-in inference now follows charging-state semantics only (`Charging|Stopped|Complete|Connected`) to avoid false "connected cable" badges when backend start checks report disconnected cable.
+
 - **OTA Update panel in Settings / Versioning**:
   - Nuovo pannello "OTA Update" dentro la sezione Versioning delle Impostazioni.
   - **Card commit locale vs remoto**: mostra hash corto, messaggio, autore e data sia per HEAD locale che per `origin/<branch>`. Badge "N commit disponibili" (giallo) oppure "✓ aggiornato" (verde).
