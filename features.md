@@ -3,7 +3,159 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Aggiornamenti Recenti (2026-04-08) — v1.5.6
+
+## Aggiornamenti Recenti (2026-04-09) — v1.5.5
+
+- **Version bump**:
+	- Versione aggiornata a `1.5.5` in:
+		- `backend/src/version.ts`
+		- `package.json` root
+		- `backend/package.json`
+		- `frontend/package.json`
+
+- **Statistiche: export CSV sessione selezionata**:
+	- Aggiunto pulsante `Download CSV` nella pagina Statistics.
+	- Il file include metadati sessione (energia, costo, efficienza, tariffa) + tabella telemetria completa.
+
+- **Statistiche: asse X a data/ora reale**:
+	- I grafici sessione (SoC, Potenza/Corrente, Tensione) usano ora `recordedAt` come timeline.
+	- Rimosso asse X in minuti trascorsi di ricarica.
+	- Tooltip e tick mostrano ora data/ora telemetria.
+
+- **Rewrite totale calcolo "Evload average" in Dashboard**:
+	- Rimossa la media su tutta la durata sessione (lenta a convergere dopo fasi di attesa/start).
+	- Nuova logica basata su finestra mobile di energia recente (`accumulatedSessionEnergyKwh`) con slope su campioni temporali.
+	- Fallback alla potenza live solo quando la finestra minima non è ancora sufficiente.
+
+- **Fix OFF non interrompe ricarica con proxy instabile**:
+	- Su `stopEngine({ forceOff: true })` il backend tenta `charge_stop` anche con telemetria veicolo non connessa.
+	- Se il comando fallisce (es. proxy 503), viene attivato retry automatico periodico con limite massimo tentativi.
+	- Al reconnect del proxy viene eseguito un retry immediato del `charge_stop` pendente.
+
+- **Fix re-sync corrente richiesta Tesla vs setpoint engine**:
+	- Quando il backend rileva mismatch tra setpoint evload e `charge_current_request` riportato dal proxy Tesla, invia nuovamente `set_charging_amps`.
+	- Retry limitato da cooldown per evitare command spam.
+	- Caso tipico risolto: corrente bloccata a 14A mentre target engine/setpoint richiede 16A.
+
+- **Dashboard target SoC persistente per modalità ON/OFF**:
+	- Introdotte preferenze target SoC separate per `on` e `off`, persistite lato backend in `engine_restore_state`.
+	- Aggiunti endpoint autenticati:
+		- `GET /api/engine/targets` (lettura preferenze)
+		- `PATCH /api/engine/targets` (aggiornamento preferenze)
+	- Le preferenze sono condivise tra browser e sopravvivono a refresh/reopen.
+
+- **Slider SoC modificabile in ON e OFF**:
+	- Dashboard: slider non più bloccato durante sessione manuale `on` (resta readonly in `plan`).
+	- In `on`, il commit dello slider salva il target e aggiorna immediatamente il target attivo dell'engine.
+	- In `off`, il commit salva il target predefinito usato per il successivo start manuale.
+
+## Aggiornamenti Recenti (2026-04-08) — v1.5.5
+
+- **Fix `proxyGet` — errori HTTP non causano più offline marking né retry inutili**:
+  - `proxyGet` ora controlla, dopo il filtro sleep-response, se l'errore è un errore HTTP (`err.response != null`). In questo caso il proxy È raggiungibile (ha risposto con un codice di stato), si tratta di un problema a livello veicolo (es. 503).
+  - Comportamento precedente: 3 retry consecutivi su qualsiasi errore → `markProxyError` → proxy marcato offline → soft failsafe → log `PROXY_CONNECTIVITY_TRANSITION` anche se il proxy stava rispondendo.
+  - Comportamento nuovo: su errori HTTP (503, 4xx, ecc.) si lancia immediatamente l'errore senza retry e senza chiamare `markProxyError`. Il poll body-controller continuerà al prossimo tick e recupererà automaticamente la comunicazione quando il proxy torna operativo.
+  - Il retry a 3 tentativi rimane SOLO per failure di rete (ECONNREFUSED, ETIMEDOUT, ecc.) dove il proxy non risponde affatto.
+  - Log dedicato `PROXY_GET_HTTP_ERROR` con `statusCode` e URL per ogni caso HTTP-error.
+  - Allineamento con `proxyPost` che già gestiva gli errori HTTP allo stesso modo (`PROXY_CMD_ERROR`).
+
+## Aggiornamenti Recenti (2026-04-08) — v1.5.3
+
+## Aggiornamenti Recenti (2026-04-08) — v1.5.4
+
+- **Settings / Logs severity selector**:
+	- Added `logLevel` to backend config schema and `/api/settings` GET/PATCH contract.
+	- Runtime logger severity can now be changed from Settings without backend restart.
+	- Allowed levels: `error`, `warn`, `info`, `verbose`, `debug`, `silly`.
+
+- **Human-readable backend log downloads**:
+	- `GET /api/settings/logs/backend` now supports `format=pretty`.
+	- Download from Settings uses pretty format by default for easier manual diagnosis while file logs remain JSON.
+
+- **OTA / native update branch consistency + frontend build reliability**:
+	- OTA updater now checks out the selected branch explicitly (`git checkout -B <branch> origin/<branch>`) before reset/build.
+	- Native updater now restores/updates the current branch explicitly and installs frontend dev dependencies (`npm ci --include=dev`) to prevent `tsc: not found`.
+
+- **Frontend language consistency**:
+	- Garage and related user-facing labels were aligned to English wording.
+
+- **Garage cable state consistency**:
+	- Proxy plugged-in inference now follows charging-state semantics only (`Charging|Stopped|Complete|Connected`) to avoid false "connected cable" badges when backend start checks report disconnected cable.
+
+- **OTA Update panel in Settings / Versioning**:
+  - Nuovo pannello "OTA Update" dentro la sezione Versioning delle Impostazioni.
+  - **Card commit locale vs remoto**: mostra hash corto, messaggio, autore e data sia per HEAD locale che per `origin/<branch>`. Badge "N commit disponibili" (giallo) oppure "✓ aggiornato" (verde).
+  - **Auto-check ogni 60 s**: `startAutoFetch()` avvia un `setInterval` nel backend che esegue `git fetch --all --prune` ogni 60 secondi (senza network call sulla pagina). Non gira durante un aggiornamento attivo.
+  - **Branch selector**: dropdown con tutti i branch remoti; il branch corrente è marcato con `(current)`.
+  - **Pulsante "Fetch ora"**: trigger manuale di `POST /api/update/fetch` per aggiornare subito le info remote.
+  - **Pulsante "Avvia Aggiornamento"**: `POST /api/update/start` con `{ branch }`. Esegue in background (processo bash detached): `git fetch → git reset --hard origin/<branch> → npm ci → prisma migrate → build-prod.sh → systemctl/pm2 restart`.
+  - **Log di build in tempo reale**: polling `GET /api/update/logs?from=<byte>` ogni 1 s mentre l'aggiornamento è in corso. Log appesi in una `<pre>` con auto-scroll e max-height 18rem.
+  - **Badge stato**: idle/in corso/completato/errore con icone animate.
+  - **Warning sessione attiva**: avviso giallo se il motore sta caricando.
+  - **Persistenza**: `updater.log` e `updater.status.json` scritti in `<repo_root>/` → sopravvivono al riavvio del servizio.
+  - **Tutti gli endpoint protetti da JWT** (`requireAuth`): `GET /api/update/status`, `POST /api/update/fetch`, `POST /api/update/start`, `GET /api/update/logs`.
+  - Rate limit: 60 req/min per status/logs, 6 req/min per fetch, 3 aggiornamenti ogni 5 min per start.
+
+- **Fix grafici statistiche (solo 1h visibile)**:
+  - `GET /api/sessions/:id` aveva `take: 3600` (hardcoded = 1 ora a 1 pt/s). Sostituito con downsampling intelligente: se `totalPoints ≤ 1000` restituisce tutto; altrimenti usa SQLite `ROW_NUMBER()` per selezionare 1000 punti distribuiti uniformemente + ultimo punto sempre incluso.
+  - Frontend: asse X dei grafici ora usa minuti trascorsi dall'inizio sessione (proporzionale, non indice) con `tickFormatter="Xmin"`.
+
+## Aggiornamenti Recenti (2026-04-08) — v1.5.2
+
+- **Fix modalità dopo fine ricarica (manuale vs plan)**:
+  - `startEngine` accetta un nuovo parametro `fromPlan: boolean` (default `false`).
+  - Quando `fromPlan=false` (avvio manuale tramite API `/engine/start`), il flag `planArmed` viene resettato a `false` → la sessione riceve `mode='on'` e, a fine ricarica, il motore torna a `mode='off'`.
+  - Quando `fromPlan=true` (avvio da scheduler), `planArmed` resta `true` → la sessione riceve `mode='plan'` e, a fine ricarica, il motore resta `mode='plan'` (piano armato).
+  - Il service scheduler chiama `startEngine(targetSoc, targetAmps, true)`.
+
+- **Fix slider SOC durante sessione attiva**:
+  - `effectiveTargetSoc` usa `engine.targetSoc` (valore autorevole dal backend) quando il motore è in esecuzione in modalità manuale, evitando che un remount della pagina mostri 80% (da `chargeLimitSoc`) invece del valore effettivamente inviato.
+  - Il cursore è `readonly` anche durante una sessione manuale attiva (precedentemente solo in plan mode), impedendo modifiche al target durante la carica.
+
+- **Log diagnostici targetSoc**:
+  - `flog.debug('TARGET_SOC')` quando `manualTargetSoc` viene seminato da `chargeLimitSoc` (con contesto engine running/targetSoc).
+  - `flog.debug('TARGET_SOC')` ad ogni spostamento del cursore (valore precedente/nuovo, stato engine).
+  - `flog.info('SESSION')` arricchito al click Start: include `manualTargetSoc`, `effectiveTargetSoc`, `engineCurrentTargetSoc`, `chargeLimitSoc`.
+
+## Aggiornamenti Recenti (2026-04-08) — v1.5.1
+
+- **Fix media potenza evload gonfiata dopo retry/navigazione**:
+  - `chargingStartedAtMs` era stato locale al componente React → resettato ad ogni remount, producendo tempi trascorsi piccoli e potenza media enorme.
+  - Aggiunto `sessionStartedAt: string | null` in `EngineStatus` (backend + wsStore), impostato al timestamp DB di avvio sessione e azzerato a fine sessione.
+  - Il frontend usa `engine.sessionStartedAt` e `Date.now()` (wall clock) per calcolare `chargingElapsedMs`, eliminando il problema del remount.
+
+## Aggiornamenti Recenti (2026-04-07) — v1.5.0
+
+- **Proxy resilience — 3 tentativi prima di dichiarare lost communication**:
+	- `proxyGet` ora esegue fino a 3 tentativi prima di chiamare `markProxyError` e propagare l'errore.
+	- Ogni tentativo usa un timeout di 30 s (aumentato da 4 s / 8 s per coprire risposte lente del proxy BLE fino a ~30 s).
+	- Tutti i timeout proxy allineati a 30 s: `proxyGet` default, `body_controller_state`, `vehicle_data`, `proxyPost`, `PUT sendCommand`.
+	- Ogni tentativo fallito logga `PROXY_GET_RETRY` con numero tentativo e timeout.
+	- Worst-case prima del "lost communication": 3 × 30 s = 90 s.
+
+- **ETA guardia contro proxy disconnesso**:
+	- `chargeRateKw` dal proxy Tesla viene azzerato nel frontend quando `proxyConnected=false`, evitando che valori stale (es. 30 kW) alimentino il calcolo ETA.
+	- `machineHours` (ETA nativa del veicolo) viene anch'essa ignorata quando il proxy è offline.
+	- `fallbackAveragePowerKw` è condizionato a `proxyConnected`: quando offline si usa solo la media calcolata dal contatore reale; se non disponibile, ETA mostra "—".
+
+- **Statistics — ricaricamento automatico a fine sessione**:
+	- La pagina Statistics sottoscrive `engine.sessionId` via wsStore.
+	- Quando la sessione termina (`sessionId` passa da un valore a `null`), la lista sessioni si ricarica automaticamente dopo 1,5 s (per attendere il commit DB finale con `totalCostEur`, `chargingEfficiencyPct`, ecc.).
+
 ## Aggiornamenti Recenti (2026-03-25)
+
+- Hardening install/update script (2026-04-07):
+	- Tutti gli script di installazione/aggiornamento ora forzano reinstall pulita dipendenze npm (`rm -rf node_modules` + `npm ci`).
+	- Update Docker e deploy Proxmox eseguono `docker compose build --no-cache` per rigenerare sempre i layer dipendenze.
+	- Tutti i percorsi deploy/update/install ora eseguono sync schema robusto: `prisma migrate deploy` con fallback automatico a `prisma db push --accept-data-loss`.
+	- In caso di restart fallito del servizio/container, gli script stampano automaticamente gli ultimi log (`journalctl`/`docker compose logs`) e terminano con errore.
+	- Nuova gestione engine per `charge_start` con veicolo/cavo disconnesso: retry sospesi finché lo stato non rientra, con messaggio esplicito nello stato engine.
+	- Nuovo evento notifiche Telegram `charge_start_blocked` con payload contestuale (`reason`, `chargingState`, `pluggedIn`, `vehicleConnected`, `soc`, `sessionId`).
+	- Notifications UI: aggiunto template predefinito per `charge_start_blocked` nel builder eventi e nel pacchetto "Load examples".
+	- Dashboard: avviso visuale dedicato quando il blocco `charge_start` è attivo.
+	- Layout: menu laterale collassabile con bottone hamburger (desktop + drawer mobile).
+	- Obiettivo: eliminare drift/incompletezza di `node_modules` post-update (es. modulo runtime mancante `googleapis`).
 
 - Vehicle energy baseline al session start:
 	- `charge_energy_added` letto dal proxy Tesla non viene sempre azzerato tra sessioni.
@@ -16,6 +168,7 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 	- Efficienza calcolata sempre su valore sessione-relativo.
 - Nuovo parametro `charging.startAmps` (default 8 A):
 	- Al primo comando in sessione, l'engine usa `startAmps` invece del default del veicolo.
+	- **Safe charge start sequence**: `set_charging_amps(startAmps)` è inviato e confermato PRIMA di `charge_start`, garantendo che Tesla accetti il setpoint sicuro prima che la corrente cominci a scorrere. Questo evita picchi di corrente all'accensione nel caso in cui l'ultimo livello impostato fosse troppo elevato.
 	- Il ramp-up incrementa di +1A per `rampIntervalSec` partendo dal setpoint comandato (`setpointAmps`), non dall'ampere effettivo riportato dal veicolo (che può essere in ritardo).
 	- `setpointAmps` inizializzato a 0 all'avvio sessione come sentinel per il primo comando.
 	- Aggiornati `config.yaml`, `config.example.yaml` e schema Zod.
@@ -165,6 +318,30 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 - Variabili obbligatorie minime: `DATABASE_URL`, `JWT_SECRET`.
 - Variabili opzionali (da tenere come placeholder commentati nel template): `TELEGRAM_BOT_TOKEN`, `HA_CLIENT_ID`, `HA_CLIENT_SECRET`, `APP_URL`, `FRONTEND_URL`, `PORT`, `LOG_LEVEL`.
 - Ogni modifica alla policy `.env` deve aggiornare `backend/.env.example` e la sezione Environment Variables in `README.md`.
+
+24. Tutti i valori configurabili devono essere presenti nella pagina Impostazioni.
+- Ogni parametro presente nello schema Zod del backend (`config.ts`) deve essere esposto e modificabile dalla pagina Settings del frontend.
+- Il backend deve esporre il valore via GET `/api/settings` e accettare l'aggiornamento via PATCH `/api/settings`.
+- Il frontend deve mostrare un campo UI dedicato con label chiara e descrizione per ogni parametro.
+- Aggiungere un parametro al solo config.yaml/schema Zod senza esporlo in Settings è `FAILED`.
+- Questo include (ma non si limita a): `proxy.chargingPollIntervalMs`, `proxy.windowPollIntervalMs`, `proxy.bodyPollIntervalMs`, `proxy.vehicleDataWindowMs`, `charging.startAmps`, e qualsiasi nuovo parametro aggiunto in futuro.
+
+25. Strategia di Polling Smart per vehicle_data — Two Independent Timers.
+- Due timer indipendenti: **body timer** (sempre attivo, intervallo: `bodyPollIntervalMs`) e **vehicle data timer** (condizionale).
+- **Body timer**: chiama sempre `body_controller_state` a intervallo fisso (`bodyPollIntervalMs`). Non sveglia il veicolo. Gestisce le transizioni sleep/wake e apre/chiude la finestra vehicle_data.
+- **Vehicle data timer**: chiamato SOLO quando la finestra è attiva (intervallo: `windowPollIntervalMs`) o quando il veicolo è in ricarica/engine running (intervallo: `chargingPollIntervalMs`). Si ferma automaticamente quando nessuna condizione è attiva.
+- `bodyPollIntervalMs` è indipendente dallo stato della finestra o della ricarica — non viene mai sovrascritto.
+- All'avvio di una sessione di ricarica (requestWakeMode) la finestra vehicle_data viene riaperta e il vehicle data timer viene avviato.
+- Una implementazione con un singolo timer che sovrascrive bodyPollIntervalMs durante la finestra è `FAILED`.
+- Il pannello Proxy nelle impostazioni mostra il countdown della finestra dati attiva e lo stato sleep del veicolo in tempo reale.
+
+26. Regola di Versioning.
+- Il numero di versione è contenuto in `backend/src/version.ts` (costante `VERSION`) e deve corrispondere a `backend/package.json` e `frontend/package.json`.
+- Ad ogni rilascio significativo (nuova feature, bugfix importante, refactor UX) incrementare la versione secondo SemVer: PATCH per bugfix/UX minori, MINOR per nuove feature, MAJOR per breaking changes.
+- Aggiungere sempre un nuovo entry a `VERSION_HISTORY` in `version.ts` con data e sommario della release.
+- Aggiornare contemporaneamente `backend/package.json`, `frontend/package.json` e `package.json` (root).
+- Il controllo di aggiornamenti usa la GitHub Releases API. Se `GITHUB_TOKEN` è configurato nel backend `.env`, funziona anche su repository privati.
+- Mostrare "—" (non "Unknown") quando la versione latest non è recuperabile.
 
 ## Protocollo Di Verifica Per Ogni Step
 
@@ -856,8 +1033,102 @@ Accettazione letterale:
 - C3: Client Home Assistant (aiohttp) ricevono la pagina di identità OAuth Client.
 - C4: Disabilitata direttiva `upgradeInsecureRequests` in Helmet per permettere il caricamento via HTTP in rete locale.
 
+## F-53 Connection Recovery (Proxy Disconnect)
+
+Requisito: "Quando il proxy BLE si disconnette durante una sessione di ricarica, il motore deve sospendere la sessione (non terminarla) e riprenderla automaticamente alla riconnessione."
+Accettazione letterale:
+- C1: `failsafe.service.ts` distingue tra failsafe `hard` (HA disconnect → stop definitivo) e `soft` (proxy disconnect → pausa temporanea).
+- C2: Su `proxyEvents.on('disconnected')`: si attiva failsafe `soft`, il motore salva `suspendedState` (targetSoc, targetAmps) e transisce in fase `paused`.
+- C3: Il motore NON chiama `stopEngine()` né invia `charge_stop` al proxy (irraggiungibile).
+- C4: Su `proxyEvents.on('connected')`: se `suspendedState` presente, il motore riavvia automaticamente la ricarica con i parametri salvati; emette log `🔄[CHARGE_RESUME]`.
+- C5: Nuovo flag `proxy.stopAutonomousCharge: boolean` (default `true`) — se il proxy riconnette e il veicolo sta già caricando autonomamente (non avviato da evload), invia `charge_stop`.
+- C6: La config `proxy.stopAutonomousCharge` è documentata in `config.example.yaml`.
+
+## F-54 Pannello Garage (RPi 7" + Mobile)
+
+Requisito: "Nuova pagina `/garage` touch-friendly ottimizzata per Raspberry Pi 4 + display 7" 800×480, accessibile anche da mobile."
+Accettazione letterale:
+- C1: Nuova route `/garage` in `App.tsx` con `<Layout>` esistente; link nel nav con icona Warehouse.
+- C2: Layout responsive (flex/grid): su desktop e RPi mostra griglia 4 colonne metriche + 4 pulsanti; su mobile ≤768px colonna singola.
+- C3: Pannello superiore: SoC (barra + percentuale grande), potenza ricarica (kW), ETA, consumo casa, corrente (A).
+- C4: Pulsanti azione (min 88px height): Avvia (con slider SOC), Ferma, Sgancia cavo, Sbrinamento rapido.
+- C5: Screen saver: overlay CSS trasparente → nero dopo N minuti; qualsiasi evento `touchstart`/`mousedown`/`mousemove`/`keydown` resetta il timer; Screen Wake Lock API dove disponibile.
+- C6: Configurazione timeout schermo persistita in localStorage.
+- C7: Backend endpoint `POST /api/garage/display` (protetto JWT) esegue `vcgencmd display_power 0/1` solo se `GARAGE_MODE=true`.
+
+## F-55 Backup su Google Drive
+
+Requisito: "Backup automatico di `config.yaml` e database SQLite su Google Drive via OAuth2, con selezione della cartella di destinazione."
+Accettazione letterale:
+- C1: `backup.service.ts` usa `googleapis` v144 per OAuth2 + Drive API.
+- C2: Backup compressi come `.tar.gz` con timestamp nel nome (`evload-backup-YYYY-MM-DD-<ts>.tar.gz`).
+- C3: Cartella Drive configurabile tramite `backup.driveFolderPath` in `config.yaml`; supporta percorsi nidificati (es. `Documenti/evload-backups`); cartelle mancanti create automaticamente.
+- C4: Frontend folder-picker in Settings → Backup: sfoglia cartelle radice Drive, selezione con click o digitazione libera.
+- C5: Scheduler integrato: ogni minuto controlla se eseguire il backup in base a `frequency` (daily/weekly/monthly) e `time` HH:MM.
+- C6: Retention: mantieni ultimi N backup su Drive (default 10), eliminazione automatica dei più vecchi.
+- C7: Endpoint `POST /api/backup/restore` scarica e decomprime un backup da Drive, sovrascrive file locali.
+- C8: Prisma schema aggiornato con campi `google_access_token`, `google_refresh_token`, `google_token_expiry`, `last_backup_at`.
+- C9: Stato connessione (ultimo backup, prossimo backup, cartella corrente) visibile in Settings panel collassabile.
+
+## F-56 Script Raspberry Pi (bash + PowerShell)
+
+Requisito: "Script di installazione, aggiornamento, kiosk e display per Raspberry Pi 4, disponibili sia per Unix/bash che per Windows/PowerShell."
+Accettazione letterale:
+- C1: `scripts/raspberry/install.sh` — installazione completa su RPi da zero (apt, Node.js, Chromium, unclutter, build, systemd, kiosk, screen blanking).
+- C2: `scripts/raspberry/install.ps1` — stesso flusso eseguito in remoto da Windows via SSH.
+- C3: `scripts/raspberry/update.sh` — build locale + rsync dist → RPi + restart + health check (Unix).
+- C4: `scripts/raspberry/update.ps1` — stesso flusso da Windows PowerShell.
+- C5: `scripts/raspberry/setup-kiosk.sh` / `setup-kiosk.ps1` — solo configurazione Chromium kiosk + autostart LXDE.
+- C6: `scripts/raspberry/setup-display.sh` / `setup-display.ps1` — rotazione display `/boot/config.txt`, DPMS xorg, permesso vcgencmd sudoers.
+
+## F-57 Setup Guide
+
+Requisito: "Guida step-by-step in `docs/SETUP_GUIDE.md` che copra tutte le opzioni di installazione."
+Accettazione letterale:
+- C1: Sezioni: Docker, Ubuntu/Proxmox nativo, Raspberry Pi 4, Prima Configurazione, Google Drive Backup, Pannello Garage, Aggiornamento, Troubleshooting.
+- C2: Tabella prerequisiti hardware e software.
+- C3: Comandi copy-pastabili per ogni scenario.
+
 ## Regola Finale Anti-Regressione
 
 Quando un item e' `VERIFIED`, rieseguire i test/build minimi e confermare che non rompe item gia' verificati.
 Se una modifica altera comportamento specifico richiesto, riportare immediatamente `REGRESSION`.
 
+
+## F-58 Comandi Proxy Sincroni + Fix False Proxy-Offline
+
+Requisito: "I comandi inviati dal pannello garage devono risvegliare eventualmente l'auto. Il backend marcava il proxy come offline quando la macchina era in sleep. Tutti i comandi devono usare ?wait=true."
+
+### Proxy false-offline fix
+- C1: `proxyPost`: se il proxy risponde con un HTTP error (`err.response != null`), il proxy è raggiungibile — non viene chiamato `markProxyError`. Solo gli errori di rete (nessuna risposta) marcano il proxy offline.
+- C2: `updateProxyDataRequest` (PUT): stessa logica — HTTP error = proxy raggiungibile, network error = proxy offline.
+- C3: Il proxy health viene gestito dai frequenti poll `body_controller_state` (sempre attivi) — i fallimenti dei comandi non interferiscono con lo stato di connettività.
+
+### Comandi sincroni con ?wait=true
+- C4: `sendProxyCommand` aggiunge sempre `?wait=true` all'URL: il proxy aspetta il completamento BLE prima di rispondere, e gestisce l'auto-wake autonomamente se il veicolo è in sleep.
+- C5: Timeout 90 s (copre: wake ~40 s + BLE ~5 s + buffer).
+- C6: `vehicle.routes.ts`: semplificato — nessuna logica di pre-wake manuale. Log diagnostico se il veicolo è in sleep al momento del comando.
+- C7: Tutti i comandi del charging engine (`charge_start`, `charge_stop`, `set_charging_amps`, `wake_up`) e dello scheduler (`auto_conditioning_start/stop`, `set_temps`) usano la stessa `sendProxyCommand` e beneficiano di `?wait=true`.
+
+## F-59 Log Export con Filtro Temporale
+
+Requisito: "Il pannello Logs deve permettere di filtrare i log per intervallo temporale prima del download."
+Accettazione:
+- C1: Backend `/api/settings/logs/backend` accetta query param `since` con valori `1h`, `6h`, `24h`, `7d`.
+- C2: Quando `since` è specificato, legge il file di log, filtra le righe JSON dove `timestamp >= cutoff`, restituisce solo quelle.
+- C3: Quando `since` non è specificato, comportamento invariato (stream completo del file).
+- C4: Frontend: select "Time range" nel pannello Backend Logs con opzioni All / 1h / 6h / 24h / 7d.
+- C5: `downloadBackendLog(type, since?)` passa il parametro `since` come query string.
+- C6: Stato `logSince` inizializzato a `''` (All logs).
+
+## F-60 Verbose Logging e LOG_LEVEL Support
+
+Requisito: "Logging verboso per diagnostica proxy/engine; LOG_LEVEL configurabile via env var."
+Accettazione:
+- C1: `pollBodyController`: aggiunto `logger.debug` al tick iniziale e `logger.verbose` dopo la risposta con `sleepStatus` e `userPresence`.
+- C2: `pollVehicleData`: aggiunto `logger.debug` al tick con contesto `isCurrentlyCharging`, `engineRunning`, `windowActive`.
+- C3: `runEngineStep`: aggiunto `logger.verbose` dopo ogni tick con `enginePhase`, `soc`, `actualAmps`, `targetAmps`, `chargingState`, `homePowerW`, `vehicleSleepStatus`.
+- C4: `.env.example` aggiornato con descrizione estesa di `LOG_LEVEL` (tutti i livelli) e `GARAGE_MODE`.
+- C5: `docker-compose.yml` aggiunto `LOG_LEVEL` e `GARAGE_MODE` all'environment section.
+- C6: `README.md` env table aggiornata con `LOG_LEVEL` livelli completi e `GARAGE_MODE`.
+- C7: Pannello Logs spostato dopo il pannello Backup nella Settings UI.

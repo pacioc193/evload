@@ -2,9 +2,9 @@ import { EventEmitter } from 'events'
 import { logger } from '../logger'
 import { getConfig } from '../config'
 import { prisma } from '../prisma'
-import { getVehicleState, sendProxyCommand, requestWakeMode, vehicleEvents } from '../services/proxy.service'
+import { getVehicleState, sendProxyCommand, requestWakeMode, vehicleEvents, proxyEvents } from '../services/proxy.service'
 import { getHaState } from '../services/ha.service'
-import { isFailsafeActive } from '../services/failsafe.service'
+import { isFailsafeActive, getFailsafeType } from '../services/failsafe.service'
 import { notificationEvents, dispatchTelegramNotificationEvent } from '../services/notification-rules.service'
 import { computeBalancingAction, shouldAdjustAmps, clampAmps } from './balancing'
 
@@ -14,7 +14,11 @@ export interface EngineStatus {
   running: boolean
   mode: 'off' | 'plan' | 'on'
   sessionId: number | null
+  /** ISO timestamp of when the current charging session started, null when no session is active. */
+  sessionStartedAt: string | null
   targetSoc: number
+  targetSocOn: number
+  targetSocOff: number
   targetAmps: number
   setpointAmps: number
   currentAmps: number
@@ -22,6 +26,8 @@ export interface EngineStatus {
   balancingStartedAt: Date | null
   phase: 'idle' | 'charging' | 'balancing' | 'complete' | 'paused'
   message: string
+  chargeStartBlocked: boolean
+  chargeStartBlockReason: string | null
   haThrottled: boolean
   accumulatedSessionEnergyKwh: number
   vehicleBatteryEnergyKwh: number
@@ -34,7 +40,10 @@ let status: EngineStatus = {
   running: false,
   mode: 'off',
   sessionId: null,
+  sessionStartedAt: null,
   targetSoc: 80,
+  targetSocOn: 80,
+  targetSocOff: 80,
   targetAmps: 16,
   setpointAmps: 16,
   currentAmps: 0,
@@ -42,6 +51,8 @@ let status: EngineStatus = {
   balancingStartedAt: null,
   phase: 'idle',
   message: 'Engine idle',
+  chargeStartBlocked: false,
+  chargeStartBlockReason: null,
   haThrottled: false,
   accumulatedSessionEnergyKwh: 0,
   vehicleBatteryEnergyKwh: 0,
@@ -57,17 +68,48 @@ let haResumeAfterMs: number | null = null
 let lastChargeStartAttemptMs = 0
 let lastRampUpMs = 0
 let lastSetpointSentMs = 0
+let lastSetpointResyncAttemptMs = 0
 let sessionEnergyPriceEurPerKwh = 0
 let planArmed = false
 let lastEnergySampleAtMs: number | null = null
 let lastEngineHealthSnapshotAtMs = 0
 let vehicleBatteryEnergyBaselineKwh: number | null = null
+let chargeStartBlockedNotified = false
+let pendingForceStopVehicleId: string | null = null
+let pendingForceStopRetries = 0
+let pendingForceStopTimer: NodeJS.Timeout | null = null
+
+const FORCE_STOP_RETRY_MS = 15000
+const FORCE_STOP_MAX_RETRIES = 20
+
+/**
+ * Suspended state saved when a soft failsafe (proxy disconnect) pauses an active charge session.
+ * On proxy reconnect the engine uses this to automatically resume the session.
+ */
+interface SuspendedChargeState {
+  targetSoc: number
+  targetAmps: number
+  reason: 'proxy_lost'
+}
+let suspendedState: SuspendedChargeState | null = null
 
 interface PersistedEngineRestoreState {
   restorePlan: boolean
   targetSoc?: number
   targetAmps?: number
+  targetSocOn?: number
+  targetSocOff?: number
 }
+
+const DEFAULT_TARGET_SOC = 80
+
+function clampTargetSoc(value: number, fallback = DEFAULT_TARGET_SOC): number {
+  if (!Number.isFinite(value)) return fallback
+  return Math.max(1, Math.min(100, Math.round(value)))
+}
+
+let persistedTargetSocOn = DEFAULT_TARGET_SOC
+let persistedTargetSocOff = DEFAULT_TARGET_SOC
 
 async function persistEngineRestoreState(): Promise<void> {
   const payload: PersistedEngineRestoreState = planArmed
@@ -75,9 +117,13 @@ async function persistEngineRestoreState(): Promise<void> {
         restorePlan: true,
         targetSoc: status.targetSoc,
         targetAmps: status.targetAmps,
+        targetSocOn: persistedTargetSocOn,
+        targetSocOff: persistedTargetSocOff,
       }
     : {
         restorePlan: false,
+        targetSocOn: persistedTargetSocOn,
+        targetSocOff: persistedTargetSocOff,
       }
 
   await prisma.appConfig.upsert({
@@ -91,18 +137,39 @@ export async function initializeEngineState(): Promise<void> {
   const persisted = await prisma.appConfig.findUnique({ where: { id: 1 } })
   if (!persisted?.engine_restore_state) {
     planArmed = false
+    persistedTargetSocOn = DEFAULT_TARGET_SOC
+    persistedTargetSocOff = DEFAULT_TARGET_SOC
+    status = {
+      ...status,
+      targetSoc: DEFAULT_TARGET_SOC,
+      targetSocOn: persistedTargetSocOn,
+      targetSocOff: persistedTargetSocOff,
+    }
     return
   }
 
   try {
     const parsed = JSON.parse(persisted.engine_restore_state) as PersistedEngineRestoreState
+    persistedTargetSocOn = clampTargetSoc(Number(parsed.targetSocOn ?? parsed.targetSoc ?? DEFAULT_TARGET_SOC))
+    persistedTargetSocOff = clampTargetSoc(Number(parsed.targetSocOff ?? parsed.targetSoc ?? DEFAULT_TARGET_SOC))
+
     if (!parsed.restorePlan) {
       planArmed = false
+      status = {
+        ...status,
+        running: false,
+        mode: 'off',
+        targetSoc: persistedTargetSocOff,
+        targetSocOn: persistedTargetSocOn,
+        targetSocOff: persistedTargetSocOff,
+      }
       return
     }
 
     const cfg = getConfig()
-    const restoredTargetSoc = Number.isFinite(parsed.targetSoc) ? Math.max(1, Math.min(100, Number(parsed.targetSoc))) : status.targetSoc
+    const restoredTargetSoc = Number.isFinite(parsed.targetSoc)
+      ? clampTargetSoc(Number(parsed.targetSoc), persistedTargetSocOn)
+      : persistedTargetSocOn
     const restoredTargetAmps = Number.isFinite(parsed.targetAmps)
       ? Math.max(cfg.charging.minAmps, Math.min(cfg.charging.maxAmps, Number(parsed.targetAmps)))
       : cfg.charging.defaultAmps
@@ -113,7 +180,10 @@ export async function initializeEngineState(): Promise<void> {
       running: false,
       mode: 'plan',
       sessionId: null,
+      sessionStartedAt: null,
       targetSoc: restoredTargetSoc,
+      targetSocOn: persistedTargetSocOn,
+      targetSocOff: persistedTargetSocOff,
       targetAmps: restoredTargetAmps,
       setpointAmps: restoredTargetAmps,
       currentAmps: 0,
@@ -121,6 +191,8 @@ export async function initializeEngineState(): Promise<void> {
       balancingStartedAt: null,
       phase: 'idle',
       message: 'Plan restored after restart',
+      chargeStartBlocked: false,
+      chargeStartBlockReason: null,
       haThrottled: false,
       accumulatedSessionEnergyKwh: 0,
       vehicleBatteryEnergyKwh: 0,
@@ -129,6 +201,16 @@ export async function initializeEngineState(): Promise<void> {
     }
   } catch {
     planArmed = false
+    persistedTargetSocOn = DEFAULT_TARGET_SOC
+    persistedTargetSocOff = DEFAULT_TARGET_SOC
+    status = {
+      ...status,
+      running: false,
+      mode: 'off',
+      targetSoc: persistedTargetSocOff,
+      targetSocOn: persistedTargetSocOn,
+      targetSocOff: persistedTargetSocOff,
+    }
     await persistEngineRestoreState()
   }
 }
@@ -137,6 +219,17 @@ function getCommandVehicleId(cfg: ReturnType<typeof getConfig>): string {
   if (cfg.proxy.vehicleId) return cfg.proxy.vehicleId
   if (cfg.demo) return 'demo'
   return ''
+}
+
+function resolveChargeStartBlockReason(vState: ReturnType<typeof getVehicleState>): string | null {
+  const chargingState = String(vState.chargingState ?? '').toLowerCase()
+  const reason = String(vState.reason ?? '').toLowerCase()
+
+  if (!vState.connected) return 'Vehicle not connected to proxy'
+  if (!vState.pluggedIn) return 'Charge cable not connected'
+  if (chargingState.includes('disconnected')) return 'Vehicle charging state is disconnected'
+  if (reason.includes('disconnected') || reason.includes('not in range')) return 'Vehicle reports disconnected while starting charge'
+  return null
 }
 
 function pushEngineLog(msg: string): void {
@@ -194,6 +287,84 @@ export function getEngineStatus(): EngineStatus {
   return { ...status }
 }
 
+function clearPendingForceStop(): void {
+  if (pendingForceStopTimer) {
+    clearTimeout(pendingForceStopTimer)
+    pendingForceStopTimer = null
+  }
+  pendingForceStopVehicleId = null
+  pendingForceStopRetries = 0
+}
+
+async function trySendChargeStop(vehicleId: string, reason: 'user_requested_stop' | 'engine_stop' | 'force_stop_retry', sessionId: number | null): Promise<boolean> {
+  const vState = getVehicleState()
+  logger.info('🛑 [CHARGE_STOP] Sending charge_stop command to vehicle', {
+    vehicleId,
+    reason,
+    sessionId,
+    currentSoc: vState.stateOfCharge,
+    currentAmps: vState.chargerActualCurrent,
+    chargingState: vState.chargingState,
+    vehicleConnected: vState.connected,
+  })
+  try {
+    await sendProxyCommand(vehicleId, 'charge_stop', {})
+    pushEngineLog(`charge_stop sent: reason=${reason}`)
+    return true
+  } catch (err) {
+    logger.error('🚨 [CHARGE_STOP] charge_stop command failed', {
+      err,
+      vehicleId,
+      sessionId,
+      reason,
+    })
+    pushEngineLog(`charge_stop failed: reason=${reason}`)
+    return false
+  }
+}
+
+function schedulePendingForceStop(vehicleId: string, sessionId: number | null): void {
+  pendingForceStopVehicleId = vehicleId
+  if (pendingForceStopTimer) return
+
+  pendingForceStopTimer = setTimeout(() => {
+    pendingForceStopTimer = null
+    void retryPendingForceStop(sessionId)
+  }, FORCE_STOP_RETRY_MS)
+}
+
+async function retryPendingForceStop(sessionId: number | null): Promise<void> {
+  const vehicleId = pendingForceStopVehicleId
+  if (!vehicleId) return
+  if (pendingForceStopRetries >= FORCE_STOP_MAX_RETRIES) {
+    logger.error('🚨 [CHARGE_STOP] Force-stop retry limit reached', {
+      vehicleId,
+      sessionId,
+      retries: pendingForceStopRetries,
+      retryIntervalMs: FORCE_STOP_RETRY_MS,
+    })
+    pushEngineLog(`force-stop retries exhausted after ${pendingForceStopRetries} attempts`)
+    clearPendingForceStop()
+    return
+  }
+
+  pendingForceStopRetries += 1
+  logger.warn('🔁 [CHARGE_STOP] Retrying forced stop command', {
+    vehicleId,
+    sessionId,
+    retryAttempt: pendingForceStopRetries,
+    retryLimit: FORCE_STOP_MAX_RETRIES,
+  })
+
+  const sent = await trySendChargeStop(vehicleId, 'force_stop_retry', sessionId)
+  if (sent) {
+    clearPendingForceStop()
+    return
+  }
+
+  schedulePendingForceStop(vehicleId, sessionId)
+}
+
 export function setPlanMode(targetSoc: number): void {
   const prevSoc = status.targetSoc
   planArmed = true
@@ -202,6 +373,8 @@ export function setPlanMode(targetSoc: number): void {
     running: false,
     mode: 'plan',
     targetSoc,
+    targetSocOn: persistedTargetSocOn,
+    targetSocOff: persistedTargetSocOff,
     phase: 'idle',
     message: 'Charge planned — waiting for scheduled start',
     debugLog: [],
@@ -215,7 +388,57 @@ export function setPlanMode(targetSoc: number): void {
   persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
 }
 
-export async function startEngine(targetSoc: number, targetAmps?: number): Promise<void> {
+export function getTargetSocPreferences(): { on: number; off: number } {
+  return {
+    on: persistedTargetSocOn,
+    off: persistedTargetSocOff,
+  }
+}
+
+export async function setTargetSocPreference(
+  mode: 'on' | 'off',
+  targetSoc: number,
+  options?: { applyToRunningOnSession?: boolean }
+): Promise<void> {
+  const safeSoc = clampTargetSoc(targetSoc)
+  if (mode === 'on') {
+    persistedTargetSocOn = safeSoc
+  } else {
+    persistedTargetSocOff = safeSoc
+  }
+
+  const applyToRunningOnSession = options?.applyToRunningOnSession ?? false
+  const shouldApplyToCurrentTarget =
+    (mode === 'on' && status.running && status.mode === 'on' && applyToRunningOnSession) ||
+    (mode === 'off' && !status.running && status.mode === 'off')
+
+  status = {
+    ...status,
+    targetSoc: shouldApplyToCurrentTarget ? safeSoc : status.targetSoc,
+    targetSocOn: persistedTargetSocOn,
+    targetSocOff: persistedTargetSocOff,
+    message: shouldApplyToCurrentTarget
+      ? (mode === 'on' ? 'Manual target updated while charging' : 'Off target updated')
+      : status.message,
+  }
+
+  logger.info('ENGINE_TARGET_SOC_PREFERENCE_UPDATED', {
+    mode,
+    targetSoc: safeSoc,
+    applyToRunningOnSession,
+    running: status.running,
+    currentMode: status.mode,
+    appliedToCurrentTarget: shouldApplyToCurrentTarget,
+    targetSocOn: persistedTargetSocOn,
+    targetSocOff: persistedTargetSocOff,
+  })
+  pushEngineLog(`target preference updated: mode=${mode} soc=${safeSoc}% applied=${shouldApplyToCurrentTarget}`)
+
+  await persistEngineRestoreState()
+  engineEvents.emit('target_soc_updated', status)
+}
+
+export async function startEngine(targetSoc: number, targetAmps?: number, fromPlan = false): Promise<void> {
   const cfg = getConfig()
   if (status.running) {
     logger.warn('⚠️  [START_ENGINE] Engine already running — ignoring start request', {
@@ -225,6 +448,19 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     })
     pushEngineLog('start ignored: engine already running')
     return
+  }
+
+  // A manual start (fromPlan=false) must disarm any pending plan so that mode is 'on'
+  // and after charge completion the engine returns to 'off', not 'plan'.
+  if (!fromPlan) {
+    if (planArmed) {
+      logger.info('🗓️  [START_ENGINE] Manual start requested while plan was armed — disarming plan', {
+        previousTargetSoc: status.targetSoc,
+        requestedTargetSoc: targetSoc,
+      })
+      pushEngineLog('plan disarmed: manual start requested')
+    }
+    planArmed = false
   }
 
   await requestWakeMode(true)
@@ -263,6 +499,8 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
   }
 
   const requestedAmps = targetAmps ?? cfg.charging.maxAmps
+  const safeTargetSoc = clampTargetSoc(targetSoc, persistedTargetSocOn)
+  persistedTargetSocOn = safeTargetSoc
 
   // Keep last 20 lines from previous session so charge_stop / session-end entries stay visible
   const prevSessionTail = status.debugLog.slice(-20)
@@ -270,11 +508,15 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     ...status,
     running: true,
     mode: planArmed ? 'plan' : 'on',
-    targetSoc,
+    targetSoc: safeTargetSoc,
+    targetSocOn: persistedTargetSocOn,
+    targetSocOff: persistedTargetSocOff,
     targetAmps: requestedAmps,
     setpointAmps: 0,  // will be sent as startAmps on the first adjustAmps call
     phase: 'idle',
     message: planArmed ? 'Planned session started' : 'Engine started',
+    chargeStartBlocked: false,
+    chargeStartBlockReason: null,
     accumulatedSessionEnergyKwh: 0,
     vehicleBatteryEnergyKwh: 0,
     vehicleBatteryEnergyRawKwh: 0,
@@ -284,23 +526,27 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
   sessionEnergyPriceEurPerKwh = cfg.charging.energyPriceEurPerKwh
   lastEnergySampleAtMs = Date.now()
   vehicleBatteryEnergyBaselineKwh = null
+  chargeStartBlockedNotified = false
   haStoppedForLimit = false
   haResumeAfterMs = null
   lastChargeStartAttemptMs = 0
   lastRampUpMs = Date.now()
+  lastSetpointSentMs = 0
+  lastSetpointResyncAttemptMs = 0
 
   const session = await prisma.chargingSession.create({
     data: {
       vehicleId: cfg.proxy.vehicleId,
-      targetSoc,
+      targetSoc: safeTargetSoc,
       targetAmps: requestedAmps,
       energyPriceEurPerKwh: cfg.charging.energyPriceEurPerKwh,
     },
   })
   status.sessionId = session.id
+  status.sessionStartedAt = session.startedAt.toISOString()
   logger.info('🚀 [START_ENGINE] Charging session started', {
     sessionId: session.id,
-    targetSoc,
+    targetSoc: safeTargetSoc,
     targetAmps: requestedAmps,
     mode: planArmed ? 'plan' : 'manual',
     vehicleId: cfg.proxy.vehicleId,
@@ -309,7 +555,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     minAmps: cfg.charging.minAmps,
     maxAmps: cfg.charging.maxAmps,
   })
-  pushEngineLog(`session ${session.id} started: targetSoc=${targetSoc}% targetAmps=${requestedAmps}A mode=${planArmed ? 'plan' : 'manual'}`)
+  pushEngineLog(`session ${session.id} started: targetSoc=${safeTargetSoc}% targetAmps=${requestedAmps}A mode=${planArmed ? 'plan' : 'manual'}`)
   engineEvents.emit('started', status)
   await persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
   dispatchTelegramNotificationEvent('start_charging', { reason: 'user_or_scheduler' }).catch(() => {})
@@ -317,6 +563,8 @@ export async function startEngine(targetSoc: number, targetAmps?: number): Promi
     'engine_started',
     {
       targetSoc,
+      targetSocOn: persistedTargetSocOn,
+      targetSocOff: persistedTargetSocOff,
       targetAmps: requestedAmps,
       vehicleId: cfg.proxy.vehicleId,
       sessionId: session.id,
@@ -335,22 +583,19 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
   }
   const cfg = getConfig()
   const vid = getCommandVehicleId(cfg)
-  const vState = getVehicleState()
+  const vStateForStop = getVehicleState()
   const stoppedSessionId = status.sessionId
   if (vid) {
-    if (vState.connected) {
-      logger.info('🛑 [CHARGE_STOP] Sending charge_stop command to vehicle', {
-        vehicleId: vid,
-        reason: forceOff ? 'user_requested_stop' : 'engine_stop',
-        sessionId: stoppedSessionId,
-        currentSoc: vState.stateOfCharge,
-        currentAmps: vState.chargerActualCurrent,
-        chargingState: vState.chargingState,
-      })
-      await sendProxyCommand(vid, 'charge_stop', {}).catch((err) =>
-        logger.error('🚨 [CHARGE_STOP] charge_stop command failed during stopEngine', { err, vehicleId: vid, sessionId: stoppedSessionId })
-      )
-      pushEngineLog(`charge_stop sent: reason=${forceOff ? 'user_stop' : 'engine_stop'}`)
+    const shouldSendCommand = forceOff || vStateForStop.connected
+    if (shouldSendCommand) {
+      const sent = await trySendChargeStop(vid, forceOff ? 'user_requested_stop' : 'engine_stop', stoppedSessionId)
+      if (forceOff) {
+        if (sent) {
+          clearPendingForceStop()
+        } else {
+          schedulePendingForceStop(vid, stoppedSessionId)
+        }
+      }
     } else {
       logger.info('⏭️  [CHARGE_STOP] Skipping charge_stop: vehicle not connected (sleeping or unreachable)', {
         vehicleId: vid,
@@ -390,7 +635,7 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
       chargingEfficiencyPct,
       totalCostEur,
       energyPriceEurPerKwh: sessionEnergyPriceEurPerKwh,
-      finalSoc: vState.stateOfCharge,
+      finalSoc: vStateForStop.stateOfCharge,
       forceOff,
     })
     pushEngineLog(`session ${status.sessionId} ended: energy=${meterEnergyKwh.toFixed(3)}kWh cost=${totalCostEur}€ forceOff=${forceOff}`)
@@ -402,8 +647,14 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
     running: false,
     mode: planArmed ? 'plan' : 'off',
     sessionId: null,
+    sessionStartedAt: null,
+    targetSoc: planArmed ? status.targetSoc : persistedTargetSocOff,
+    targetSocOn: persistedTargetSocOn,
+    targetSocOff: persistedTargetSocOff,
     phase: 'idle',
     message: planArmed ? 'Plan armed — waiting for scheduled start' : 'Engine stopped',
+    chargeStartBlocked: false,
+    chargeStartBlockReason: null,
     balancing: false,
     balancingStartedAt: null,
     haThrottled: false,
@@ -418,10 +669,13 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
   lastChargeStartAttemptMs = 0
   lastRampUpMs = 0
   lastSetpointSentMs = 0
+  lastSetpointResyncAttemptMs = 0
   sessionEnergyPriceEurPerKwh = 0
   lastEnergySampleAtMs = null
   lastEngineHealthSnapshotAtMs = 0
   vehicleBatteryEnergyBaselineKwh = null
+  chargeStartBlockedNotified = false
+  suspendedState = null
   await persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
   engineEvents.emit('stopped', status)
 }
@@ -500,7 +754,31 @@ async function runEngineStep(): Promise<void> {
   engineLock = true
   try {
     if (isFailsafeActive()) {
-      logger.warn('🚨 [FAILSAFE] Failsafe is active — stopping engine immediately', {
+      const fsType = getFailsafeType()
+      if (fsType === 'soft') {
+        // Soft failsafe (proxy disconnected): suspend the session without stopping it.
+        // The engine timer keeps running; we just pause and wait for reconnect.
+        if (status.running && !suspendedState) {
+          suspendedState = {
+            targetSoc: status.targetSoc,
+            targetAmps: status.targetAmps,
+            reason: 'proxy_lost',
+          }
+          logger.warn('🔌 [CHARGE_SUSPEND] Proxy disconnected — charge session suspended, will auto-resume on reconnect', {
+            sessionId: status.sessionId,
+            targetSoc: suspendedState.targetSoc,
+            targetAmps: suspendedState.targetAmps,
+          })
+          pushEngineLog(`charge suspended: proxy lost (targetSoc=${suspendedState.targetSoc}% targetAmps=${suspendedState.targetAmps}A)`)
+          dispatchTelegramNotificationEvent('charging_paused', { reason: 'proxy_disconnected' }).catch(() => {})
+        }
+        setEnginePhase('paused', 'soft_failsafe_proxy_lost')
+        status.message = 'Proxy disconnected — charge suspended, waiting for reconnect'
+        engineEvents.emit('tick', status)
+        return
+      }
+      // Hard failsafe → stop the engine immediately
+      logger.warn('🚨 [FAILSAFE] Hard failsafe is active — stopping engine immediately', {
         sessionId: status.sessionId,
         phase: status.phase,
         currentSoc: getVehicleState().stateOfCharge,
@@ -513,9 +791,27 @@ async function runEngineStep(): Promise<void> {
 
     const vState = getVehicleState()
     if (!vState.connected) {
+      const blockReason = resolveChargeStartBlockReason(vState) ?? 'Vehicle not connected to proxy'
+      const changed = !status.chargeStartBlocked || status.chargeStartBlockReason !== blockReason
+      status.chargeStartBlocked = true
+      status.chargeStartBlockReason = blockReason
+      lastChargeStartAttemptMs = 0
       setEnginePhase('paused', 'vehicle_not_connected')
-      status.message = 'Vehicle not connected'
-      pushEngineLog('paused: vehicle not connected')
+      status.message = `${blockReason}. Waiting for cable/connection before retrying`
+      if (changed) {
+        pushEngineLog(`paused: ${blockReason}`)
+      }
+      if (!chargeStartBlockedNotified) {
+        chargeStartBlockedNotified = true
+        dispatchTelegramNotificationEvent('charge_start_blocked', {
+          sessionId: status.sessionId ?? undefined,
+          reason: blockReason,
+          chargingState: vState.chargingState ?? 'unknown',
+          pluggedIn: vState.pluggedIn,
+          vehicleConnected: vState.connected,
+          soc: vState.stateOfCharge ?? 0,
+        }).catch(() => {})
+      }
       return
     }
 
@@ -529,6 +825,18 @@ async function runEngineStep(): Promise<void> {
 
     status.currentAmps = actualAmps
     pushEngineLog(`tick: soc=${soc}% actual=${actualAmps}A state=${vState.chargingState ?? 'unknown'} home=${getHaState().powerW ?? 0}W`)
+
+    logger.verbose('⚙️[ENGINE_TICK] cycle tick', {
+      enginePhase: status.phase,
+      running: status.running,
+      soc,
+      actualAmps,
+      targetAmps: status.targetAmps,
+      targetSoc: status.targetSoc,
+      chargingState: vState.chargingState,
+      homePowerW: getHaState().powerW ?? 0,
+      vehicleSleepStatus: vState.vehicleSleepStatus,
+    })
 
     const haThrottleAmps = computeHaAllowedAmps(cfg, vState)
 
@@ -706,6 +1014,17 @@ async function runEngineStep(): Promise<void> {
     switch (action.type) {
       case 'continue_charging':
         if (vState.charging) {
+          if (status.chargeStartBlocked || status.chargeStartBlockReason) {
+            logger.info('✅ [CHARGE_START_UNBLOCKED] Vehicle charging detected — clearing charge_start block', {
+              sessionId: status.sessionId,
+              previousReason: status.chargeStartBlockReason,
+            })
+            pushEngineLog('charge_start block cleared: vehicle entered charging state')
+          }
+          status.chargeStartBlocked = false
+          status.chargeStartBlockReason = null
+          chargeStartBlockedNotified = false
+
           // If evload never sent charge_start in this session (lastChargeStartAttemptMs === 0)
           // the charge was already in progress when the engine started (external charge).
           // Log once on the first tick where we hit this path to make it observable in logs.
@@ -729,6 +1048,54 @@ async function runEngineStep(): Promise<void> {
           status.message = `Charging ${actualAmps}A (setpoint ${status.setpointAmps}A), SoC: ${soc}%${status.haThrottled ? ' (HA throttled)' : ''}`
           await adjustAmps(cfg)
         } else {
+          const blockReason = resolveChargeStartBlockReason(vState)
+          if (blockReason) {
+            const changed = !status.chargeStartBlocked || status.chargeStartBlockReason !== blockReason
+            status.chargeStartBlocked = true
+            status.chargeStartBlockReason = blockReason
+            lastChargeStartAttemptMs = 0
+            setEnginePhase('paused', 'charge_start_blocked_vehicle_state')
+            status.message = `${blockReason}. Waiting for cable/connection before retrying`
+
+            if (changed) {
+              logger.warn('⛔ [CHARGE_START_BLOCKED] Charge start retries suspended', {
+                sessionId: status.sessionId,
+                reason: blockReason,
+                chargingState: vState.chargingState,
+                pluggedIn: vState.pluggedIn,
+                vehicleConnected: vState.connected,
+                soc,
+              })
+              pushEngineLog(`charge_start blocked: ${blockReason}`)
+            }
+
+            if (!chargeStartBlockedNotified) {
+              chargeStartBlockedNotified = true
+              dispatchTelegramNotificationEvent('charge_start_blocked', {
+                sessionId: status.sessionId ?? undefined,
+                reason: blockReason,
+                chargingState: vState.chargingState ?? 'unknown',
+                pluggedIn: vState.pluggedIn,
+                vehicleConnected: vState.connected,
+                soc,
+              }).catch(() => {})
+            }
+
+            engineEvents.emit('tick', status)
+            return
+          }
+
+          if (status.chargeStartBlocked || status.chargeStartBlockReason) {
+            logger.info('🔓 [CHARGE_START_UNBLOCKED] Vehicle state recovered — charge_start retries re-enabled', {
+              sessionId: status.sessionId,
+              previousReason: status.chargeStartBlockReason,
+            })
+            pushEngineLog('charge_start block cleared: vehicle state recovered')
+            status.chargeStartBlocked = false
+            status.chargeStartBlockReason = null
+            chargeStartBlockedNotified = false
+          }
+
           const now = Date.now()
           const retryMs = cfg.charging.chargeStartRetryMs
           const retryAllowed = vState.pluggedIn && (now - lastChargeStartAttemptMs >= retryMs)
@@ -736,6 +1103,27 @@ async function runEngineStep(): Promise<void> {
           if (retryAllowed) {
             const vid = getCommandVehicleId(cfg)
             if (vid) {
+              // ── Pre-set current BEFORE charge_start to avoid a current spike ──
+              // If no setpoint has been sent yet this session, set the safe start current
+              // now so that Tesla begins drawing at startAmps the moment charge_start fires.
+              if (lastSetpointSentMs === 0) {
+                const safeAmps = cfg.charging.startAmps
+                logger.info('⚡ [SET_AMP] Pre-setting start current before charge_start', {
+                  vehicleId: vid,
+                  sessionId: status.sessionId,
+                  startAmps: safeAmps,
+                })
+                try {
+                  await sendProxyCommand(vid, 'set_charging_amps', { charging_amps: safeAmps })
+                  status.setpointAmps = safeAmps
+                  lastSetpointSentMs = now
+                  pushEngineLog(`pre-set current: ${safeAmps}A before charge_start`)
+                } catch (err) {
+                  logger.error('🚨 [SET_AMP] Pre-set current before charge_start failed', { err, vehicleId: vid })
+                  pushEngineLog('pre-set current failed — proceeding with charge_start anyway')
+                }
+              }
+
               logger.info('🔌 [CHARGE_START] Vehicle plugged but not charging — sending charge_start', {
                 vehicleId: vid,
                 sessionId: status.sessionId,
@@ -748,6 +1136,8 @@ async function runEngineStep(): Promise<void> {
                 logger.error('🚨 [CHARGE_START] charge_start failed', { err, vehicleId: vid, sessionId: status.sessionId })
               )
               lastChargeStartAttemptMs = now
+              status.chargeStartBlocked = false
+              status.chargeStartBlockReason = null
               setEnginePhase('paused', 'charge_start_pending_state_update')
               status.message = 'Sent charge_start, waiting vehicle state update'
               pushEngineLog(`charge_start sent: state=${vState.chargingState} soc=${soc}%`)
@@ -819,7 +1209,8 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
   const chargerPowerW = haS.chargerW ?? ((vState.chargeRateKw ?? 0) * 1000)
   const vehicleVoltageV = vState.chargerVoltage ?? DEFAULT_VEHICLE_VOLTAGE_V
 
-  // First command in session: jump to startAmps instead of leaving the vehicle at its own default
+  // The initial startAmps setpoint is always sent before charge_start (see CHARGE_START block above).
+  // isFirstCommand is kept as a safety fallback in case set_charging_amps before charge_start failed.
   const isFirstCommand = lastSetpointSentMs === 0 && status.setpointAmps === 0
   let desired = status.setpointAmps
 
@@ -845,6 +1236,16 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
   }
 
   desired = clampAmps(desired, cfg.charging.minAmps, cfg.charging.maxAmps)
+  const teslaRequestedAmps = vState.chargeCurrentRequest
+  const setpointMismatchDetected =
+    teslaRequestedAmps != null &&
+    Number.isFinite(teslaRequestedAmps) &&
+    Math.abs(teslaRequestedAmps - desired) >= 1
+  const setpointResyncCooldownMs = Math.max(rampIntervalMs, 5000)
+  const canAttemptSetpointResync =
+    setpointMismatchDetected &&
+    now - lastSetpointSentMs >= setpointResyncCooldownMs &&
+    now - lastSetpointResyncAttemptMs >= setpointResyncCooldownMs
 
   // Only send set_charging_amps when the intended setpoint actually changes — prevents oscillation
   if (desired !== status.setpointAmps) {
@@ -854,6 +1255,7 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
       try {
         await sendProxyCommand(vid, 'set_charging_amps', { charging_amps: desired })
         lastSetpointSentMs = now
+        lastSetpointResyncAttemptMs = 0
         logger.info('⚡ [SET_AMP] Charging current adjusted', {
           vehicleId: vid,
           sessionId: status.sessionId,
@@ -870,6 +1272,28 @@ async function adjustAmps(cfg: ReturnType<typeof getConfig>): Promise<void> {
     } catch (err) {
       logger.error('🚨 [SET_AMP] Failed to adjust charging amps', { err, vehicleId: vid, desired, previousSetpoint })
       pushEngineLog(`setpoint command failed: desired=${desired}A`)
+    }
+  } else if (canAttemptSetpointResync) {
+    lastSetpointResyncAttemptMs = now
+    try {
+      await sendProxyCommand(vid, 'set_charging_amps', { charging_amps: desired })
+      lastSetpointSentMs = now
+      logger.warn('⚠️ [SET_AMP_RESYNC] Tesla requested amps differ from setpoint — resending set_charging_amps', {
+        vehicleId: vid,
+        sessionId: status.sessionId,
+        setpointAmps: desired,
+        teslaRequestedAmps,
+        rampIntervalMs,
+      })
+      pushEngineLog(`setpoint resync: tesla=${teslaRequestedAmps}A expected=${desired}A`) 
+    } catch (err) {
+      logger.error('🚨 [SET_AMP_RESYNC] Failed to resync charging amps', {
+        err,
+        vehicleId: vid,
+        expectedAmps: desired,
+        teslaRequestedAmps,
+      })
+      pushEngineLog(`setpoint resync failed: tesla=${teslaRequestedAmps}A expected=${desired}A`)
     }
   } else {
     pushEngineLog(`setpoint stable: ${desired}A`)
@@ -953,6 +1377,60 @@ export function initExternalChargeGuard(): void {
     await sendProxyCommand(vid, 'charge_stop', {}).catch((err) =>
       logger.error('\ud83d\udea8 [EXTERNAL_CHARGE_GUARD] charge_stop failed', { err, vehicleId: vid })
     )
+  })
+
+  // On proxy reconnect: auto-resume a suspended charge session or stop autonomous charge
+  proxyEvents.on('connected', async () => {
+    const cfg = getConfig()
+
+    if (pendingForceStopVehicleId) {
+      logger.info('🔁 [CHARGE_STOP] Proxy reconnected while force-stop pending — attempting immediate retry', {
+        vehicleId: pendingForceStopVehicleId,
+        pendingRetries: pendingForceStopRetries,
+      })
+      await retryPendingForceStop(null)
+    }
+
+    if (suspendedState) {
+      // We had an active session when the proxy went away — resume it
+      const saved = suspendedState
+      suspendedState = null
+      logger.info('🔄 [CHARGE_RESUME] Proxy reconnected — resuming suspended charge session', {
+        targetSoc: saved.targetSoc,
+        targetAmps: saved.targetAmps,
+        previousSessionId: status.sessionId,
+      })
+      pushEngineLog(`proxy reconnected: resuming charge (targetSoc=${saved.targetSoc}% targetAmps=${saved.targetAmps}A)`)
+      dispatchTelegramNotificationEvent('charging_resumed', { reason: 'proxy_reconnected' }).catch(() => {})
+      // Brief delay to allow fresh vehicle data after reconnect
+      await new Promise<void>((resolve) => setTimeout(resolve, 2000))
+      await startEngine(saved.targetSoc, saved.targetAmps).catch((err) =>
+        logger.error('🚨 [CHARGE_RESUME] Failed to resume charge after proxy reconnect', { err })
+      )
+      return
+    }
+
+    // No suspended session — check for autonomous charge that started while proxy was offline
+    if (!status.running && cfg.proxy.stopAutonomousCharge) {
+      // Give proxy a moment to deliver fresh vehicle data
+      await new Promise<void>((resolve) => setTimeout(resolve, 3000))
+      const vState = getVehicleState()
+      if (vState.charging) {
+        const vid = getCommandVehicleId(cfg)
+        if (vid) {
+          logger.warn('🚦 [AUTONOMOUS_CHARGE_GUARD] Proxy reconnected: vehicle charging autonomously — stopAutonomousCharge=true, sending charge_stop', {
+            vehicleId: vid,
+            chargingState: vState.chargingState,
+            soc: vState.stateOfCharge,
+            chargerActualCurrent: vState.chargerActualCurrent,
+          })
+          pushEngineLog(`autonomous charge guard: charge_stop sent (proxy reconnect, stopAutonomousCharge=true)`)
+          await sendProxyCommand(vid, 'charge_stop', {}).catch((err) =>
+            logger.error('🚨 [AUTONOMOUS_CHARGE_GUARD] charge_stop failed', { err, vehicleId: vid })
+          )
+        }
+      }
+    }
   })
 
   logger.info('External charge guard initialized (stopChargeOnManualStart listener active)')

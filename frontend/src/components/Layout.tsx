@@ -1,6 +1,6 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Zap, Car, Thermometer, BarChart2, Settings, Wifi, WifiOff, Calendar, Bell, Moon, Sun, SlidersHorizontal, X } from 'lucide-react'
+import { Zap, Car, Thermometer, BarChart2, Settings, Wifi, WifiOff, Calendar, Bell, Moon, Sun, SlidersHorizontal, X, Warehouse, Menu } from 'lucide-react'
 import { useWsStore } from '../store/wsStore'
 import { clsx } from 'clsx'
 import { sendVehicleCommand, updateVehicleDataRequest, getVersionInfo } from '../api/index'
@@ -38,7 +38,67 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
   const [climateOn, setClimateOn] = React.useState(false)
   const [pluggedIn, setPluggedIn] = React.useState(true)
   const [currentVersion, setCurrentVersion] = React.useState<string | null>(null)
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem('evload.sidebarCollapsed') === 'true'
+  })
+  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false)
   const hydratedDraftKeyRef = React.useRef<string | null>(null)
+
+  const navItems = React.useMemo(
+    () => [
+      { to: '/dashboard', icon: Car, label: 'Dashboard' },
+      { to: '/garage', icon: Warehouse, label: 'Garage' },
+      { to: '/schedule', icon: Calendar, label: 'Schedule' },
+      { to: '/climate', icon: Thermometer, label: 'Climate' },
+      { to: '/statistics', icon: BarChart2, label: 'Statistics' },
+      { to: '/notifications', icon: Bell, label: 'Notifications' },
+      { to: '/settings', icon: Settings, label: 'Settings' },
+    ],
+    []
+  )
+
+  React.useEffect(() => {
+    window.localStorage.setItem('evload.sidebarCollapsed', sidebarCollapsed ? 'true' : 'false')
+  }, [sidebarCollapsed])
+
+  React.useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth >= 1024) {
+        setMobileMenuOpen(false)
+      }
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  const handleMenuToggle = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setMobileMenuOpen((prev) => !prev)
+      return
+    }
+    setSidebarCollapsed((prev) => !prev)
+  }
+
+  const renderNavLinks = (onNavigate?: () => void) =>
+    navItems.map(({ to, icon: Icon, label }) => (
+      <NavLink
+        key={to}
+        to={to}
+        onClick={onNavigate}
+        className={({ isActive }) =>
+          clsx(
+            'flex items-center gap-3 px-4 py-3 mx-2 rounded-lg transition-colors',
+            isActive
+              ? 'bg-evload-accent text-white'
+              : 'text-evload-muted hover:text-evload-text hover:bg-evload-border'
+          )
+        }
+      >
+        <Icon size={20} />
+        <span className="text-sm font-medium">{label}</span>
+      </NavLink>
+    ))
 
   React.useEffect(() => {
     getVersionInfo()
@@ -299,6 +359,13 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
       )}
       <header className="border-b border-evload-border bg-evload-surface px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleMenuToggle}
+            className="p-2 mr-2 rounded-lg bg-evload-bg border border-evload-border hover:bg-evload-border transition-colors text-evload-text"
+            title="Toggle menu"
+          >
+            <Menu size={18} />
+          </button>
           <Zap className="text-evload-accent" size={24} />
           <span className="text-xl font-bold">evload</span>
           <span className="ml-1 rounded border border-evload-border bg-evload-bg px-1.5 py-0.5 text-[10px] font-semibold text-evload-muted">
@@ -335,31 +402,13 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
         </div>
       </header>
       <div className="flex flex-1 min-h-0">
-        <nav className="w-16 lg:w-56 border-r border-evload-border bg-evload-surface flex flex-col py-4 gap-1">
-          {[
-            { to: '/dashboard', icon: Car, label: 'Dashboard' },
-            { to: '/schedule', icon: Calendar, label: 'Schedule' },
-            { to: '/climate', icon: Thermometer, label: 'Climate' },
-            { to: '/statistics', icon: BarChart2, label: 'Statistics' },
-            { to: '/notifications', icon: Bell, label: 'Notifications' },
-            { to: '/settings', icon: Settings, label: 'Settings' },
-          ].map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                clsx(
-                  'flex items-center gap-3 px-4 py-3 mx-2 rounded-lg transition-colors',
-                  isActive
-                    ? 'bg-evload-accent text-white'
-                    : 'text-evload-muted hover:text-evload-text hover:bg-evload-border'
-                )
-              }
-            >
-              <Icon size={20} />
-              <span className="hidden lg:block text-sm font-medium">{label}</span>
-            </NavLink>
-          ))}
+        <nav
+          className={clsx(
+            'hidden lg:flex border-r border-evload-border bg-evload-surface flex-col py-4 gap-1 transition-all duration-200 overflow-hidden',
+            sidebarCollapsed ? 'w-0 border-r-0 p-0' : 'w-56'
+          )}
+        >
+          {!sidebarCollapsed && renderNavLinks()}
         </nav>
         <main className="flex-1 p-6 overflow-auto">{children}</main>
         {isDemo && simulatorOpen && (
@@ -394,6 +443,18 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
             </div>
             <div className="space-y-4">{simulatorPanel}</div>
           </div>
+        </div>
+      )}
+
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setMobileMenuOpen(false)}>
+          <aside
+            className="absolute left-0 top-0 h-full w-72 bg-evload-surface border-r border-evload-border py-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 pb-3 text-xs uppercase tracking-wider text-evload-muted">Navigation</div>
+            {renderNavLinks(() => setMobileMenuOpen(false))}
+          </aside>
         </div>
       )}
     </div>

@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area, BarChart, Bar
 } from 'recharts'
 import { deleteSession, getSessions, getSession } from '../api/index'
 import { BarChart2, Zap, Battery, Clock, Trash2 } from 'lucide-react'
+import { useWsStore } from '../store/wsStore'
 
 interface Session {
   id: number
@@ -38,6 +39,24 @@ interface SessionDetail {
   totalCostEur: number
   energyPriceEurPerKwh: number
   telemetry: TelemetryPoint[]
+  totalTelemetryPoints?: number
+}
+
+function formatChartTimeTick(tsMs: number): string {
+  const d = new Date(tsMs)
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatChartTimeLabel(tsMs: number): string {
+  const d = new Date(tsMs)
+  return d.toLocaleString([], {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 }
 
 function formatDuration(startedAt: string, endedAt: string | null): string {
@@ -48,6 +67,15 @@ function formatDuration(startedAt: string, endedAt: string | null): string {
   return `${hours}h ${minutes}m`
 }
 
+function csvEscape(value: string | number | null | undefined): string {
+  if (value == null) return ''
+  const raw = String(value)
+  if (raw.includes(',') || raw.includes('"') || raw.includes('\n')) {
+    return `"${raw.replace(/"/g, '""')}"`
+  }
+  return raw
+}
+
 export default function StatisticsPage() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [selectedSession, setSelectedSession] = useState<SessionDetail | null>(null)
@@ -56,6 +84,9 @@ export default function StatisticsPage() {
   const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<number | null>(null)
   const [sessionMessage, setSessionMessage] = useState('')
+
+  const engineSessionId = useWsStore((s) => s.engine?.sessionId ?? null)
+  const prevSessionIdRef = useRef<number | null>(engineSessionId)
 
   const loadSessions = async () => {
     const data = await getSessions(1, 20)
@@ -68,6 +99,19 @@ export default function StatisticsPage() {
       .finally(() => setLoading(false))
   }, [])
 
+  // Reload sessions list when a charging session ends (sessionId goes from a value to null)
+  useEffect(() => {
+    const prev = prevSessionIdRef.current
+    prevSessionIdRef.current = engineSessionId
+    if (prev !== null && engineSessionId === null) {
+      // Small delay to let the backend commit the final session data
+      const timer = setTimeout(() => {
+        loadSessions().catch(console.error)
+      }, 1500)
+      return () => clearTimeout(timer)
+    }
+  }, [engineSessionId])
+
   const loadSession = async (id: number) => {
     setSessionLoading(true)
     setPendingDeleteSessionId(null)
@@ -75,6 +119,56 @@ export default function StatisticsPage() {
       setSelectedSession(await getSession(id) as SessionDetail)
     } catch (err) { console.error(err) }
     finally { setSessionLoading(false) }
+  }
+
+  const downloadSelectedSessionCsv = () => {
+    if (!selectedSession) return
+
+    const sessionStart = new Date(selectedSession.startedAt)
+    const safeDate = `${sessionStart.getFullYear()}-${String(sessionStart.getMonth() + 1).padStart(2, '0')}-${String(sessionStart.getDate()).padStart(2, '0')}_${String(sessionStart.getHours()).padStart(2, '0')}-${String(sessionStart.getMinutes()).padStart(2, '0')}`
+    const filename = `evload-session-${selectedSession.id}-${safeDate}.csv`
+
+    const headerRows = [
+      ['session_id', selectedSession.id],
+      ['started_at', selectedSession.startedAt],
+      ['ended_at', selectedSession.endedAt ?? ''],
+      ['total_energy_kwh', selectedSession.totalEnergyKwh],
+      ['meter_energy_kwh', selectedSession.meterEnergyKwh ?? selectedSession.totalEnergyKwh],
+      ['vehicle_energy_kwh', selectedSession.vehicleEnergyKwh ?? ''],
+      ['charging_efficiency_pct', selectedSession.chargingEfficiencyPct ?? ''],
+      ['total_cost_eur', selectedSession.totalCostEur],
+      ['energy_price_eur_per_kwh', selectedSession.energyPriceEurPerKwh],
+      ['telemetry_points', selectedSession.telemetry.length],
+      ['total_telemetry_points', selectedSession.totalTelemetryPoints ?? selectedSession.telemetry.length],
+    ]
+
+    const telemetryHeader = ['recorded_at', 'voltage_v', 'current_a', 'state_of_charge_pct', 'charger_power_kw']
+    const telemetryRows = selectedSession.telemetry.map((t) => [
+      t.recordedAt,
+      t.voltageV,
+      t.currentA,
+      t.stateOfCharge,
+      t.chargerPower,
+    ])
+
+    const csvLines = [
+      ...headerRows.map((row) => row.map((value) => csvEscape(value)).join(',')),
+      '',
+      telemetryHeader.map((value) => csvEscape(value)).join(','),
+      ...telemetryRows.map((row) => row.map((value) => csvEscape(value)).join(',')),
+    ]
+
+    const csvContent = csvLines.join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = window.URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    anchor.style.display = 'none'
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    window.URL.revokeObjectURL(url)
   }
 
   const handleDeleteSession = async (session: Session) => {
@@ -106,14 +200,20 @@ export default function StatisticsPage() {
     }
   }
 
-  const telemetryData = selectedSession?.telemetry.map((t, i) => ({
-    time: i,
-    label: new Date(t.recordedAt).toLocaleTimeString(),
-    voltage: t.voltageV,
-    current: t.currentA,
-    soc: t.stateOfCharge,
-    chargerPower: t.chargerPower,
-  })) ?? []
+  const telemetryData = (() => {
+    if (!selectedSession?.telemetry.length) return []
+    return selectedSession.telemetry.map((t) => {
+      const recordedAtMs = new Date(t.recordedAt).getTime()
+      return {
+        time: recordedAtMs,
+        label: formatChartTimeLabel(recordedAtMs),
+        voltage: t.voltageV,
+        current: t.currentA,
+        soc: t.stateOfCharge,
+        chargerPower: t.chargerPower,
+      }
+    })
+  })()
 
   const totalEnergy = sessions.reduce((sum, s) => sum + s.totalEnergyKwh, 0)
   const avgEnergy = sessions.length ? totalEnergy / sessions.length : 0
@@ -192,6 +292,17 @@ export default function StatisticsPage() {
 
         <div className="lg:col-span-2 space-y-4">
           {sessionLoading && <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center text-evload-muted">Loading...</div>}
+          {selectedSession && !sessionLoading && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={downloadSelectedSessionCsv}
+                className="rounded-md border border-evload-border px-3 py-1.5 text-xs font-medium text-evload-text hover:bg-evload-border/40"
+              >
+                Download CSV
+              </button>
+            </div>
+          )}
           {selectedSession && !sessionLoading && telemetryData.length > 0 && (
             <>
               <div className="bg-evload-surface border border-evload-border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
@@ -215,15 +326,26 @@ export default function StatisticsPage() {
                   <div className="text-evload-muted uppercase tracking-wide text-xs">Applied Tariff</div>
                   <div className="text-xl font-semibold">{(selectedSession.energyPriceEurPerKwh ?? 0).toFixed(3)} EUR/kWh</div>
                 </div>
+                {selectedSession.totalTelemetryPoints != null && (
+                  <div>
+                    <div className="text-evload-muted uppercase tracking-wide text-xs">Telemetry Points</div>
+                    <div className="text-xl font-semibold">
+                      {telemetryData.length}
+                      {selectedSession.totalTelemetryPoints > telemetryData.length && (
+                        <span className="text-sm text-evload-muted ml-1">/ {selectedSession.totalTelemetryPoints} (downsampled)</span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="bg-evload-surface border border-evload-border rounded-xl p-4">
                 <h3 className="font-medium mb-3 text-sm text-evload-muted">State of Charge (%)</h3>
                 <ResponsiveContainer width="100%" height={180}>
                   <AreaChart data={telemetryData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                    <XAxis dataKey="label" tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
+                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatChartTimeTick} tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
                     <YAxis domain={[0, 100]} tick={{ fill: '#888', fontSize: 10 }} />
-                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} />
+                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => formatChartTimeLabel(v)} />
                     <Area type="monotone" dataKey="soc" stroke="#22c55e" fill="#22c55e20" name="SoC %" />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -233,10 +355,10 @@ export default function StatisticsPage() {
                 <ResponsiveContainer width="100%" height={180}>
                   <LineChart data={telemetryData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                    <XAxis dataKey="label" tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
+                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatChartTimeTick} tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
                     <YAxis yAxisId="power" tick={{ fill: '#888', fontSize: 10 }} />
                     <YAxis yAxisId="current" orientation="right" tick={{ fill: '#888', fontSize: 10 }} />
-                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} />
+                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => formatChartTimeLabel(v)} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Line yAxisId="power" type="monotone" dataKey="chargerPower" stroke="#e31937" name="Power (kW)" dot={false} />
                     <Line yAxisId="current" type="monotone" dataKey="current" stroke="#f59e0b" name="Current (A)" dot={false} />
@@ -248,9 +370,9 @@ export default function StatisticsPage() {
                 <ResponsiveContainer width="100%" height={150}>
                   <LineChart data={telemetryData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                    <XAxis dataKey="label" tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
+                    <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatChartTimeTick} tick={{ fill: '#888', fontSize: 10 }} interval="preserveStartEnd" />
                     <YAxis tick={{ fill: '#888', fontSize: 10 }} />
-                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} />
+                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => formatChartTimeLabel(v)} />
                     <Line type="monotone" dataKey="voltage" stroke="#60a5fa" name="Voltage (V)" dot={false} />
                   </LineChart>
                 </ResponsiveContainer>

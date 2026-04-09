@@ -13,6 +13,8 @@ services:
       - .env
     environment:
       - NODE_ENV=production
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - GARAGE_MODE=${GARAGE_MODE:-false}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]

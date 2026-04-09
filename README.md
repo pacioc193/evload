@@ -19,10 +19,39 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Version bump 1.5.5**: release metadata updated across backend source-of-truth and all package manifests
+- **Statistics CSV export**: from the selected charging session you can now download a CSV file with session metadata and full telemetry rows
+- **Statistics chart timeline on real timestamps**: session charts now use real telemetry date/time on X axis instead of elapsed charging minutes
+- **Evload average power rewritten**: dashboard average is now computed from a rolling recent-energy window (not whole-session elapsed time), so it converges quickly to real charging power during active charge
+- **Manual OFF stop retry**: when user switches to `Off`, evload now retries `charge_stop` automatically if Tesla proxy returns temporary errors (for example HTTP 503), including immediate retry on proxy reconnect
+- **Ampere setpoint auto-resync**: when Tesla reports a `charge_current_request` different from the engine setpoint, evload now re-sends `set_charging_amps` (cooldown-limited) to recover from stale/inconsistent current requests
+- **Dashboard target SoC persistence by mode**: target SoC is now stored separately for `On` and `Off` modes in backend persistent state; the selected values survive page refreshes and are shared across browsers
+- **ON-session target adjustment**: the Dashboard SoC slider is editable in both `On` and `Off` modes (still read-only in `Plan`); in `On`, releasing the slider persists the new value and immediately updates the running engine target
+- **Proxy resilience**: `proxyGet` retries up to 3 times (30 s timeout each) only for network-level failures (ECONNREFUSED, ETIMEDOUT) before calling `markProxyError` — if the proxy responds with any HTTP error (503, 4xx, etc.) it is treated as reachable and the error is thrown immediately without retry and without marking the proxy offline, mirroring `proxyPost` behavior; body-controller polling resumes automatically on the next tick
+- **ETA guard on proxy disconnect**: when the proxy is offline, stale `chargeRateKw` and `machineHours` from the last poll are not used for ETA calculation — the dashboard shows "—" or falls back to the meter-based average only
+- **Statistics live reload**: the Statistics page automatically reloads the sessions list when a charging session ends, so cost, efficiency and energy data appear immediately after session stop without a manual refresh
 - Proxy status driven by `vehicle_data` polling with explicit proxy-vs-car state separation
 - Home Assistant-based dynamic current throttling with **linear ramp-up algorithm**
+- **Connection recovery**: soft failsafe on proxy disconnect — charge session is suspended (not stopped) and automatically resumed on reconnect
 - Manual, planned, and scheduled charging modes
+- **Garage Panel** (`/garage`) — touch-friendly kiosk UI for Raspberry Pi 7" display, fully responsive on mobile; screen saver with Screen Wake Lock API
+- **Google Drive Backup** — scheduled OAuth2 backup of `config.yaml` + SQLite DB, configurable folder picker, retention management, and restore
 - **Native Proxmox/Ubuntu deployment** via PowerShell scripts (no Docker required)
+- **Raspberry Pi 4 scripts** — full install (bash + PowerShell), remote update via rsync, kiosk setup, display rotation + DPMS
+- **Deterministic dependency refresh on deploy/update**: install and update scripts now force a clean npm reinstall (`node_modules` purge + `npm ci`) to prevent partial or stale dependency trees (for example missing runtime modules like `googleapis`)
+- **Resilient database schema sync** on deploy/update: scripts run `prisma migrate deploy` with automatic fallback to `prisma db push --accept-data-loss` when schema drift blocks startup (for example missing SQLite columns)
+- **Automatic startup diagnostics**: if service/container restart fails, scripts print the latest runtime logs (`journalctl` or `docker compose logs`) before exiting with error
+- **Charge-start disconnected guard**: when EVLoad detects a cable-disconnected or vehicle-disconnected charging state, it suspends repeated `charge_start` retries, emits a dedicated Telegram notification event (`charge_start_blocked`), and exposes a clear dashboard warning until the condition recovers
+- **Prominent cable indicator**: Garage page shows a green "Cable connected" / orange "Cable disconnected" badge in the status card, visible at a glance even without an active charging session
+- **body_controller_state-driven sleep detection**: Sleep status is determined by polling `body_controller_state` (which never wakes the vehicle); `vehicleSleepStatus` and `userPresence` are surfaced in the Dashboard vehicle card. When asleep, the Dashboard shows a "Sleeping" badge
+- **Two-timer vehicle_data polling**: `body_controller_state` runs on its own always-on timer at `bodyPollIntervalMs` (never wakes the vehicle). `vehicle_data` runs on a separate conditional timer: at `chargingPollIntervalMs` while charging/engine running, or `windowPollIntervalMs` while the data window is active. The body poll rate is never overridden by the window. Three configurable params (`chargingPollIntervalMs`, `windowPollIntervalMs`, `bodyPollIntervalMs`) plus `vehicleDataWindowMs`; all shown in Settings as seconds
+- **Garage page redesigned**: action buttons split into "Vehicle Controls" (car commands) and "Screen Options" (screen saver), each with a section title and per-button context text
+- **Configurable backend log severity**: Settings -> Logs now exposes runtime log severity (`error`, `warn`, `info`, `verbose`, `debug`, `silly`), persisted in `config.yaml` and applied immediately without service restart
+- **Human-friendly backend log download**: backend log download now defaults to pretty-printed lines for easier manual reading while keeping JSON log files on disk for machine processing
+- **Settings UX**: all panels expanded by default (state persisted per-browser); proxy poll fields shown in seconds; logical section order (body → window → charging); vehicle sleep state shown in proxy status box
+- **Versioning**: `VERSION` constant in `backend/src/version.ts` is the source of truth; update it together with all `package.json` files and add a `VERSION_HISTORY` entry on every release; latest-version check uses GitHub Releases API (set `GITHUB_TOKEN` env var for private repos); shows "—" instead of "Unknown" when check fails
+- **Notifications builder templates updated**: `charge_start_blocked` now has a ready-to-use default template in the Notifications UI, aligned with the existing event template workflow
+- **Collapsible navigation**: the left sidebar can now be hidden with a classic hamburger button (desktop collapse + mobile slide-out menu) for full-screen dashboard focus
 - **Production-hardened routing**: root path intelligently serves React UI or Home Assistant OAuth identity
 - **Sleep-aware and local-safe**: CSP configuration for LAN HTTP usage and sleep-safe proxy polling
 - Plan mode remains armed across scheduled runs until explicitly switched to Off
@@ -33,7 +62,7 @@ The project is designed for home charging scenarios where you want to:
 - **Robust energy tracking**: monotonic Wh counters with session logging to prevent resets during Amp changes
 - **Vehicle energy baseline correction**: `charge_energy_added` from Tesla proxy is captured at session start and used as zero-point, so sessions that begin with a non-zero counter report correct session energy and efficiency
 - **Dual vehicle energy display**: Dashboard Vehicle Details shows both the session-relative energy (used for efficiency) and the raw `charge_energy_added` value from the proxy for comparison
-- **Configurable start amps** (`charging.startAmps`): first charging command jumps to `startAmps` instead of the vehicle default; ramp-up continues from there incrementing one amp per `rampIntervalSec` until `targetAmps`
+- **Safe charge start sequence** (`charging.startAmps`): `set_charging_amps(startAmps)` is sent and awaited **before** `charge_start` so Tesla has accepted the safe current setpoint before current begins to flow. This prevents inrush current spikes caused by a previously-high amperage setting. Ramp-up continues from `startAmps`, incrementing one amp per `rampIntervalSec` until `targetAmps`.
 - **Offline-safe YAML editor**: Settings YAML panel uses a native textarea instead of Monaco Editor (which requires CDN access), ensuring the config editor works on isolated LAN deployments
 - Telegram notifications and command hooks
 - Demo mode with simulator parity for proxy endpoints
@@ -61,10 +90,63 @@ evload/
 ├── Dockerfile
 ├── install.ps1
 ├── install.sh
+├── docs/
+│   └── SETUP_GUIDE.md            Full installation & configuration guide
+├── scripts/
+│   └── raspberry/                Raspberry Pi installation & update scripts
+│       ├── install.sh / .ps1     Full RPi install (bash + PowerShell)
+│       ├── update.sh / .ps1      Remote update via rsync (bash + PowerShell)
+│       ├── setup-kiosk.sh / .ps1 Chromium kiosk + LXDE autostart
+│       └── setup-display.sh/.ps1 Display rotation, DPMS, vcgencmd sudoers
 └── features.md
 ```
 
-## Architecture Summary
+## Garage Panel
+
+The `/garage` route provides a kiosk-optimised full-screen dashboard for Raspberry Pi 4 + official 7" 800×480 touch display:
+
+- Large battery SoC bar, charging power (kW), ETA, home consumption, current (A)
+- Touch-friendly action buttons (≥88px): Start (with SOC slider), Stop, Unplug, Quick Defrost
+- Screen saver: CSS overlay that dims after N minutes of inactivity, fully wakes on any touch/click; uses Screen Wake Lock API where available
+- Physical display on/off via `vcgencmd display_power` (requires `GARAGE_MODE=true` in `.env`)
+- Fully responsive — accessible from any phone browser via the nav menu
+
+See [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md#7-garage-panel-kiosk-mode) for kiosk setup instructions.
+
+## Google Drive Backup
+
+Automatic encrypted backup of `config.yaml` and the SQLite database to your personal Google Drive:
+
+- OAuth2 authentication — no service account needed
+- Scheduled: `daily`, `weekly`, or `monthly` at a configurable HH:MM time
+- Configurable **destination folder** — pick from a folder list or type a nested path (e.g. `Documenti/evload-backups`)
+- Retention: keep the last N backups, auto-delete older ones
+- One-click restore from the Settings panel
+
+See [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md#6-google-drive-backup-setup) for OAuth setup instructions.
+
+## Raspberry Pi Installation
+
+Quick install on a Raspberry Pi 4 running Raspbian OS Desktop:
+
+```bash
+git clone https://github.com/pacioc193/evload.git ~/evload
+cd ~/evload/scripts/raspberry
+chmod +x *.sh
+sudo ./install.sh
+```
+
+Remote update from your development machine:
+
+```bash
+# Unix/macOS
+RPI_HOST=192.168.1.100 ./scripts/raspberry/update.sh
+
+# Windows PowerShell
+.\scripts\raspberry\update.ps1 -RpiHost 192.168.1.100
+```
+
+See [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md#4-option-c--raspberry-pi-4--official-7-display) for the full guide.
 
 ### Backend
 
@@ -99,10 +181,14 @@ EVLoad leverages this to poll safely at all times and only sends commands when t
 
 ### State Polling
 
-- Interval: `proxy.normalPollIntervalMs` (default 30 seconds)
-- Endpoint: `GET /api/1/vehicles/:vehicleId/vehicle_data`
-- An additional immediate poll is triggered on engine start (no wait for the next scheduled tick)
-- Non-200 responses where the reason contains `sleep` / `asleep` / `offline` / `unavailable` are treated as proxy-reachable and parsed normally
+EVLoad uses two independent polling timers:
+
+1. **Body timer** (always on): polls `body_controller_state` at `proxy.bodyPollIntervalMs` (default 60 s) regardless of window or charging state. Never wakes the vehicle. Manages sleep/wake transitions and opens/closes the vehicle_data window.
+2. **Vehicle data timer** (conditional): polls `vehicle_data` only when:
+   - The vehicle is actively charging or the engine is running (interval: `proxy.chargingPollIntervalMs`, default 5 s), or
+   - Within the vehicle_data window after a wake or connect event (interval: `proxy.windowPollIntervalMs`, default 10 s; window duration: `proxy.vehicleDataWindowMs`, default 5 min)
+   - The timer stops automatically when neither condition is active.
+- An immediate poll is triggered on engine start (no wait for the next scheduled tick)
 
 ### Runtime Status Contract
 
@@ -126,6 +212,13 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 
 ## Features
 
+- Statistics page includes a `Download CSV` action for the selected charging session (metadata + telemetry)
+- Statistics charts (SoC, Power/Current, Voltage) use telemetry `recordedAt` datetime on the X axis
+- Dashboard "Evload average" uses a rolling-meter-energy slope over recent samples for responsive ETA and power estimation
+- OFF mode stop resilience: failed `charge_stop` commands are retried in background with bounded attempts and retriggered on proxy reconnect
+- Engine auto-resync for current requests: if Tesla `charge_current_request` diverges from evload setpoint, backend retries `set_charging_amps` until aligned
+- Dashboard target SoC persistence split by mode (`on` / `off`) and shared across browser sessions via backend API
+- Dashboard SoC slider editable in `on` and `off` (read-only only in `plan`), with live target update during active manual charging sessions
 - Load-aware charging using Home Assistant power entities
 - Charging current ramp logic with configurable bounds and cadence
 - Sleep-aware proxy polling: `GET /vehicle_data` never wakes the vehicle
@@ -148,7 +241,7 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Vehicle energy baseline correction at session start: non-zero `charge_energy_added` values are offset so session-relative energy is always accurate
 - Dual vehicle energy tiles in Dashboard Vehicle Details: session-relative energy (for efficiency) and raw proxy value side by side
 - Charging efficiency persisted per session in backend and surfaced in Dashboard and Statistics
-- Configurable `startAmps`: first charging current command uses `charging.startAmps` (default 8 A); ramp then steps +1 A per `rampIntervalSec` from the commanded setpoint (not vehicle actual amps)
+- Configurable `startAmps`: `set_charging_amps(startAmps)` is sent **before** `charge_start` to prevent inrush current spikes from a previously-high setpoint; ramp then steps +1 A per `rampIntervalSec` from the commanded setpoint (not vehicle actual amps)
 - Dashboard normal view uses backend meter energy; Vehicle Details → Vehicle Charged Energy uses vehicle battery energy
 - Settings YAML editor is a native textarea — works offline and on isolated LAN without CDN dependency
 - Version visibility in UI: current version in header and release history panel in Settings
@@ -457,7 +550,8 @@ The backend requires environment configuration at startup, typically via a `.env
 | `APP_URL` | Optional. If omitted, backend auto-detects a LAN URL for HA OAuth |
 | `FRONTEND_URL` | Optional. Useful in dev to redirect OAuth callback to Vite frontend |
 | `PORT` | Optional backend HTTP port (default `3001`) |
-| `LOG_LEVEL` | Optional backend log level (default `info`) |
+| `LOG_LEVEL` | Optional backend log level: `error` \| `warn` \| `info` \| `verbose` \| `debug` \| `silly` (default `info`). Use `debug` or `verbose` for troubleshooting. |
+| `GARAGE_MODE` | Set to `true` on Raspberry Pi to enable physical display control via `vcgencmd display_power`. |
 | `SESSION_HOURS` | Optional. JWT session duration in hours issued at login (default `24`) |
 | `CORS_ORIGIN` | Optional. Allowed CORS origin in production; leave empty to allow all origins |
 
@@ -481,7 +575,10 @@ Relevant proxy fields:
 | `proxy.url` | Base URL of the Tesla proxy |
 | `proxy.vehicleId` | Vehicle VIN/id used in proxy routes |
 | `proxy.vehicleName` | Friendly display name shown in UI |
-| `proxy.normalPollIntervalMs` | Full `vehicle_data` refresh interval |
+| `proxy.chargingPollIntervalMs` | Poll interval (ms) for vehicle_data while actively charging or engine running |
+| `proxy.windowPollIntervalMs` | Poll interval (ms) for vehicle_data during the wake window (not charging) |
+| `proxy.bodyPollIntervalMs` | Poll interval (ms) for body_controller_state — always active, independent of window/charging |
+| `proxy.vehicleDataWindowMs` | Duration (ms) of the vehicle_data window after wake/connect (default 300000 = 5 min) |
 | `proxy.scheduleLeadTimeSec` | Scheduler pre-wake lead time |
 | `proxy.rejectUnauthorized` | TLS certificate validation for proxy HTTPS |
 
@@ -632,3 +729,13 @@ Current repository validation path typically includes:
 Detailed implementation notes and acceptance backlog live in `features.md`.
 
 For the current EVLoad-to-proxy runtime behavior, see the dedicated communication section in `features.md`.
+
+## Troubleshooting
+
+### Proxy shows offline but vehicle is connected
+
+The proxy status reflects the last `body_controller_state` poll result. If the vehicle is asleep, EVLoad reports it as asleep (not offline). Set `LOG_LEVEL=debug` in `.env` to see each poll tick in the logs — look for `🔄[POLL_BODY]` entries. If the vehicle is actually awake but the proxy still shows offline, check that `proxy.url` in `config.yaml` is reachable from the backend.
+
+### Commands fail in the garage panel when car is asleep
+
+This is expected behaviour. All commands sent via EVLoad use `?wait=true`, which instructs the Tesla BLE proxy to auto-wake the vehicle before executing the command. The proxy may take up to ~40 seconds to wake the vehicle; EVLoad uses a 90-second timeout. If the command still times out, check that your proxy is running and reachable, and that the vehicle has BLE connectivity.

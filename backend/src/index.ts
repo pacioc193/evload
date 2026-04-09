@@ -8,7 +8,7 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
-import { logger, sanitizeForLog } from './logger'
+import { logger, sanitizeForLog, setLoggerLevel } from './logger'
 import { loadConfig, getConfig, ensureConfigYaml } from './config'
 import { prisma } from './prisma'
 import authRoutes from './routes/auth.routes'
@@ -20,16 +20,21 @@ import configRoutes from './routes/config.routes'
 import scheduleRoutes from './routes/schedule.routes'
 import settingsRoutes from './routes/settings.routes'
 import versionRoutes from './routes/version.routes'
+import garageRoutes from './routes/garage.routes'
+import backupRoutes from './routes/backup.routes'
+import updateRoutes from './routes/update.routes'
 import { startHaPoll } from './services/ha.service'
-import { startProxyPoll } from './services/proxy.service'
+import { startProxyPoll, getVehicleState, getProxyHealthState } from './services/proxy.service'
 import { startFleetSimulator, stopFleetSimulator } from './services/fleet-simulator.service'
 import { initTelegram, registerTelegramCommand } from './services/telegram.service'
 import { initFailsafe } from './services/failsafe.service'
 import { startScheduler } from './services/scheduler.service'
+import { startAutoFetch } from './services/updater.service'
 import { initWebSocketServer, stopWebSocketServer } from './ws/broadcaster'
 import { startEngine, stopEngine, getEngineStatus, initializeEngineState, initExternalChargeGuard } from './engine/charging.engine'
 import { isFailsafeActive } from './services/failsafe.service'
 import { notificationEvents, dispatchTelegramNotificationEvent } from './services/notification-rules.service'
+import { runScheduledBackupCheck } from './services/backup.service'
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10)
 
@@ -220,9 +225,19 @@ ensureEnvFile()
 ensureConfigYaml()
 
 loadConfig()
+setLoggerLevel(getConfig().logLevel)
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+  const vState = getVehicleState()
+  const proxyHealth = getProxyHealthState()
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    proxy: {
+      connected: proxyHealth.connected,
+      vehicleSleepStatus: vState.vehicleSleepStatus,
+    },
+  })
 })
 
 app.use('/api/auth', authRoutes)
@@ -234,6 +249,9 @@ app.use('/api/config', configRoutes)
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/settings', settingsRoutes)
 app.use('/api/version', versionRoutes)
+app.use('/api/garage', garageRoutes)
+app.use('/api/backup', backupRoutes)
+app.use('/api/update', updateRoutes)
 
 const FRONTEND_DIST = path.join(__dirname, '../../frontend/dist')
 
@@ -342,6 +360,12 @@ async function bootstrap(): Promise<void> {
   startFleetSimulator()
   startProxyPoll()
   startScheduler()
+  startAutoFetch()
+
+  // Backup scheduler: check every minute if a scheduled backup should run
+  setInterval(() => {
+    runScheduledBackupCheck().catch((err) => logger.error('Backup scheduler error', { err }))
+  }, 60_000)
 
   server.listen(PORT, () => {
     logger.info(`evload backend listening on port ${PORT}`)
@@ -354,10 +378,24 @@ bootstrap().catch((err) => {
 })
 
 process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down')
+  logger.info('SIGTERM received, starting graceful shutdown')
+  const shutdownTimeout = setTimeout(() => {
+    logger.warn('Graceful shutdown timeout – forcing exit')
+    process.exit(1)
+  }, 10_000)
+  shutdownTimeout.unref()
+
+  stopEngine({ forceOff: false }).catch(() => {})
   stopFleetSimulator()
   stopWebSocketServer()
-  server.close(() => process.exit(0))
+  server.close(() => {
+    logger.info('HTTP server closed, exiting')
+    process.exit(0)
+  })
+})
+
+process.on('SIGINT', () => {
+  process.emit('SIGTERM')
 })
 
 process.on('unhandledRejection', (reason) => {

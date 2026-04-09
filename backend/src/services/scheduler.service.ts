@@ -12,7 +12,8 @@ let lastLeadWakeKey: string | null = null
 async function startEngineWithWake(scheduleId: number, vehicleId: string, targetSoc: number, targetAmps?: number): Promise<void> {
   logger.debug('Scheduler: startEngineWithWake', { scheduleId, vehicleId, targetSoc, targetAmps })
   // External charge takeover (stopChargeOnManualStart logic) is handled inside startEngine()
-  await startEngine(targetSoc, targetAmps)
+  // fromPlan=true: plan sessions keep planArmed=true so mode stays 'plan' after charge completes
+  await startEngine(targetSoc, targetAmps, true)
 }
 
 export async function getScheduleNextStartMs(now: Date = new Date()): Promise<number | null> {

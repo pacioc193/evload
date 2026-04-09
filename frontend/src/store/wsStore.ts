@@ -17,6 +17,8 @@ export interface ProxyHealthState {
   lastSuccessAt: string | null
   lastEndpoint: string | null
   error: string | null
+  /** Unix timestamp (ms) when the vehicle_data polling window expires. null when inactive. */
+  vehicleDataWindowExpiresAt: number | null
 }
 
 export interface VehicleState {
@@ -60,7 +62,11 @@ export interface EngineStatus {
   running: boolean
   mode: 'off' | 'plan' | 'on'
   sessionId: number | null
+  /** ISO timestamp of when the current charging session started. Null when no session is active. */
+  sessionStartedAt: string | null
   targetSoc: number
+  targetSocOn: number
+  targetSocOff: number
   targetAmps: number
   setpointAmps: number
   currentAmps: number
@@ -68,6 +74,8 @@ export interface EngineStatus {
   balancingStartedAt: string | null
   phase: 'idle' | 'charging' | 'balancing' | 'complete' | 'paused'
   message: string
+  chargeStartBlocked: boolean
+  chargeStartBlockReason: string | null
   haThrottled: boolean
   accumulatedSessionEnergyKwh: number
   vehicleBatteryEnergyKwh: number

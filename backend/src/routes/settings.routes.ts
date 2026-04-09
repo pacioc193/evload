@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit'
 import dotenv from 'dotenv'
 import { requireAuth } from '../middleware/auth.middleware'
 import { getConfig, reloadConfig } from '../config'
-import { logger } from '../logger'
+import { logger, setLoggerLevel } from '../logger'
 import { setPassword, verifyPassword } from '../auth'
 import {
   extractMissingTemplatePlaceholders,
@@ -30,6 +30,7 @@ router.get('/', limiter, requireAuth, (_req, res) => {
   const currentToken = process.env.TELEGRAM_BOT_TOKEN
   res.json({
     demo: cfg.demo,
+    logLevel: cfg.logLevel,
     haUrl: cfg.homeAssistant.url,
     haPowerEntityId: cfg.homeAssistant.powerEntityId,
     haChargerEntityId: cfg.homeAssistant.chargerEntityId,
@@ -38,13 +39,16 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     proxyUrl: cfg.proxy.url,
     vehicleId: cfg.proxy.vehicleId,
     vehicleName: cfg.proxy.vehicleName,
-    normalPollIntervalMs: cfg.proxy.normalPollIntervalMs,
-    idlePollIntervalMs: cfg.proxy.idlePollIntervalMs,
+    chargingPollIntervalMs: cfg.proxy.chargingPollIntervalMs,
+    windowPollIntervalMs: cfg.proxy.windowPollIntervalMs,
+    bodyPollIntervalMs: cfg.proxy.bodyPollIntervalMs,
+    vehicleDataWindowMs: cfg.proxy.vehicleDataWindowMs,
     scheduleLeadTimeSec: cfg.proxy.scheduleLeadTimeSec,
     rejectUnauthorized: cfg.proxy.rejectUnauthorized,
     batteryCapacityKwh: cfg.charging.batteryCapacityKwh,
     energyPriceEurPerKwh: cfg.charging.energyPriceEurPerKwh,
     defaultAmps: cfg.charging.defaultAmps,
+    startAmps: cfg.charging.startAmps,
     maxAmps: cfg.charging.maxAmps,
     minAmps: cfg.charging.minAmps,
     stopChargeOnManualStart: cfg.charging.stopChargeOnManualStart,
@@ -60,6 +64,7 @@ router.get('/', limiter, requireAuth, (_req, res) => {
 router.patch('/', limiter, requireAuth, (req, res) => {
   const incoming = req.body as Partial<{
     demo: boolean
+    logLevel: 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly'
     haUrl: string
     haPowerEntityId: string
     haChargerEntityId: string
@@ -68,13 +73,16 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     proxyUrl: string
     vehicleId: string
     vehicleName: string
-    normalPollIntervalMs: number
-    idlePollIntervalMs: number
+    chargingPollIntervalMs: number
+    windowPollIntervalMs: number
+    bodyPollIntervalMs: number
+    vehicleDataWindowMs: number
     scheduleLeadTimeSec: number
     rejectUnauthorized: boolean
     batteryCapacityKwh: number
     energyPriceEurPerKwh: number
     defaultAmps: number
+    startAmps: number
     maxAmps: number
     minAmps: number
     stopChargeOnManualStart: boolean
@@ -115,6 +123,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   }
 
   if (incoming.demo !== undefined) parsed['demo'] = incoming.demo
+  if (incoming.logLevel !== undefined) parsed['logLevel'] = incoming.logLevel
 
   const activeCfg = getConfig()
 
@@ -145,8 +154,10 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.proxyUrl !== undefined) proxy['url'] = incoming.proxyUrl
   if (incoming.vehicleId !== undefined) proxy['vehicleId'] = incoming.vehicleId
   if (incoming.vehicleName !== undefined) proxy['vehicleName'] = incoming.vehicleName
-  if (incoming.normalPollIntervalMs !== undefined) proxy['normalPollIntervalMs'] = incoming.normalPollIntervalMs
-  if (incoming.idlePollIntervalMs !== undefined) proxy['idlePollIntervalMs'] = incoming.idlePollIntervalMs
+  if (incoming.chargingPollIntervalMs !== undefined) proxy['chargingPollIntervalMs'] = incoming.chargingPollIntervalMs
+  if (incoming.windowPollIntervalMs !== undefined) proxy['windowPollIntervalMs'] = incoming.windowPollIntervalMs
+  if (incoming.bodyPollIntervalMs !== undefined) proxy['bodyPollIntervalMs'] = incoming.bodyPollIntervalMs
+  if (incoming.vehicleDataWindowMs !== undefined) proxy['vehicleDataWindowMs'] = incoming.vehicleDataWindowMs
   if (incoming.scheduleLeadTimeSec !== undefined) proxy['scheduleLeadTimeSec'] = incoming.scheduleLeadTimeSec
   if (incoming.rejectUnauthorized !== undefined) proxy['rejectUnauthorized'] = incoming.rejectUnauthorized
   parsed['proxy'] = proxy
@@ -155,6 +166,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.batteryCapacityKwh !== undefined) charging['batteryCapacityKwh'] = incoming.batteryCapacityKwh
   if (incoming.energyPriceEurPerKwh !== undefined) charging['energyPriceEurPerKwh'] = incoming.energyPriceEurPerKwh
   if (incoming.defaultAmps !== undefined) charging['defaultAmps'] = incoming.defaultAmps
+  if (incoming.startAmps !== undefined) charging['startAmps'] = incoming.startAmps
   if (incoming.maxAmps !== undefined) charging['maxAmps'] = incoming.maxAmps
   if (incoming.minAmps !== undefined) charging['minAmps'] = incoming.minAmps
   if (incoming.stopChargeOnManualStart !== undefined) charging['stopChargeOnManualStart'] = incoming.stopChargeOnManualStart
@@ -252,7 +264,8 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   }
 
   try {
-    reloadConfig()
+    const nextCfg = reloadConfig()
+    setLoggerLevel(nextCfg.logLevel)
     initTelegram()
   } catch (err) {
     logger.warn('Config reload failed after settings update', { err })
@@ -381,10 +394,46 @@ router.get('/telegram/placeholders', limiter, requireAuth, (_req, res) => {
 
 const logDownloadLimiter = rateLimit({ windowMs: 60 * 1000, max: 10 })
 
+function parseSinceDuration(since: string | undefined): number | null {
+  if (!since) return null
+  if (since === '1h') return 60 * 60 * 1000
+  if (since === '6h') return 6 * 60 * 60 * 1000
+  if (since === '24h') return 24 * 60 * 60 * 1000
+  if (since === '7d') return 7 * 24 * 60 * 60 * 1000
+  return null
+}
+
+function formatLogLinePretty(line: string): string {
+  const trimmed = line.trim()
+  if (!trimmed) return ''
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      timestamp?: string
+      level?: string
+      message?: string
+      [key: string]: unknown
+    }
+    const timestamp = typeof parsed.timestamp === 'string' ? parsed.timestamp : 'unknown-time'
+    const level = typeof parsed.level === 'string' ? parsed.level.toUpperCase() : 'INFO'
+    const message = typeof parsed.message === 'string' ? parsed.message : '(no message)'
+    const extras = { ...parsed }
+    delete extras.timestamp
+    delete extras.level
+    delete extras.message
+    const extraPart = Object.keys(extras).length > 0 ? ` ${JSON.stringify(extras)}` : ''
+    return `[${timestamp}] ${level} ${message}${extraPart}`
+  } catch {
+    return trimmed
+  }
+}
+
 router.get('/logs/backend', logDownloadLimiter, requireAuth, (req, res) => {
   const type = (req.query.type as string) === 'error' ? 'error' : 'combined'
+  const format = (req.query.format as string) === 'pretty' ? 'pretty' : 'json'
   const filename = type === 'error' ? 'error.log' : 'combined.log'
   const logPath = path.join(LOG_DIR, filename)
+  const since = req.query.since as string | undefined
+  const duration = parseSinceDuration(since)
 
   if (!fs.existsSync(logPath)) {
     res.status(404).json({ error: `Log file '${filename}' not found` })
@@ -396,13 +445,67 @@ router.get('/logs/backend', logDownloadLimiter, requireAuth, (req, res) => {
     type,
     filename,
     sizeBytes: stat.size,
+    since: since ?? 'all',
     remoteIp: req.ip,
   })
 
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
   res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-  res.setHeader('Content-Length', stat.size)
 
+  const maybeFormat = (content: string): string => {
+    if (format !== 'pretty') return content
+    return content
+      .split('\n')
+      .map(formatLogLinePretty)
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  if (duration !== null) {
+    // Time-filtered download: read file, parse JSON lines, filter by timestamp
+    try {
+      const cutoffIso = new Date(Date.now() - duration).toISOString()
+      const content = fs.readFileSync(logPath, 'utf8')
+      const filteredRaw = content
+        .split('\n')
+        .filter(line => {
+          if (!line.trim()) return false
+          try {
+            const parsed = JSON.parse(line) as { timestamp?: string }
+            return typeof parsed.timestamp === 'string' && parsed.timestamp >= cutoffIso
+          } catch {
+            return true
+          }
+        })
+        .join('\n')
+      const filtered = maybeFormat(filteredRaw)
+      res.setHeader('Content-Length', Buffer.byteLength(filtered, 'utf8'))
+      res.send(filtered)
+    } catch (err) {
+      logger.error('Failed to filter backend log file', { err, filename })
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to read log file' })
+      }
+    }
+    return
+  }
+
+  if (format === 'pretty') {
+    try {
+      const content = fs.readFileSync(logPath, 'utf8')
+      const pretty = maybeFormat(content)
+      res.setHeader('Content-Length', Buffer.byteLength(pretty, 'utf8'))
+      res.send(pretty)
+    } catch (err) {
+      logger.error('Failed to pretty-format backend log file', { err, filename })
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to read log file' })
+      }
+    }
+    return
+  }
+
+  res.setHeader('Content-Length', stat.size)
   const stream = fs.createReadStream(logPath)
   stream.on('error', (err) => {
     logger.error('Failed to stream backend log file', { err, filename })

@@ -42,6 +42,25 @@ export async function wakeVehicle() {
   return res.data as { success: boolean }
 }
 
+export interface EngineTargetSocPreferences {
+  on: number
+  off: number
+}
+
+export async function getEngineTargetSocPreferences() {
+  const res = await api.get('/engine/targets')
+  return res.data as { success: boolean; targets: EngineTargetSocPreferences }
+}
+
+export async function patchEngineTargetSocPreference(input: {
+  mode: 'on' | 'off'
+  targetSoc: number
+  applyToRunningOnSession?: boolean
+}) {
+  const res = await api.patch('/engine/targets', input)
+  return res.data as { success: boolean; targets: EngineTargetSocPreferences }
+}
+
 export async function getSessions(page = 1, limit = 20) {
   const res = await api.get(`/sessions?page=${page}&limit=${limit}`)
   return res.data as { sessions: unknown[]; total: number; page: number; limit: number }
@@ -132,6 +151,7 @@ export async function saveConfig(content: string) {
 
 export interface AppSettings {
   demo: boolean
+  logLevel: 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly'
   haUrl: string
   haPowerEntityId: string
   haChargerEntityId: string
@@ -140,13 +160,16 @@ export interface AppSettings {
   proxyUrl: string
   vehicleId: string
   vehicleName: string
-  normalPollIntervalMs: number
-  idlePollIntervalMs: number
+  chargingPollIntervalMs: number
+  windowPollIntervalMs: number
+  bodyPollIntervalMs: number
+  vehicleDataWindowMs: number
   scheduleLeadTimeSec: number
   rejectUnauthorized: boolean
   batteryCapacityKwh: number
   energyPriceEurPerKwh: number
   defaultAmps: number
+  startAmps: number
   maxAmps: number
   minAmps: number
   stopChargeOnManualStart: boolean
@@ -227,9 +250,9 @@ export async function getTelegramPlaceholders() {
  * Download the backend combined or error log as a file.
  * Triggers a browser file download.
  */
-export async function downloadBackendLog(type: 'combined' | 'error' = 'combined'): Promise<void> {
+export async function downloadBackendLog(type: 'combined' | 'error' = 'combined', since?: string): Promise<void> {
   const res = await api.get(`/settings/logs/backend`, {
-    params: { type },
+    params: { type, format: 'pretty', ...(since ? { since } : {}) },
     responseType: 'blob',
   })
   const blob = new Blob([res.data as BlobPart], { type: 'text/plain;charset=utf-8' })
@@ -362,4 +385,117 @@ export async function updateVehicleDataRequest(
 ) {
   const res = await api.put(`/vehicle/data-request/${section}`, payload)
   return res.data as { success: boolean; result: unknown }
+}
+
+// ─── Garage ───────────────────────────────────────────────────────────────────
+
+/**
+ * Control the RPi physical display (requires GARAGE_MODE=true on backend).
+ */
+export async function setGarageDisplay(on: boolean) {
+  const res = await api.post('/garage/display', { on })
+  return res.data as { success: boolean; on: boolean }
+}
+
+// ─── Backup (Google Drive) ────────────────────────────────────────────────────
+
+export interface BackupStatus {
+  connected: boolean
+  lastBackupAt: string | null
+  nextBackupAt: string | null
+  frequency: string
+  time: string
+  enabled: boolean
+  driveFolderPath: string
+}
+
+export interface DriveBackupFile {
+  id: string
+  name: string
+  createdTime: string | null
+}
+
+export interface DriveFolderInfo {
+  id: string
+  name: string
+  path: string
+}
+
+export async function getBackupStatus() {
+  const res = await api.get('/backup/status')
+  return res.data as BackupStatus
+}
+
+export async function startBackupOAuth() {
+  const res = await api.get('/backup/oauth/start')
+  return res.data as { url: string }
+}
+
+export async function disconnectBackupOAuth() {
+  const res = await api.delete('/backup/oauth')
+  return res.data as { success: boolean }
+}
+
+export async function triggerBackup() {
+  const res = await api.post('/backup/trigger')
+  return res.data as { success: boolean; fileId: string }
+}
+
+export async function listBackupFiles() {
+  const res = await api.get('/backup/list')
+  return res.data as { files: DriveBackupFile[] }
+}
+
+export async function listDriveFolders() {
+  const res = await api.get('/backup/folders')
+  return res.data as { folders: DriveFolderInfo[] }
+}
+
+export async function restoreBackup(fileId: string) {
+  const res = await api.post('/backup/restore', { fileId })
+  return res.data as { success: boolean }
+}
+
+// ─── OTA Update ───────────────────────────────────────────────────────────────
+
+export interface CommitInfo {
+  hash: string
+  shortHash: string
+  message: string
+  author: string
+  date: string
+}
+
+export interface UpdateStatusResponse {
+  state: 'idle' | 'running' | 'success' | 'error'
+  branch: string | null
+  startedAt: string | null
+  endedAt: string | null
+  exitCode: number | null
+  logSizeBytes: number
+  currentBranch: string
+  branches: string[]
+  localCommit: CommitInfo | null
+  remoteCommit: CommitInfo | null
+  behindCount: number
+}
+
+export async function getUpdateStatus(branch?: string) {
+  const res = await api.get('/update/status', branch ? { params: { branch } } : {})
+  return res.data as UpdateStatusResponse
+}
+
+export async function triggerFetch(branch?: string) {
+  const res = await api.post('/update/fetch', branch ? { branch } : {})
+  return res.data as { success: boolean; localCommit: CommitInfo | null; remoteCommit: CommitInfo | null; behindCount: number }
+}
+
+export async function startOtaUpdate(branch: string) {
+  const res = await api.post('/update/start', { branch })
+  return res.data as { success: boolean; branch: string }
+}
+
+export async function getOtaLogs(from = 0) {
+  const res = await api.get(`/update/logs?from=${from}`)
+  return res.data as { content: string; totalBytes: number }
 }

@@ -11,6 +11,7 @@ import StatisticsPage from './pages/StatisticsPage'
 import SettingsPage from './pages/SettingsPage'
 import SchedulePage from './pages/SchedulePage'
 import NotificationsPage from './pages/NotificationsPage'
+import GaragePage from './pages/GaragePage'
 import Layout from './components/Layout'
 
 const THEME_STORAGE_KEY = 'evload.theme'
@@ -57,6 +58,7 @@ function AppContent() {
               <Route path="/schedule" element={<Layout theme={theme} onToggleTheme={toggleTheme}><SchedulePage /></Layout>} />
               <Route path="/notifications" element={<Layout theme={theme} onToggleTheme={toggleTheme}><NotificationsPage /></Layout>} />
               <Route path="/settings" element={<Layout theme={theme} onToggleTheme={toggleTheme}><SettingsPage /></Layout>} />
+              <Route path="/garage" element={<Layout theme={theme} onToggleTheme={toggleTheme}><GaragePage /></Layout>} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </>
           ) : (

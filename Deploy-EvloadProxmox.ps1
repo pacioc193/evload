@@ -96,7 +96,14 @@ pct exec $CTID -- bash -c "sed -i 's|vehicleName:.*|vehicleName: \"$VEHICLE_NAME
 
 echo "[8/8] Compilazione e avvio di EVLoad tramite Docker Compose..."
 echo "      ⚠️  Questa operazione richiede alcuni minuti (build di backend e frontend)..."
-pct exec $CTID -- bash -c "cd /opt/evload && docker compose up -d --build"
+pct exec $CTID -- bash -c "cd /opt/evload && docker compose build --no-cache && docker compose up -d"
+pct exec $CTID -- bash -c "cd /opt/evload && (docker compose exec evload npx prisma migrate deploy || docker compose exec evload npx prisma db push --accept-data-loss)"
+
+if ! pct exec $CTID -- bash -c "cd /opt/evload && docker compose ps evload | grep -q running"; then
+    echo "❌ Container evload non attivo dopo il deploy. Ultimi log:"
+    pct exec $CTID -- bash -c "cd /opt/evload && docker compose logs --tail=120 evload" || true
+    exit 1
+fi
 
 CT_IP=$(pct exec $CTID -- ip -4 addr show eth0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n 1)
 

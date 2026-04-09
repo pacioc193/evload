@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.2.0'
+export const VERSION = '1.5.5'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,46 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.5.5',
+    releasedAt: '2026-04-09',
+    summary: 'Dashboard reliability and UX update: OFF mode now retries charge_stop on temporary proxy failures, Evload average power uses rolling-window energy slope, Statistics charts use real datetime on X axis, and selected session can be exported as CSV',
+  },
+  {
+    version: '1.5.4',
+    releasedAt: '2026-04-08',
+    summary: 'Garage commands + charging engine: all proxy commands now use ?wait=true so the proxy waits for BLE completion and auto-wakes the vehicle if asleep (90 s timeout). Fix false proxy-offline: proxyPost/updateProxyDataRequest no longer call markProxyError when the proxy responded with an HTTP error (vehicle issue, not proxy issue). Statistics charts show full session. OTA update panel.',
+  },
+  {
+    version: '1.5.3',
+    releasedAt: '2026-04-08',
+    summary: 'OTA Update panel in Settings/Versioning: branch selector, local vs remote commit cards with "N commits available" badge, auto git-fetch every 60 s, Start Update button, live scrollable build log, JWT-protected /api/update/* endpoints',
+  },
+  {
+    version: '1.5.2',
+    releasedAt: '2026-04-08',
+    summary: 'Fix manual charge mode: startEngine(fromPlan=false) resets planArmed so manual sessions report mode=on and return to off after completion; plan sessions stay on plan. Slider now shows engine.targetSoc while charging; slider locked (readonly) during active session; diagnostic flog entries for targetSoc seed/drag/send path',
+  },
+  {
+    version: '1.5.1',
+    releasedAt: '2026-04-08',
+    summary: 'Fix inflated evload average power after proxy retry/navigation: use authoritative sessionStartedAt (DB timestamp) instead of component-local state; nowTsMs uses wall-clock Date.now()',
+  },
+  {
+    version: '1.5.0',
+    releasedAt: '2026-04-07',
+    summary: 'Proxy resilience: 3 retry attempts with 30 s timeout before declaring lost communication; ETA guard — stale chargeRateKw/machineHours zeroed when proxy disconnected; Statistics page auto-reloads on session end',
+  },
+  {
+    version: '1.4.0',
+    releasedAt: '2026-04-07',
+    summary: 'Settings overhaul: "?" tooltip overlays for all parameters, proxy panel split into HTTP/TLS|VIN|Finestra dati|Polling ricarica|Body Controller|Scheduler sub-groups, sleepPollIntervalMs removed (bodyPollIntervalMs used for both awake and asleep body-only polling), vehicle data window countdown in proxy status',
+  },
+  {
+    version: '1.3.0',
+    releasedAt: '2026-04-07',
+    summary: 'Smart vehicle_data window polling (body-only after wake window), 5 configurable poll intervals, garage dashboard split into "Opzioni Auto" / "Opzioni Schermo", settings UX improvements',
+  },
   {
     version: '1.2.0',
     releasedAt: '2026-04-01',
@@ -42,11 +82,24 @@ export async function getVersionInfo(): Promise<VersionInfo> {
   
   if (!latestVersionCache || now - lastCheckMs > CHECK_INTERVAL_MS) {
     try {
-      // Fetch latest version from GitHub API
-      // We look at the package.json on main branch for simplicity
-      const res = await axios.get('https://raw.githubusercontent.com/pacioc193/evload/main/package.json', { timeout: 5000 })
-      if (res.data?.version) {
-        latestVersionCache = res.data.version
+      // Use GitHub Releases API for latest release tag.
+      // If GITHUB_TOKEN is set it will work for private repos too.
+      const headers: Record<string, string> = {
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      }
+      const token = process.env.GITHUB_TOKEN
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      const res = await axios.get('https://api.github.com/repos/pacioc193/evload/releases/latest', {
+        timeout: 5000,
+        headers,
+      })
+      const tag: string = res.data?.tag_name ?? ''
+      // Strip leading 'v' if present (e.g. 'v1.3.0' → '1.3.0')
+      const version = tag.replace(/^v/, '')
+      if (version) {
+        latestVersionCache = version
         lastCheckMs = now
       }
     } catch (err) {

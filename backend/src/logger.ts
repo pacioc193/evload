@@ -85,3 +85,10 @@ export const logger = winston.createLogger({
     } as winston.transports.FileTransportOptions),
   ],
 })
+
+export function setLoggerLevel(level: 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly'): void {
+  logger.level = level
+  for (const transport of logger.transports) {
+    transport.level = level
+  }
+}

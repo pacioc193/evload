@@ -10,6 +10,29 @@ const router = Router()
 
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 })
 
+/**
+ * Allowlist of commands that can be forwarded to the TeslaBleHttpProxy.
+ * Any command not in this list is rejected with 400.
+ */
+const ALLOWED_COMMANDS = new Set([
+  'wake_up',
+  'charge_start',
+  'charge_stop',
+  'set_charging_amps',
+  'set_charge_limit',
+  'auto_conditioning_start',
+  'auto_conditioning_stop',
+  'charge_port_door_open',
+  'charge_port_door_close',
+  'flash_lights',
+  'honk_horn',
+  'door_lock',
+  'door_unlock',
+  'set_sentry_mode',
+  'defrost_max',
+  'set_temps',
+])
+
 router.get('/state', limiter, requireAuth, (_req, res) => {
   res.json(getVehicleState())
 })
@@ -20,11 +43,34 @@ router.post('/command/:cmd', limiter, requireAuth, async (req, res) => {
     return
   }
   const cmd = req.params['cmd'] as string
+
+  // Validate command against allowlist to prevent SSRF / request-forgery
+  if (!ALLOWED_COMMANDS.has(cmd)) {
+    res.status(400).json({ error: `Unknown command: ${cmd}` })
+    return
+  }
+
   const vid = getConfig().proxy.vehicleId
   if (!vid) {
     res.status(400).json({ error: 'No vehicle ID configured' })
     return
   }
+
+  // Warn if vehicleId doesn't look like a standard Tesla VIN (17 chars) or numeric test ID
+  const vin = vid.trim()
+  if (vin.length > 0 && vin.length !== 17 && !/^\d+$/.test(vin)) {
+    logger.warn('[VIN] vehicleId does not look like a standard Tesla VIN', { vehicleId: vin })
+  }
+
+  // sendProxyCommand always uses ?wait=true, so the proxy handles auto-wake
+  // + BLE command execution synchronously with a 90 s timeout.
+  // Log sleep state for diagnostics only.
+  const vState = getVehicleState()
+  const isAsleep = vState.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP'
+  if (isAsleep) {
+    logger.info(`🌅[CMD_WHILE_ASLEEP] Vehicle sleeping — proxy will auto-wake via ?wait=true`, { cmd, vehicleId: vid })
+  }
+
   try {
     const result = await sendProxyCommand(vid, cmd, req.body as Record<string, unknown>)
     res.json({ success: true, result })

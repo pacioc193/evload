@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, type ReactNode } from 'react'
+﻿import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import axios from 'axios'
 import {
   getConfig,
@@ -15,15 +15,32 @@ import {
   downloadBackendLog,
   downloadFrontendLogFromBackend,
   uploadFrontendLogs,
+  getBackupStatus,
+  startBackupOAuth,
+  disconnectBackupOAuth,
+  triggerBackup,
+  listBackupFiles,
+  listDriveFolders,
+  restoreBackup,
+  type BackupStatus,
+  type DriveBackupFile,
+  type DriveFolderInfo,
+  getUpdateStatus,
+  triggerFetch,
+  startOtaUpdate,
+  getOtaLogs,
+  type UpdateStatusResponse,
+  type CommitInfo,
 } from '../api/index'
 import { changePassword } from '../api/auth'
-import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch } from 'lucide-react'
+import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch, UploadCloud, RefreshCw, Trash2, FolderOpen, GitCommit, ArrowDown, RotateCcw, Terminal, CheckCircle, XCircle, Loader2, Download } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useNavigate } from 'react-router-dom'
 import { useWsStore } from '../store/wsStore'
 import { flog, downloadFrontendLogs, serializeLogsForUpload, getLogEntries } from '../utils/frontendLogger'
+import { clsx } from 'clsx'
 
-type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'versioning' | 'security' | 'yaml' | 'logs'
+type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'versioning' | 'security' | 'yaml' | 'logs' | 'backup'
 
 const SETTINGS_PANEL_STATE_KEY = 'evload.settings.expandedPanels'
 
@@ -32,9 +49,10 @@ const defaultExpandedPanels: Record<PanelKey, boolean> = {
   proxy: true,
   engine: true,
   versioning: true,
-  security: false,
-  yaml: false,
-  logs: false,
+  security: true,
+  yaml: true,
+  logs: true,
+  backup: true,
 }
 
 function readExpandedPanels(): Record<PanelKey, boolean> {
@@ -50,6 +68,7 @@ function readExpandedPanels(): Record<PanelKey, boolean> {
       security: typeof parsed.security === 'boolean' ? parsed.security : defaultExpandedPanels.security,
       yaml: typeof parsed.yaml === 'boolean' ? parsed.yaml : defaultExpandedPanels.yaml,
       logs: typeof parsed.logs === 'boolean' ? parsed.logs : defaultExpandedPanels.logs,
+      backup: typeof parsed.backup === 'boolean' ? parsed.backup : defaultExpandedPanels.backup,
     }
   } catch {
     return defaultExpandedPanels
@@ -101,6 +120,35 @@ function CollapsiblePanel({
   )
 }
 
+function Tooltip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative inline-flex items-center">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-evload-muted/50 text-evload-muted text-[9px] font-bold leading-none hover:border-evload-accent hover:text-evload-accent transition-colors flex-shrink-0"
+      >?</button>
+      {open && (
+        <div className="absolute z-50 left-0 bottom-full mb-2 w-72 max-w-[90vw] rounded-lg border border-evload-border bg-evload-surface shadow-xl px-3 py-2.5 text-xs text-evload-text leading-relaxed">
+          {text}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Field({
   label, value, onChange, type = 'text', unit, placeholder, description, listId,
 }: {
@@ -108,8 +156,11 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-sm text-evload-muted mb-1">{label}{unit && <span className="ml-1 text-xs">({unit})</span>}</label>
-      {description && <p className="text-[11px] text-evload-muted mb-1">{description}</p>}
+      <label className="flex items-center gap-1 text-sm text-evload-muted mb-1">
+        <span>{label}</span>
+        {unit && <span className="text-xs">({unit})</span>}
+        {description && <Tooltip text={description} />}
+      </label>
       <input
         type={type}
         value={value}
@@ -128,6 +179,70 @@ function logLevelColor(level: string): string {
   return 'text-evload-muted'
 }
 
+const LOG_LEVEL_OPTIONS: Array<AppSettings['logLevel']> = ['error', 'warn', 'info', 'verbose', 'debug', 'silly']
+
+function CommitCard({
+  label,
+  commit,
+  branch,
+  highlight,
+  behindCount,
+}: {
+  label: string
+  commit: CommitInfo | null
+  branch: string
+  highlight: 'local' | 'behind' | 'uptodate'
+  behindCount?: number
+}) {
+  const borderColor =
+    highlight === 'behind'
+      ? 'border-yellow-500/50'
+      : highlight === 'uptodate'
+        ? 'border-green-500/40'
+        : 'border-evload-border'
+
+  return (
+    <div className={`rounded-lg border ${borderColor} bg-evload-surface px-4 py-3 space-y-2`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-xs text-evload-muted font-semibold uppercase tracking-wide">
+          <GitBranch size={12} />
+          {label}
+        </div>
+        {highlight === 'behind' && behindCount != null && behindCount > 0 && (
+          <span className="flex items-center gap-1 text-[10px] font-semibold text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 rounded-full px-2 py-0.5">
+            <ArrowDown size={10} />
+            {behindCount} commit {behindCount === 1 ? 'available' : 'available'}
+          </span>
+        )}
+        {highlight === 'uptodate' && (
+          <span className="text-[10px] text-green-400 bg-green-500/10 border border-green-500/30 rounded-full px-2 py-0.5">
+            ✓ up to date
+          </span>
+        )}
+      </div>
+      {commit ? (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs bg-evload-bg border border-evload-border rounded px-1.5 py-0.5 text-evload-text">
+              {commit.shortHash}
+            </span>
+            <span className="text-xs text-evload-muted">{branch}</span>
+          </div>
+          <div className="flex items-start gap-1.5">
+            <GitCommit size={12} className="text-evload-muted mt-0.5 shrink-0" />
+            <span className="text-sm text-evload-text leading-snug">{commit.message}</span>
+          </div>
+          <div className="text-xs text-evload-muted">
+            {commit.author} · {new Date(commit.date).toLocaleString()}
+          </div>
+        </>
+      ) : (
+        <div className="text-sm text-evload-muted italic">No information available</div>
+      )}
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const [configContent, setConfigContent] = useState('')
   const [saving, setSaving] = useState(false)
@@ -140,6 +255,14 @@ export default function SettingsPage() {
   const [settingsMsg, setSettingsMsg] = useState('')
   const [settingsMsgPanel, setSettingsMsgPanel] = useState('')
   const [expandedPanels, setExpandedPanels] = useState<Record<PanelKey, boolean>>(() => readExpandedPanels())
+
+  // OTA Update
+  const [otaStatus, setOtaStatus] = useState<UpdateStatusResponse | null>(null)
+  const [otaBranch, setOtaBranch] = useState<string>('')
+  const [otaLogs, setOtaLogs] = useState<string>('')
+  const [otaLogOffset, setOtaLogOffset] = useState<number>(0)
+  const [otaFetching, setOtaFetching] = useState(false)
+  const logBoxRef = useRef<HTMLPreElement>(null)
   
   // Security / Password Change
   const [currentPassword, setCurrentPassword] = useState('')
@@ -152,12 +275,26 @@ export default function SettingsPage() {
   const [logMsg, setLogMsg] = useState('')
   const [logError, setLogError] = useState(false)
   const [logBusy, setLogBusy] = useState(false)
+  const [logSince, setLogSince] = useState('')
+
+  // Backup panel
+  const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
+  const [backupFiles, setBackupFiles] = useState<DriveBackupFile[]>([])
+  const [backupBusy, setBackupBusy] = useState(false)
+  const [backupMsg, setBackupMsg] = useState('')
+  const [backupError, setBackupError] = useState(false)
+  // Folder picker
+  const [driveFolders, setDriveFolders] = useState<DriveFolderInfo[]>([])
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false)
+  const [folderInput, setFolderInput] = useState('')
+  const [foldersLoading, setFoldersLoading] = useState(false)
   
   const clearToken = useAuthStore((s) => s.clearToken)
   const navigate = useNavigate()
   const ha = useWsStore((s) => s.ha)
   const proxy = useWsStore((s) => s.proxy)
   const vehicle = useWsStore((s) => s.vehicle)
+  const engine = useWsStore((s) => s.engine)
   const haConnected = ha?.connected ?? false
   const haServiceError = ha?.error ?? null
 
@@ -216,6 +353,10 @@ export default function SettingsPage() {
     getSettings().then(setSettings).catch(console.error)
     loadHaTokenStatus()
     getVersionInfo().then(setVersionInfo).catch(() => setVersionInfo(null))
+    getBackupStatus().then((s) => {
+      setBackupStatus(s)
+      setFolderInput(s.driveFolderPath)
+    }).catch(() => setBackupStatus(null))
   }, [])
 
   useEffect(() => {
@@ -282,6 +423,44 @@ export default function SettingsPage() {
     window.localStorage.setItem(SETTINGS_PANEL_STATE_KEY, JSON.stringify(expandedPanels))
   }, [expandedPanels])
 
+  // ── OTA Update: load initial status and start polling ──────────────────────
+  const refreshOtaStatus = useCallback(async () => {
+    try {
+      const s = await getUpdateStatus(otaBranch || undefined)
+      setOtaStatus(s)
+      if (!otaBranch) setOtaBranch(s.currentBranch)
+    } catch { /* ignore */ }
+  }, [otaBranch])
+
+  // Poll status every 5 s (light — no network, just local git refs + file stat)
+  useEffect(() => {
+    refreshOtaStatus()
+    const id = setInterval(refreshOtaStatus, 5_000)
+    return () => clearInterval(id)
+  }, [refreshOtaStatus])
+
+  // When an update is running, poll log tail every second
+  useEffect(() => {
+    if (otaStatus?.state !== 'running') return
+    const id = setInterval(async () => {
+      try {
+        const { content, totalBytes } = await getOtaLogs(otaLogOffset)
+        if (content) {
+          setOtaLogs((prev) => prev + content)
+          setOtaLogOffset(totalBytes)
+        }
+      } catch { /* ignore */ }
+    }, 1_000)
+    return () => clearInterval(id)
+  }, [otaStatus?.state, otaLogOffset])
+
+  // Auto-scroll log box to bottom when new lines arrive
+  useEffect(() => {
+    if (logBoxRef.current) {
+      logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight
+    }
+  }, [otaLogs])
+
   const handleSave = async () => {
     setSaving(true)
     setConfigMessage('')
@@ -343,15 +522,43 @@ export default function SettingsPage() {
   }
 
   const numberFields = new Set<keyof AppSettings>([
-    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
-    'normalPollIntervalMs', 'idlePollIntervalMs', 'scheduleLeadTimeSec',
+    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
+    'chargingPollIntervalMs', 'windowPollIntervalMs', 'bodyPollIntervalMs', 'vehicleDataWindowMs', 'scheduleLeadTimeSec',
   ])
 
   const upd = (key: keyof AppSettings) => (val: string) =>
     setSettings((prev) => prev ? { ...prev, [key]: numberFields.has(key) ? Number(val) : val } : prev)
 
+  /** Helper for poll/window fields stored as ms but shown/edited as seconds. */
+  const secField = (key: 'chargingPollIntervalMs' | 'windowPollIntervalMs' | 'bodyPollIntervalMs' | 'vehicleDataWindowMs') => ({
+    value: settings ? Math.round((settings[key] as number) / 1000) : 0,
+    onChange: (val: string) => upd(key)(String(Math.round(Number(val) * 1000))),
+  })
+
   const togglePanel = (key: PanelKey) => {
     setExpandedPanels((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const handleOtaFetch = async () => {
+    setOtaFetching(true)
+    try {
+      const res = await triggerFetch(otaBranch || undefined)
+      setOtaStatus((prev) => prev ? { ...prev, localCommit: res.localCommit, remoteCommit: res.remoteCommit, behindCount: res.behindCount } : prev)
+    } catch { /* ignore */ } finally {
+      setOtaFetching(false)
+    }
+  }
+
+  const handleOtaStart = async () => {
+    if (!otaBranch) return
+    setOtaLogs('')
+    setOtaLogOffset(0)
+    try {
+      await startOtaUpdate(otaBranch)
+      await refreshOtaStatus()
+    } catch (err) {
+      flog.error('OTA', 'Failed to start update', { error: String(err) })
+    }
   }
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -454,20 +661,24 @@ export default function SettingsPage() {
   const proxyLastSuccessAt = proxy?.lastSuccessAt
     ? new Date(proxy.lastSuccessAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : null
+  const dataWindowExpiresAt = proxy?.vehicleDataWindowExpiresAt ?? null
+  const dataWindowRemainSec = dataWindowExpiresAt != null
+    ? Math.max(0, Math.round((dataWindowExpiresAt - Date.now()) / 1000))
+    : null
 
   const tokenRemainingText = haTokenStatus?.secondsRemaining == null
     ? 'Unknown'
     : `${Math.floor(haTokenStatus.secondsRemaining / 60)}m ${haTokenStatus.secondsRemaining % 60}s`
 
-  const handleDownloadBackendLog = async (type: 'combined' | 'error') => {
+  const handleDownloadBackendLog = async (type: 'combined' | 'error', since?: string) => {
     setLogBusy(true)
     setLogMsg('')
     setLogError(false)
     try {
       flog.info('LOGS', `Backend ${type} log download requested`)
-      await downloadBackendLog(type)
+      await downloadBackendLog(type, since || undefined)
       flog.info('LOGS', `Backend ${type} log downloaded`)
-      setLogMsg(`Backend ${type} log downloaded`)
+      setLogMsg(`Backend ${type} log downloaded (pretty format)`)
     } catch (err) {
       const msg = `Download failed: ${err instanceof Error ? err.message : 'unknown error'}`
       setLogMsg(msg)
@@ -674,73 +885,117 @@ export default function SettingsPage() {
                   {proxyConnected ? 'Proxy connection is healthy' : isVehicleSleeping ? 'Proxy reachable — vehicle sleeping' : 'Proxy connection is down'}
                 </div>
                 <div className="mt-1 text-xs text-evload-muted">Vehicle: {vehicleStatusLabel}</div>
+                <div className="mt-1 text-xs text-evload-muted">
+                  Sleep state:{' '}
+                  {vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP'
+                    ? <span className="text-yellow-400 font-medium">Sleeping 😴</span>
+                    : vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_AWAKE'
+                      ? <span className="text-evload-success font-medium">Awake ☀️</span>
+                      : <span className="text-evload-muted">Unknown</span>}
+                </div>
                 <div className="mt-1 text-xs text-evload-muted">Reason: {runtimeReason}</div>
                 <div className="mt-1 text-xs text-evload-muted">
                   Last successful proxy call: {proxyLastEndpoint ?? 'unknown'}{proxyLastSuccessAt ? ` at ${proxyLastSuccessAt}` : ''}.
                 </div>
+                <div className="mt-1 text-xs text-evload-muted">
+                  Data window: {dataWindowRemainSec != null && dataWindowRemainSec > 0
+                    ? <span className="text-evload-success font-medium">active — {Math.floor(dataWindowRemainSec / 60)}m {dataWindowRemainSec % 60}s remaining</span>
+                    : (vehicle?.charging || engine?.running)
+                      ? <span className="text-evload-success font-medium">inactive — vehicle_data polled (charging active)</span>
+                      : <span className="text-evload-muted">inactive — body_controller_state only</span>}
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Field
-                label="Proxy URL"
-                value={settings.proxyUrl}
-                onChange={upd('proxyUrl')}
-                placeholder="http://proxy.local"
-                description="Base URL for Tesla proxy API integration."
-              />
-              <Field
-                label="Vehicle ID (VIN)"
-                value={settings.vehicleId}
-                onChange={upd('vehicleId')}
-                placeholder="LRW..."
-                description="Vehicle Identification Number used by proxy and command routes."
-              />
-              <div className="lg:col-span-2">
+              <SectionCard title="HTTP / TLS">
                 <Field
-                  label="Vehicle Name"
-                  value={settings.vehicleName}
-                  onChange={upd('vehicleName')}
-                  placeholder="My Model 3"
-                  description="Friendly vehicle name shown in Dashboard and runtime status."
+                  label="Proxy URL"
+                  value={settings.proxyUrl}
+                  onChange={upd('proxyUrl')}
+                  placeholder="http://proxy.local"
+                  description="Base URL for the Tesla proxy API. All vehicle requests are routed through this address."
                 />
-              </div>
-              <Field
-                label="Normal Poll Interval"
-                value={settings.normalPollIntervalMs}
-                onChange={upd('normalPollIntervalMs')}
-                type="number"
-                unit="ms"
-                description="Refresh interval while charging or active (e.g. 5000ms)."
-              />
-              <Field
-                label="Idle Poll Interval"
-                value={settings.idlePollIntervalMs}
-                onChange={upd('idlePollIntervalMs')}
-                type="number"
-                unit="ms"
-                description="Slow refresh interval when engine is idle to allow vehicle sleep (e.g. 60000ms)."
-              />
-              <Field
-                label="Schedule Lead Time"
-                value={settings.scheduleLeadTimeSec}
-                onChange={upd('scheduleLeadTimeSec')}
-                type="number"
-                unit="sec"
-                description="How early the scheduler can request wake mode before a planned charging session."
-              />
-              <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
-                <div>
-                  <div className="font-medium text-sm">Verify TLS Certificates</div>
-                  <div className="text-xs text-evload-muted">Disable only for self-signed proxy certificates in trusted local environments.</div>
+                <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-sm">Verify TLS</span>
+                    <Tooltip text="When enabled, validates the proxy TLS certificate. Disable only for self-signed certificates in trusted local environments." />
+                  </div>
+                  <button
+                    onClick={() => setSettings((prev) => prev ? { ...prev, rejectUnauthorized: !prev.rejectUnauthorized } : prev)}
+                    className="text-evload-accent hover:text-red-400 transition-colors"
+                  >
+                    {settings.rejectUnauthorized ? <ToggleRight size={32} /> : <ToggleLeft size={32} className="text-evload-muted" />}
+                  </button>
                 </div>
-                <button
-                  onClick={() => setSettings((prev) => prev ? { ...prev, rejectUnauthorized: !prev.rejectUnauthorized } : prev)}
-                  className="text-evload-accent hover:text-red-400 transition-colors"
-                >
-                  {settings.rejectUnauthorized ? <ToggleRight size={32} /> : <ToggleLeft size={32} className="text-evload-muted" />}
-                </button>
-              </div>
-              </div>
+              </SectionCard>
+
+              <SectionCard title="VIN / Vehicle">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <Field
+                    label="VIN"
+                    value={settings.vehicleId}
+                    onChange={upd('vehicleId')}
+                    placeholder="LRW..."
+                    description="Vehicle Identification Number used by the proxy and vehicle command routes."
+                  />
+                  <Field
+                    label="Vehicle Name"
+                    value={settings.vehicleName}
+                    onChange={upd('vehicleName')}
+                    placeholder="My Model 3"
+                    description="Friendly name shown in the Dashboard and runtime status messages."
+                  />
+                </div>
+              </SectionCard>
+
+              <SectionCard title="Body Controller">
+                <Field
+                  label="Body Poll Interval"
+                  {...secField('bodyPollIntervalMs')}
+                  type="number"
+                  unit="sec"
+                  description="How often body_controller_state is polled. This timer always runs, regardless of window or charging state, and never wakes the vehicle. Default: 60 s."
+                />
+              </SectionCard>
+
+              <SectionCard title="Vehicle Data Window">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <Field
+                    label="Window Duration"
+                    {...secField('vehicleDataWindowMs')}
+                    type="number"
+                    unit="sec"
+                    description="How many seconds after a wake or connect event vehicle_data is requested. Once the window expires (and charging is not active), vehicle_data polling stops. Default: 300 s."
+                  />
+                  <Field
+                    label="Window Poll Interval"
+                    {...secField('windowPollIntervalMs')}
+                    type="number"
+                    unit="sec"
+                    description="How often vehicle_data is fetched while the data window is active and the vehicle is not charging. Independent of the body poll timer. Default: 10 s."
+                  />
+                </div>
+              </SectionCard>
+
+              <SectionCard title="Charging Poll">
+                <Field
+                  label="Charging Poll Interval"
+                  {...secField('chargingPollIntervalMs')}
+                  type="number"
+                  unit="sec"
+                  description="How often vehicle_data is fetched while the vehicle is actively charging or the engine is running. Independent of the body poll timer. Default: 5 s."
+                />
+              </SectionCard>
+
+              <SectionCard title="Scheduler">
+                <Field
+                  label="Schedule Lead Time"
+                  value={settings.scheduleLeadTimeSec}
+                  onChange={upd('scheduleLeadTimeSec')}
+                  type="number"
+                  unit="sec"
+                  description="How many seconds before the scheduled charge time the scheduler wakes the vehicle (default: 1800 s = 30 min)."
+                />
+              </SectionCard>
             </div>
           </CollapsiblePanel>
 
@@ -763,9 +1018,9 @@ export default function SettingsPage() {
           >
             <div className="pt-5 space-y-4">
               <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
-                <div>
-                  <div className="font-medium text-sm">Demo Mode</div>
-                  <div className="text-xs text-evload-muted">Bypass all real HTTP calls with simulated data.</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-sm">Demo Mode</span>
+                  <Tooltip text="Bypasses all real HTTP calls with simulated data. Useful for testing the UI without an active proxy." />
                 </div>
                 <button
                   onClick={() => setSettings((prev) => prev ? { ...prev, demo: !prev.demo } : prev)}
@@ -834,17 +1089,18 @@ export default function SettingsPage() {
               </SectionCard>
 
               <SectionCard title="Current Limits">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                  <Field label="Start A" value={settings.defaultAmps} onChange={upd('defaultAmps')} type="number" description="Initial current request when session starts." />
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <Field label="Default Target A" value={settings.defaultAmps} onChange={upd('defaultAmps')} type="number" description="Default target charging current for new sessions." />
+                  <Field label="First Cmd A" value={settings.startAmps} onChange={upd('startAmps')} type="number" description="Current applied on the very first charge command before ramp-up. Must be within Min–Max range." />
                   <Field label="Min A" value={settings.minAmps} onChange={upd('minAmps')} type="number" description="Lower bound for dynamic throttling." />
                   <Field label="Max A" value={settings.maxAmps} onChange={upd('maxAmps')} type="number" description="Upper bound for ramp and target setpoint." />
                 </div>
               </SectionCard>
 
               <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
-                <div>
-                  <div className="font-medium text-sm">Stop Charging On Start</div>
-                  <div className="text-xs text-evload-muted">If enabled, EVload stops charging started by the car's internal scheduler before a scheduled EVload session takes control.</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-sm">Stop Charging On Start</span>
+                  <Tooltip text="If enabled, EVload stops charging started by the car's internal scheduler before a scheduled EVload session takes control." />
                 </div>
                 <button
                   onClick={() => setSettings((prev) => prev ? { ...prev, stopChargeOnManualStart: !prev.stopChargeOnManualStart } : prev)}
@@ -874,7 +1130,7 @@ export default function SettingsPage() {
             </div>
             <div className="rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
               <div className="text-xs text-evload-muted uppercase tracking-wide">Latest</div>
-              <div className="mt-1 text-xl font-semibold text-evload-text">{versionInfo?.latest ?? 'Unknown'}</div>
+              <div className="mt-1 text-xl font-semibold text-evload-text">{versionInfo?.latest ?? '—'}</div>
             </div>
             <div className="rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
               <div className="text-xs text-evload-muted uppercase tracking-wide">Update Status</div>
@@ -899,6 +1155,123 @@ export default function SettingsPage() {
                     <div className="text-xs text-evload-muted mt-1">{entry.summary}</div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── OTA Update ────────────────────────────────────────────────── */}
+          <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4 space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-evload-muted font-semibold">
+                <Download size={14} />
+                OTA Update
+              </div>
+              <span className="text-[10px] text-evload-muted bg-evload-surface border border-evload-border rounded-full px-2 py-0.5 flex items-center gap-1">
+                <RotateCcw size={10} />
+                auto-check ogni 60 s
+              </span>
+            </div>
+
+            {/* Commit cards */}
+            {otaStatus && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <CommitCard
+                  label="Locale (HEAD)"
+                  commit={otaStatus.localCommit}
+                  branch={otaStatus.currentBranch}
+                  highlight="local"
+                />
+                <CommitCard
+                  label={`Remoto (origin/${otaBranch || otaStatus.currentBranch})`}
+                  commit={otaStatus.remoteCommit}
+                  branch={otaBranch || otaStatus.currentBranch}
+                  highlight={otaStatus.behindCount > 0 ? 'behind' : 'uptodate'}
+                  behindCount={otaStatus.behindCount}
+                />
+              </div>
+            )}
+
+            {/* Branch selector + action row */}
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex-1 min-w-[160px]">
+                <label className="block text-xs text-evload-muted mb-1">Branch target</label>
+                <select
+                  value={otaBranch}
+                  onChange={(e) => setOtaBranch(e.target.value)}
+                  disabled={otaStatus?.state === 'running'}
+                  className="w-full rounded-lg border border-evload-border bg-evload-bg px-3 py-2 text-sm text-evload-text disabled:opacity-50"
+                >
+                  {(otaStatus?.branches ?? []).map((b) => (
+                    <option key={b} value={b}>{b}{b === otaStatus?.currentBranch ? ' (current)' : ''}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={handleOtaFetch}
+                disabled={otaFetching || otaStatus?.state === 'running'}
+                title="Refresh remote info (git fetch)"
+                className="flex items-center gap-1.5 rounded-lg border border-evload-border bg-evload-surface px-3 py-2 text-sm text-evload-text hover:bg-evload-border/50 disabled:opacity-50 transition-colors"
+              >
+                <RefreshCw size={14} className={otaFetching ? 'animate-spin' : ''} />
+                Fetch ora
+              </button>
+              <button
+                onClick={handleOtaStart}
+                disabled={!otaBranch || otaStatus?.state === 'running'}
+                className={clsx(
+                  'flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors',
+                  otaStatus?.state === 'running'
+                    ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 cursor-not-allowed'
+                    : 'bg-evload-accent/90 hover:bg-evload-accent text-white disabled:opacity-50'
+                )}
+              >
+                {otaStatus?.state === 'running'
+                  ? <><Loader2 size={14} className="animate-spin" /> In corso…</>
+                  : <><UploadCloud size={14} /> Start Update</>
+                }
+              </button>
+            </div>
+
+            {/* Engine-running warning */}
+            {engine?.running && (
+              <div className="flex items-center gap-2 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400">
+                <span>⚠️</span>
+                <span>A charging session is active. The update will interrupt it when the service restarts.</span>
+              </div>
+            )}
+
+            {/* Status badge */}
+            {otaStatus?.state && otaStatus.state !== 'idle' && (
+              <div className={clsx(
+                'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm',
+                otaStatus.state === 'running' && 'border-yellow-500/40 bg-yellow-500/10 text-yellow-300',
+                otaStatus.state === 'success' && 'border-green-500/40 bg-green-500/10 text-green-300',
+                otaStatus.state === 'error' && 'border-red-500/40 bg-red-500/10 text-red-300',
+              )}>
+                {otaStatus.state === 'running' && <Loader2 size={14} className="animate-spin" />}
+                {otaStatus.state === 'success' && <CheckCircle size={14} />}
+                {otaStatus.state === 'error' && <XCircle size={14} />}
+                <span>
+                  {otaStatus.state === 'running' && `Update running on "${otaStatus.branch}"...`}
+                  {otaStatus.state === 'success' && `Completed (branch: ${otaStatus.branch}) — ${otaStatus.endedAt ? new Date(otaStatus.endedAt).toLocaleTimeString() : ''}`}
+                  {otaStatus.state === 'error' && `Failed (exit: ${otaStatus.exitCode}) — ${otaStatus.endedAt ? new Date(otaStatus.endedAt).toLocaleTimeString() : ''}`}
+                </span>
+              </div>
+            )}
+
+            {/* Live log viewer */}
+            {otaLogs && (
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs text-evload-muted">
+                  <Terminal size={12} />
+                  Log di build
+                </div>
+                <pre
+                  ref={logBoxRef}
+                  className="max-h-72 overflow-y-auto rounded-lg border border-evload-border bg-black/60 p-3 text-[11px] leading-relaxed text-green-300 font-mono whitespace-pre-wrap"
+                >
+                  {otaLogs}
+                </pre>
               </div>
             )}
           </div>
@@ -994,6 +1367,275 @@ export default function SettingsPage() {
         </div>
       </CollapsiblePanel>
 
+      {/* ── Google Drive Backup ─────────────────────────────────────────── */}
+      <CollapsiblePanel
+        title="Backup Google Drive"
+        subtitle="Backup automatico di config.yaml e database su Google Drive"
+        expanded={expandedPanels.backup}
+        onToggle={() => setExpandedPanels((p) => ({ ...p, backup: !p.backup }))}
+      >
+        <div className="space-y-4 pt-4">
+          {/* Connection status */}
+          <div className="flex items-center gap-3">
+            <div className={`w-2.5 h-2.5 rounded-full ${backupStatus?.connected ? 'bg-evload-success' : 'bg-evload-muted'}`} />
+            <span className="text-sm">
+              {backupStatus?.connected ? '✅ Google Drive connected' : '⚪ Google Drive not connected'}
+            </span>
+          </div>
+
+          {backupStatus?.lastBackupAt && (
+            <p className="text-xs text-evload-muted">
+              Ultimo backup: {new Date(backupStatus.lastBackupAt).toLocaleString()}
+            </p>
+          )}
+          {backupStatus?.nextBackupAt && backupStatus.connected && backupStatus.enabled && (
+            <p className="text-xs text-evload-muted">
+              Prossimo backup: {new Date(backupStatus.nextBackupAt).toLocaleString()}
+            </p>
+          )}
+
+          {/* ── Drive folder picker ─────────────────────────────────────── */}
+          {backupStatus?.connected && (
+            <div className="space-y-2">
+              <label className="block text-sm text-evload-muted">
+                Drive destination folder
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={folderInput}
+                  onChange={(e) => setFolderInput(e.target.value)}
+                  placeholder="evload-backups"
+                  className="flex-1 bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-evload-accent"
+                />
+                <button
+                  title="Sfoglia cartelle su Drive"
+                  disabled={foldersLoading}
+                  onClick={async () => {
+                    setFoldersLoading(true)
+                    setFolderPickerOpen(false)
+                    try {
+                      const res = await listDriveFolders()
+                      setDriveFolders(res.folders)
+                      setFolderPickerOpen(true)
+                    } catch {
+                      setBackupMsg('Impossibile caricare le cartelle Drive')
+                      setBackupError(true)
+                      setTimeout(() => setBackupMsg(''), 4000)
+                    } finally {
+                      setFoldersLoading(false)
+                    }
+                  }}
+                  className="flex items-center gap-1 px-3 py-2 bg-evload-surface border border-evload-border rounded-lg text-sm hover:bg-evload-border disabled:opacity-50"
+                >
+                  <FolderOpen size={16} className={foldersLoading ? 'animate-pulse' : ''} />
+                  Sfoglia
+                </button>
+              </div>
+
+              {/* Folder dropdown list */}
+              {folderPickerOpen && (
+                <div className="rounded-lg border border-evload-border bg-evload-bg overflow-hidden">
+                  {driveFolders.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-evload-muted">
+                      No folder found at Drive root. Type the folder name you want to create.
+                    </p>
+                  ) : (
+                    <ul className="max-h-44 overflow-auto divide-y divide-evload-border">
+                      {driveFolders.map((f) => (
+                        <li key={f.id}>
+                          <button
+                            onClick={() => {
+                              setFolderInput(f.path)
+                              setFolderPickerOpen(false)
+                            }}
+                            className={clsx(
+                              'w-full text-left px-3 py-2 text-sm hover:bg-evload-border transition-colors flex items-center gap-2',
+                              folderInput === f.path && 'bg-evload-border font-semibold'
+                            )}
+                          >
+                            <FolderOpen size={14} className="text-evload-muted shrink-0" />
+                            {f.name}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="px-3 py-2 border-t border-evload-border">
+                    <button
+                      onClick={() => setFolderPickerOpen(false)}
+                      className="text-xs text-evload-muted hover:text-evload-text"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-xs text-evload-muted">
+                Relative path under Drive root. Supports nested folders: <code>Documents/evload-backups</code>.
+                Missing folders are created automatically.
+                To change the folder, edit <code>backup.driveFolderPath</code> in <code>config.yaml</code>
+                (Settings section → YAML) or click "Browse" to select and then save via YAML.
+              </p>
+            </div>
+          )}
+
+          {/* Connect / Disconnect */}
+          <div className="flex gap-3 flex-wrap">
+            {!backupStatus?.connected ? (
+              <button
+                disabled={backupBusy}
+                onClick={async () => {
+                  setBackupBusy(true)
+                  try {
+                    const { url } = await startBackupOAuth()
+                    window.location.assign(url)
+                  } catch (e) {
+                    setBackupMsg('Google Drive connection error')
+                    setBackupError(true)
+                    flog.error('BACKUP', 'OAuth start failed', { e })
+                    setTimeout(() => setBackupMsg(''), 4000)
+                  } finally {
+                    setBackupBusy(false)
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                <UploadCloud size={16} />
+                Connect Google Drive
+              </button>
+            ) : (
+              <button
+                disabled={backupBusy}
+                onClick={async () => {
+                  setBackupBusy(true)
+                  try {
+                    await disconnectBackupOAuth()
+                    const s = await getBackupStatus()
+                    setBackupStatus(s)
+                    setBackupMsg('Google Drive disconnected')
+                    setBackupError(false)
+                  } catch {
+                    setBackupMsg('Disconnect failed')
+                    setBackupError(true)
+                  } finally {
+                    setBackupBusy(false)
+                    setTimeout(() => setBackupMsg(''), 4000)
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-evload-border hover:bg-evload-muted/20 rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                <Trash2 size={16} />
+                Disconnect
+              </button>
+            )}
+
+            {backupStatus?.connected && (
+              <button
+                disabled={backupBusy}
+                onClick={async () => {
+                  setBackupBusy(true)
+                  setBackupMsg('')
+                  try {
+                    await triggerBackup()
+                    const s = await getBackupStatus()
+                    setBackupStatus(s)
+                    setBackupMsg('✅ Backup completed')
+                    setBackupError(false)
+                    const files = await listBackupFiles()
+                    setBackupFiles(files.files)
+                  } catch (e) {
+                    setBackupMsg('❌ Backup failed: ' + String(e))
+                    setBackupError(true)
+                  } finally {
+                    setBackupBusy(false)
+                    setTimeout(() => setBackupMsg(''), 6000)
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-evload-surface border border-evload-border hover:bg-evload-border rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                <RefreshCw size={16} className={backupBusy ? 'animate-spin' : ''} />
+                Run Backup Now
+              </button>
+            )}
+          </div>
+
+          {backupMsg && (
+            <p className={`text-sm ${backupError ? 'text-evload-error' : 'text-evload-success'}`}>{backupMsg}</p>
+          )}
+
+          {/* Backup list */}
+          {backupStatus?.connected && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold">Files on Drive</h4>
+                <button
+                  onClick={async () => {
+                    try {
+                      const files = await listBackupFiles()
+                      setBackupFiles(files.files)
+                    } catch {
+                      setBackupMsg('Failed to load list')
+                      setBackupError(true)
+                      setTimeout(() => setBackupMsg(''), 4000)
+                    }
+                  }}
+                  className="text-xs text-evload-muted hover:text-evload-text"
+                >
+                  Refresh list
+                </button>
+              </div>
+              {backupFiles.length === 0 ? (
+                <p className="text-xs text-evload-muted">No backup found. Click "Refresh list" or run the first backup.</p>
+              ) : (
+                <div className="space-y-1 max-h-56 overflow-auto">
+                  {backupFiles.map((f) => (
+                    <div key={f.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-evload-border bg-evload-bg text-xs">
+                      <div>
+                        <div className="font-medium truncate max-w-[220px]">{f.name}</div>
+                        {f.createdTime && (
+                          <div className="text-evload-muted">{new Date(f.createdTime).toLocaleString()}</div>
+                        )}
+                      </div>
+                      <button
+                        disabled={backupBusy}
+                        onClick={async () => {
+                          if (!window.confirm(`Restore ${f.name}? This will overwrite config and database.`)) return
+                          setBackupBusy(true)
+                          setBackupMsg('')
+                          try {
+                            await restoreBackup(f.id)
+                            setBackupMsg('✅ Restore completed. Restart the service to apply changes.')
+                            setBackupError(false)
+                          } catch (e) {
+                            setBackupMsg('❌ Restore failed: ' + String(e))
+                            setBackupError(true)
+                          } finally {
+                            setBackupBusy(false)
+                            setTimeout(() => setBackupMsg(''), 8000)
+                          }
+                        }}
+                        className="shrink-0 px-2 py-1 rounded bg-evload-border hover:bg-evload-accent hover:text-white transition-colors disabled:opacity-40"
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="text-xs text-evload-muted pt-2 border-t border-evload-border">
+            Frequency, time and folder can also be configured via <code>config.yaml</code> (section <code>backup</code>).
+            To enable backup, create a Google Cloud project with Drive API enabled and configure{' '}
+            <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> in <code>.env</code>.
+            See <strong>docs/SETUP_GUIDE.md</strong> for the full guide.
+          </p>
+        </div>
+      </CollapsiblePanel>
+
       <CollapsiblePanel
         title="Logs"
         subtitle="Download backend and frontend logs for diagnostics and troubleshooting."
@@ -1008,15 +1650,48 @@ export default function SettingsPage() {
               <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Backend Logs</h4>
               <p className="text-xs text-evload-muted">Server-side logs including engine operations, charging commands, HA events, and errors.</p>
               <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-evload-muted shrink-0">Severity:</label>
+                  <select
+                    value={settings?.logLevel ?? 'info'}
+                    onChange={(e) => setSettings((prev) => prev ? { ...prev, logLevel: e.target.value as AppSettings['logLevel'] } : prev)}
+                    className="flex-1 bg-evload-bg border border-evload-border rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-evload-accent"
+                  >
+                    {LOG_LEVEL_OPTIONS.map((level) => (
+                      <option key={level} value={level}>{level}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => handleSettingsSave('logs')}
+                    disabled={!settings || logBusy}
+                    className="px-3 py-1 text-xs rounded-lg border border-evload-border hover:border-evload-accent disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-evload-muted shrink-0">Time range:</label>
+                  <select
+                    value={logSince}
+                    onChange={e => setLogSince(e.target.value)}
+                    className="flex-1 bg-evload-bg border border-evload-border rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-evload-accent"
+                  >
+                    <option value="">All logs</option>
+                    <option value="1h">Last 1 hour</option>
+                    <option value="6h">Last 6 hours</option>
+                    <option value="24h">Last 24 hours</option>
+                    <option value="7d">Last 7 days</option>
+                  </select>
+                </div>
                 <button
-                  onClick={() => handleDownloadBackendLog('combined')}
+                  onClick={() => handleDownloadBackendLog('combined', logSince)}
                   disabled={logBusy}
                   className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
                 >
                   <FileDown size={14} />Download combined.log
                 </button>
                 <button
-                  onClick={() => handleDownloadBackendLog('error')}
+                  onClick={() => handleDownloadBackendLog('error', logSince)}
                   disabled={logBusy}
                   className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
                 >

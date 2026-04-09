@@ -15,6 +15,11 @@ fi
 
 echo ""
 echo "🔨 [2/2] Compilazione frontend (Vite)..."
+# Ensure TypeScript is available (may be missing if npm ci was run without --include=dev)
+if [ ! -f "frontend/node_modules/.bin/tsc" ]; then
+  echo "  ⚠️  TypeScript compiler not found — installing frontend dev dependencies..."
+  npm --prefix frontend ci --include=dev
+fi
 if npm run build --prefix frontend; then
   echo "✅ Frontend compilato con successo"
 else

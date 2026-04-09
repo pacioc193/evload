@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useWsStore } from '../store/wsStore'
-import { startCharging, stopCharging, setPlanMode, wakeVehicle, getNextPlannedCharge, NextPlannedCharge } from '../api/index'
-import { WifiOff, Car, Clock3, Home, Zap as ZapIcon, ChevronDown, ChevronRight } from 'lucide-react'
+import {
+  startCharging,
+  stopCharging,
+  setPlanMode,
+  wakeVehicle,
+  getNextPlannedCharge,
+  getEngineTargetSocPreferences,
+  patchEngineTargetSocPreference,
+  NextPlannedCharge,
+} from '../api/index'
+import { WifiOff, Car, Clock3, Home, Zap as ZapIcon, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
 import { clsx } from 'clsx'
 import { flog } from '../utils/frontendLogger'
 
@@ -22,7 +31,7 @@ function readStoredBoolean(storageKey: string, fallback: boolean): boolean {
 
 function formatHoursToEta(hours: number | null): string {
   if (hours == null || !Number.isFinite(hours)) return '—'
-  if (hours <= 0) return 'Completata'
+    if (hours <= 0) return 'Completed'
   const totalMinutes = Math.round(hours * 60)
   const h = Math.floor(totalMinutes / 60)
   const m = totalMinutes % 60
@@ -30,6 +39,14 @@ function formatHoursToEta(hours: number | null): string {
   if (m === 0) return `${h} h`
   return `${h} h ${m} min`
 }
+
+interface MeterEnergySample {
+  tsMs: number
+  meterEnergyKwh: number
+}
+
+const EVLOAD_AVERAGE_WINDOW_MS = 90_000
+const EVLOAD_AVERAGE_MIN_WINDOW_MS = 20_000
 
 function computeTimeToTargetH(params: {
   machineHours: number | null
@@ -70,6 +87,7 @@ function EvccSocBar({
   charging,
   readonly,
   onTargetChange,
+  onTargetCommit,
 }: {
   actualSoc: number
   targetSoc: number
@@ -77,6 +95,7 @@ function EvccSocBar({
   charging: boolean
   readonly: boolean
   onTargetChange: (value: number) => void
+  onTargetCommit?: (value: number) => void
 }) {
   const safeActual = Math.max(0, Math.min(100, actualSoc))
   const safeTarget = Math.max(0, Math.min(100, targetSoc))
@@ -85,37 +104,49 @@ function EvccSocBar({
   const plannedWidth = Math.max(safeActual, safeTarget) - plannedStart
   const sliderRef = useRef<HTMLDivElement>(null)
 
-  const resolveRatio = (clientX: number) => {
-    if (!sliderRef.current) return
+  const resolveRatio = (clientX: number): number | null => {
+    if (!sliderRef.current) return null
     const rect = sliderRef.current.getBoundingClientRect()
-    onTargetChange(Math.round(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * 100))
+    const nextValue = Math.round(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * 100)
+    onTargetChange(nextValue)
+    return nextValue
   }
 
-  const handleClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
+  const handlePointerDown: React.PointerEventHandler<HTMLDivElement> = (e) => {
     if (readonly) return
+    e.preventDefault() // prevent page scroll on touch
+    e.currentTarget.setPointerCapture(e.pointerId) // route all future pointer events here even if finger/cursor leaves
     resolveRatio(e.clientX)
   }
 
-  const handleMouseDown: React.MouseEventHandler<HTMLDivElement> = () => {
+  const handlePointerMove: React.PointerEventHandler<HTMLDivElement> = (e) => {
     if (readonly) return
-    const onMove = (e: MouseEvent) => resolveRatio(e.clientX)
-    const onUp = () => {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
+    resolveRatio(e.clientX)
+  }
+
+  const handlePointerUp: React.PointerEventHandler<HTMLDivElement> = (e) => {
+    if (readonly) return
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    const nextValue = resolveRatio(e.clientX)
+    if (nextValue != null) {
+      onTargetCommit?.(nextValue)
     }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
   }
 
   return (
     <div
       ref={sliderRef}
       className={clsx(
-        'relative h-8 rounded-lg bg-evload-bg border border-evload-border overflow-visible',
+        'relative h-8 rounded-lg bg-evload-bg border border-evload-border overflow-visible select-none',
         readonly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
       )}
-      onClick={handleClick}
-      onMouseDown={handleMouseDown}
+      style={{ touchAction: 'none' }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
       role="slider"
       aria-valuemin={0}
       aria-valuemax={100}
@@ -134,8 +165,8 @@ function EvccSocBar({
         />
       )}
       <div
-        className="absolute -top-3 h-14 w-3 rounded-full bg-evload-success shadow-lg border border-evload-bg"
-        style={{ left: `calc(${safeTarget}% - 6px)` }}
+        className="absolute -top-3 h-14 w-4 rounded-full bg-evload-success shadow-lg border border-evload-bg"
+        style={{ left: `calc(${safeTarget}% - 8px)` }}
         title={`Target ${safeTarget}%`}
       />
       {safeCarLimit != null && (
@@ -229,11 +260,13 @@ export default function DashboardPage() {
   const failsafe = useWsStore((s) => s.failsafe)
   const charging = useWsStore((s) => s.charging)
   const wsConnected = useWsStore((s) => s.connected)
-  const wsLastUpdate = useWsStore((s) => s.lastUpdate)
   const demo = useWsStore((s) => s.demo)
 
-  const [manualTargetSoc, setManualTargetSoc] = useState(80)
-  const seededFromCarRef = useRef(false)
+  // Derive proxy connectivity early — used to guard stale vehicle telemetry in ETA/power display
+  const proxyConnected = proxy?.connected ?? false
+
+  const [manualTargetSocOn, setManualTargetSocOn] = useState(() => useWsStore.getState().engine?.targetSocOn ?? 80)
+  const [manualTargetSocOff, setManualTargetSocOff] = useState(() => useWsStore.getState().engine?.targetSocOff ?? 80)
   const [chargeMode, setChargeMode] = useState<ChargeMode>(
     () => (useWsStore.getState().engine?.mode as ChargeMode | undefined) ?? 'off'
   )
@@ -241,7 +274,7 @@ export default function DashboardPage() {
   const [waking, setWaking] = useState(false)
   const [nextCharge, setNextCharge] = useState<NextPlannedCharge | null>(null)
   const [vehicleDetailsExpanded, setVehicleDetailsExpanded] = useState(() => readStoredBoolean(VEHICLE_DETAILS_PANEL_STORAGE_KEY, false))
-  const [chargingStartedAtMs, setChargingStartedAtMs] = useState<number | null>(null)
+  const meterEnergySamplesRef = useRef<MeterEnergySample[]>([])
 
   useEffect(() => {
     if (!engine?.mode) return
@@ -253,11 +286,24 @@ export default function DashboardPage() {
   }, [engine?.mode, nextCharge])
 
   useEffect(() => {
-    if (seededFromCarRef.current) return
-    if (vehicle?.chargeLimitSoc == null) return
-    setManualTargetSoc(vehicle.chargeLimitSoc)
-    seededFromCarRef.current = true
-  }, [vehicle?.chargeLimitSoc])
+    if (!engine) return
+    if (typeof engine.targetSocOn === 'number' && Number.isFinite(engine.targetSocOn)) {
+      setManualTargetSocOn(engine.targetSocOn)
+    }
+    if (typeof engine.targetSocOff === 'number' && Number.isFinite(engine.targetSocOff)) {
+      setManualTargetSocOff(engine.targetSocOff)
+    }
+  }, [engine?.targetSocOn, engine?.targetSocOff, engine])
+
+  useEffect(() => {
+    if (!wsConnected) return
+    getEngineTargetSocPreferences()
+      .then((res) => {
+        if (typeof res.targets?.on === 'number') setManualTargetSocOn(res.targets.on)
+        if (typeof res.targets?.off === 'number') setManualTargetSocOff(res.targets.off)
+      })
+      .catch(() => {})
+  }, [wsConnected])
 
   useEffect(() => {
     if (!wsConnected) return
@@ -277,10 +323,13 @@ export default function DashboardPage() {
   const carLimitSoc = vehicle?.chargeLimitSoc ?? null
   const isPlanMode = chargeMode === 'plan'
   const effectiveTargetSoc = isPlanMode
-    ? (nextCharge?.targetSoc ?? engine?.targetSoc ?? manualTargetSoc)
-    : manualTargetSoc
+    ? (nextCharge?.targetSoc ?? engine?.targetSoc ?? manualTargetSocOn)
+    : chargeMode === 'on'
+      ? manualTargetSocOn
+      : manualTargetSocOff
 
-  const chargePowerKw = Math.max(0, vehicle?.chargeRateKw ?? 0)
+  // When proxy is disconnected, chargeRateKw is stale — zero it out to avoid ETA and power display errors
+  const chargePowerKw = proxyConnected ? Math.max(0, vehicle?.chargeRateKw ?? 0) : 0
   const vehicleChargerPowerW = Math.max(0, Math.round(chargePowerKw * 1000))
   const haChargerPowerW = ha?.chargerW != null && Number.isFinite(ha.chargerW)
     ? Math.max(0, Math.round(ha.chargerW))
@@ -319,6 +368,34 @@ export default function DashboardPage() {
   const cumulativeChargeCostEur = meterEnergyKwh != null
     ? meterEnergyKwh * energyPriceEurPerKwh
     : null
+
+  useEffect(() => {
+    const currentSessionId = engine?.sessionId ?? null
+    if (currentSessionId == null) {
+      meterEnergySamplesRef.current = []
+      return
+    }
+
+    if (meterEnergyKwh == null || !Number.isFinite(meterEnergyKwh) || meterEnergyKwh < 0) {
+      return
+    }
+
+    const nowMs = Date.now()
+    const samples = meterEnergySamplesRef.current
+    const last = samples.length > 0 ? samples[samples.length - 1] : null
+    if (last == null || nowMs - last.tsMs >= 1000) {
+      samples.push({ tsMs: nowMs, meterEnergyKwh })
+    } else {
+      last.tsMs = nowMs
+      last.meterEnergyKwh = meterEnergyKwh
+    }
+
+    const keepFrom = nowMs - EVLOAD_AVERAGE_WINDOW_MS
+    while (samples.length > 1 && samples[0].tsMs < keepFrom) {
+      samples.shift()
+    }
+  }, [engine?.sessionId, meterEnergyKwh])
+
   const currentRangeKm = vehicle?.batteryRange ?? null
   const autoActualCurrentA = vehicle?.chargerActualCurrent ?? null
   const evloadRequestedCurrentA = engine?.setpointAmps ?? engine?.targetAmps ?? null
@@ -357,7 +434,7 @@ export default function DashboardPage() {
       : null
 
   const timeToTarget = computeTimeToTargetH({
-    machineHours: vehicle?.timeToFullChargeH ?? null,
+    machineHours: proxyConnected ? (vehicle?.timeToFullChargeH ?? null) : null,
     stateOfCharge: soc,
     desiredTargetSoc: effectiveTargetSoc,
     carLimitSoc,
@@ -365,18 +442,25 @@ export default function DashboardPage() {
     batteryCapacityKwh,
   })
   const remainingEnergyKwh = Math.max(0, ((effectiveTargetSoc - soc) / 100) * batteryCapacityKwh)
-  const nowTsMs = wsLastUpdate ? new Date(wsLastUpdate).getTime() : Date.now()
-  const chargingElapsedMs = chargingStartedAtMs != null && nowTsMs > chargingStartedAtMs
-    ? nowTsMs - chargingStartedAtMs
-    : null
-  const evloadAveragePowerKw =
-    chargingElapsedMs != null
-    && chargingElapsedMs >= 10000
-    && meterEnergyKwh != null
-    && meterEnergyKwh > 0
-      ? meterEnergyKwh / (chargingElapsedMs / 3600000)
-      : null
-  const fallbackAveragePowerKw = displayChargePowerKw > 0 ? displayChargePowerKw : null
+  // Only use live display power as fallback when proxy is connected; stale chargeRateKw would skew ETA
+  const fallbackAveragePowerKw = proxyConnected && displayChargePowerKw > 0 ? displayChargePowerKw : null
+  const evloadAveragePowerKw = (() => {
+    const samples = meterEnergySamplesRef.current
+    if (samples.length < 2) return fallbackAveragePowerKw
+
+    const latest = samples[samples.length - 1]
+    const minStartTs = latest.tsMs - EVLOAD_AVERAGE_WINDOW_MS
+    const oldest = samples.find((sample) => sample.tsMs >= minStartTs) ?? samples[0]
+    const deltaMs = latest.tsMs - oldest.tsMs
+    const deltaKwh = latest.meterEnergyKwh - oldest.meterEnergyKwh
+
+    if (deltaMs < EVLOAD_AVERAGE_MIN_WINDOW_MS) return fallbackAveragePowerKw
+    if (!Number.isFinite(deltaKwh) || deltaKwh <= 0) return fallbackAveragePowerKw
+
+    const computed = deltaKwh / (deltaMs / 3600000)
+    if (!Number.isFinite(computed) || computed <= 0) return fallbackAveragePowerKw
+    return Number(computed.toFixed(2))
+  })()
   const usableEvloadAveragePowerKw = evloadAveragePowerKw != null && Number.isFinite(evloadAveragePowerKw) && evloadAveragePowerKw > 0
     ? evloadAveragePowerKw
     : fallbackAveragePowerKw
@@ -431,17 +515,6 @@ export default function DashboardPage() {
     ? engine.message.charAt(0).toUpperCase() + engine.message.slice(1)
     : 'Idle'
 
-  useEffect(() => {
-    const tsMs = wsLastUpdate ? new Date(wsLastUpdate).getTime() : Date.now()
-    if (!Number.isFinite(tsMs)) return
-
-    if (engine?.sessionId != null) {
-      setChargingStartedAtMs((prev) => prev ?? tsMs)
-    } else {
-      setChargingStartedAtMs(null)
-    }
-  }, [wsLastUpdate, engine?.sessionId])
-
   const applyMode = async (mode: ChargeMode) => {
     if (mode === 'plan' && timeToTarget.error) return
     setChargeMode(mode)
@@ -455,7 +528,7 @@ export default function DashboardPage() {
         await stopCharging()
         flog.info('SESSION', 'Charge stopped successfully')
       } else if (mode === 'plan') {
-        const targetSoc = nextCharge?.targetSoc ?? Math.max(1, manualTargetSoc)
+        const targetSoc = nextCharge?.targetSoc ?? Math.max(1, manualTargetSocOn)
         flog.info('SESSION', 'Setting plan mode (user action)', {
           targetSoc,
           scheduledAt: nextCharge?.computedStartAt,
@@ -463,9 +536,14 @@ export default function DashboardPage() {
         await setPlanMode(targetSoc)
         flog.info('SESSION', 'Plan mode set successfully', { targetSoc })
       } else {
-        const targetSoc = Math.max(1, manualTargetSoc)
+        const targetSoc = Math.max(1, manualTargetSocOn)
         flog.info('SESSION', 'Starting charge immediately (user action)', {
           targetSoc,
+          manualTargetSocOn,
+          manualTargetSocOff,
+          effectiveTargetSoc,
+          engineCurrentTargetSoc: engine?.targetSoc ?? null,
+          chargeLimitSoc: vehicle?.chargeLimitSoc ?? null,
           currentSoc: vehicle?.stateOfCharge,
           vehicleConnected: vehicle?.connected,
           vehiclePluggedIn: vehicle?.pluggedIn,
@@ -481,12 +559,33 @@ export default function DashboardPage() {
   }
 
   const canWakeVehicle = vehicle?.chargingState === 'Sleeping'
-  const proxyConnected = proxy?.connected ?? false
   const vehicleInGarage = vehicle?.connected ?? false
   const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
-  const carStatusLabel = vehicleInGarage ? 'In garage' : isVehicleSleeping ? 'Sleeping' : 'Not in garage / unreachable'
+  const carStatusLabel = isVehicleSleeping ? 'Sleeping' : vehicleInGarage ? 'In garage' : 'Not in garage / unreachable'
   const statusReason = vehicle?.reason ?? proxy?.error ?? vehicle?.error ?? 'No reason available yet'
   const controlsDisabled = loading || !!failsafe?.active
+
+  const persistTargetSocPreference = async (mode: 'on' | 'off', targetSoc: number): Promise<void> => {
+    const safeSoc = Math.max(1, Math.min(100, Math.round(targetSoc)))
+    try {
+      await patchEngineTargetSocPreference({
+        mode,
+        targetSoc: safeSoc,
+        applyToRunningOnSession: mode === 'on',
+      })
+      flog.info('TARGET_SOC', 'Persisted target SoC preference', {
+        mode,
+        targetSoc: safeSoc,
+        applyToRunningOnSession: mode === 'on',
+      })
+    } catch (err) {
+      flog.error('TARGET_SOC', 'Failed to persist target SoC preference', {
+        mode,
+        targetSoc: safeSoc,
+        error: String(err),
+      })
+    }
+  }
 
   const handleWakeVehicle = async () => {
     if (waking) return
@@ -529,6 +628,37 @@ export default function DashboardPage() {
       {demo && (
         <div className="bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 text-xs font-bold uppercase tracking-widest rounded-lg px-3 py-2 text-center">
           Demo Mode Active — Simulated Data
+        </div>
+      )}
+
+      {engine?.chargeStartBlocked && (
+        <div className="bg-amber-500/15 border border-amber-500/50 rounded-2xl p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="text-amber-300 mt-0.5" size={20} />
+            <div>
+              <div className="text-sm font-bold tracking-wide text-amber-200 uppercase">Charging blocked</div>
+              <div className="text-base text-amber-100 mt-1">
+                {engine.chargeStartBlockReason ?? 'Charging cannot start with current vehicle state'}
+              </div>
+              <div className="text-xs text-amber-200/90 mt-2">
+                Connect the charging cable and wait for vehicle connection recovery. Evload suspended automatic charge_start retries to avoid command spam.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {vehicleInGarage && !vehicle.pluggedIn && !isVehicleSleeping && (
+        <div className="bg-orange-500/15 border border-orange-500/50 rounded-2xl p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="text-orange-300 mt-0.5" size={20} />
+            <div>
+              <div className="text-sm font-bold tracking-wide text-orange-200 uppercase">Cable not connected</div>
+              <div className="text-base text-orange-100 mt-1">
+                The charging cable is not plugged in. Connect the cable to start or schedule charging.
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -637,6 +767,16 @@ export default function DashboardPage() {
               </h2>
               <p className="text-sm text-evload-muted mt-1">Proxy: {proxyConnected ? 'Online' : 'Offline'}</p>
               <p className="text-sm text-evload-muted">Car: {carStatusLabel}</p>
+              {isVehicleSleeping && (
+                <span className="inline-flex items-center mt-1 rounded-full border border-indigo-400/40 bg-indigo-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-indigo-300">
+                  😴 Sleeping — vehicle_data polling suspended
+                </span>
+              )}
+              {vehicle.userPresence === 'VEHICLE_USER_PRESENCE_PRESENT' && (
+                <span className="inline-flex items-center mt-1 rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-300">
+                  👤 User present
+                </span>
+              )}
               <p className="text-xs text-evload-muted mt-1">Reason: {statusReason}</p>
               {canWakeVehicle && (
                 <button
@@ -660,8 +800,27 @@ export default function DashboardPage() {
               targetSoc={effectiveTargetSoc}
               carLimitSoc={carLimitSoc}
               charging={vehicle.charging}
-              readonly={isPlanMode}
-              onTargetChange={setManualTargetSoc}
+                readonly={isPlanMode}
+              onTargetChange={(v) => {
+                  const targetMode = chargeMode === 'on' ? 'on' : 'off'
+                flog.debug('TARGET_SOC', 'Slider dragged', {
+                  newTargetSoc: v,
+                    targetMode,
+                    previousTargetSocOn: manualTargetSocOn,
+                    previousTargetSocOff: manualTargetSocOff,
+                  engineRunning: engine?.running ?? false,
+                  engineTargetSoc: engine?.targetSoc ?? null,
+                })
+                  if (chargeMode === 'on') {
+                    setManualTargetSocOn(v)
+                  } else {
+                    setManualTargetSocOff(v)
+                  }
+                }}
+                onTargetCommit={(v) => {
+                  if (chargeMode === 'plan') return
+                  void persistTargetSocPreference(chargeMode === 'on' ? 'on' : 'off', v)
+              }}
             />
             {isPlanMode && (
               <div className="mt-1 text-[11px] text-evload-muted">Target set by schedule</div>

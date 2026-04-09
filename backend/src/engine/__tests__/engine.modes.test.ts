@@ -7,7 +7,7 @@ let mockEngineRestoreState: string | null = null
 jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn().mockImplementation(() => ({
     chargingSession: {
-      create: jest.fn().mockResolvedValue({ id: 99 }),
+      create: jest.fn().mockResolvedValue({ id: 99, startedAt: new Date('2026-01-01T00:00:00.000Z') }),
       update: jest.fn().mockResolvedValue({}),
     },
     chargingTelemetry: {

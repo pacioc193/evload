@@ -18,20 +18,31 @@ $BashScript = @'
 set -e
 
 # Esporta la variabile per aumentare la RAM disponibile per Node.js (necessario per Vite)
-export NODE_OPTIONS="--max-old-space-size=1024"
+export NODE_OPTIONS="--max-old-space-size=2048"
 
 echo "🔄 [1/4] Scaricamento aggiornamenti da GitHub..."
 cd /opt/evload
 git fetch --all
-git reset --hard origin/main
+TARGET_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [ -z "$TARGET_BRANCH" ] || [ "$TARGET_BRANCH" = "HEAD" ]; then
+    TARGET_BRANCH="main"
+fi
+git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+git reset --hard "origin/$TARGET_BRANCH"
 git pull
 
 echo "📦 [2/4] Aggiornamento dipendenze e database..."
-npm --prefix backend install
-npm --prefix frontend install
+rm -rf backend/node_modules frontend/node_modules
+npm --prefix backend ci --include=dev
+npm --prefix frontend ci --include=dev
 cd backend
 npx prisma generate
-npx prisma migrate deploy
+if npx prisma migrate deploy; then
+    echo "✅ Prisma migrate deploy completato."
+else
+    echo "⚠️ Prisma migrate deploy fallito, provo fallback con prisma db push..."
+    npx prisma db push --accept-data-loss
+fi
 cd ..
 
 echo "🏗️ [3/4] Compilazione applicazione (Frontend + Backend)..."
@@ -40,6 +51,12 @@ chmod +x build-prod.sh
 
 echo "🚀 [4/4] Riavvio servizio EVLoad..."
 systemctl restart evload
+
+if ! systemctl is-active --quiet evload; then
+    echo "❌ Servizio evload non attivo dopo il restart. Ultimi log:"
+    journalctl -u evload -n 120 --no-pager || true
+    exit 1
+fi
 
 echo ""
 echo "=========================================================="
@@ -66,6 +83,12 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Avvio della procedura di aggiornamento (potrebbe richiedere qualche minuto)..." -ForegroundColor Yellow
 ssh -t "$ServerUser@$ServerIP" "chmod +x /root/update_evload.sh && bash /root/update_evload.sh"
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "❌ Aggiornamento remoto fallito. Controlla i log mostrati sopra." -ForegroundColor Red
+    Remove-Item $TempScript.FullName
+    exit 1
+}
 
 Remove-Item $TempScript.FullName
 Write-Host "Operazione completata!" -ForegroundColor Green

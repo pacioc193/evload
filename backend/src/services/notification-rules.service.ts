@@ -77,6 +77,7 @@ const COMMON_PLACEHOLDERS: Record<string, PlaceholderInfo> = {
 
 const EVENT_PLACEHOLDER_CATALOG: Record<string, string[]> = {
   engine_stopped: ['event', 'timestamp', 'sessionId', 'reason'],
+  charge_start_blocked: ['event', 'timestamp', 'sessionId', 'reason', 'chargingState', 'pluggedIn', 'vehicleConnected', 'soc'],
   ha_throttled: ['event', 'timestamp', 'homePowerW', 'maxHomePowerW', 'throttledAmps', 'reason'],
   failsafe_activated: ['event', 'timestamp', 'reason'],
   soc_increased: ['event', 'timestamp', 'soc', 'deltaSoc', 'reason'],
@@ -100,6 +101,14 @@ const EVENT_PLACEHOLDER_CATALOG: Record<string, string[]> = {
 
 const EVENT_PAYLOAD_PRESETS: Record<string, Record<string, unknown>> = {
   engine_stopped: { sessionId: 123, reason: 'finished' },
+  charge_start_blocked: {
+    sessionId: 123,
+    reason: 'Charge cable not connected',
+    chargingState: 'Disconnected',
+    pluggedIn: false,
+    vehicleConnected: true,
+    soc: 52,
+  },
   ha_throttled: { homePowerW: 4200, maxHomePowerW: 4000, throttledAmps: 10, reason: 'limit_exceeded' },
   failsafe_activated: { reason: 'connection_lost' },
   soc_increased: { soc: 55, deltaSoc: 1, reason: 'charging' },
@@ -125,6 +134,17 @@ const EVENT_PAYLOAD_SCHEMAS: Record<string, NotificationEventSchema> = {
   engine_stopped: {
     required: ['sessionId'],
     fields: { sessionId: 'number', reason: 'string' },
+  },
+  charge_start_blocked: {
+    required: ['reason', 'chargingState', 'pluggedIn', 'vehicleConnected'],
+    fields: {
+      sessionId: 'number',
+      reason: 'string',
+      chargingState: 'string',
+      pluggedIn: 'boolean',
+      vehicleConnected: 'boolean',
+      soc: 'number',
+    },
   },
   ha_throttled: {
     required: ['homePowerW', 'maxHomePowerW', 'throttledAmps'],
@@ -208,6 +228,9 @@ const PLACEHOLDER_DESCRIPTIONS: Record<string, string> = {
   event: 'Nome dell\'evento',
   timestamp: 'Data e ora ISO',
   sessionId: 'ID sessione di ricarica',
+  chargingState: 'Stato di ricarica riportato dal veicolo',
+  pluggedIn: 'Cavo di ricarica inserito',
+  vehicleConnected: 'Veicolo raggiungibile via proxy',
   targetSoc: 'SoC bersaglio (%)',
   targetAmps: 'Corrente richiesta (A)',
   reason: 'Motivo dell\'evento',

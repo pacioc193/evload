@@ -34,6 +34,7 @@ const NotificationRuleSchema = z.object({
 
 const ConfigSchema = z.object({
   demo: z.boolean().default(false),
+  logLevel: z.enum(['error', 'warn', 'info', 'verbose', 'debug', 'silly']).default('info'),
   charging: z.object({
     defaultTargetSoc: z.number().min(1).max(100).default(80),
     defaultAmps: z.number().min(1).max(48).default(16),
@@ -70,10 +71,32 @@ const ConfigSchema = z.object({
     url: z.string().default('http://localhost:8080'),
     vehicleId: z.string().default(''),
     vehicleName: z.string().default(''),
-    normalPollIntervalMs: z.number().min(1000).default(5000),
-    idlePollIntervalMs: z.number().min(1000).default(60000),
+    // Interval (ms) for vehicle_data polls while the vehicle is actively charging or the engine is running.
+    chargingPollIntervalMs: z.number().min(1000).default(5000),
+    // Interval (ms) for vehicle_data polls during the vehicle_data window (after wake/connect).
+    // vehicle_data is fetched at this rate while the window is active and charging is not active.
+    windowPollIntervalMs: z.number().min(1000).default(10000),
+    // Interval (ms) for body_controller_state polls. This timer runs ALWAYS, independent of the
+    // data window or charging state, and never wakes the vehicle.
+    bodyPollIntervalMs: z.number().min(1000).default(60000),
+    // How long (ms) to keep polling vehicle_data after a wake or connect event.
+    // After this window, only body_controller_state is polled until the next charge session starts.
+    vehicleDataWindowMs: z.number().min(10000).default(300000),
     scheduleLeadTimeSec: z.number().min(0).default(1800),
     rejectUnauthorized: z.boolean().default(true),
+    // If true, stop an autonomous Tesla charge detected after proxy reconnects
+    // (e.g. car started charging on its own while the proxy was offline)
+    stopAutonomousCharge: z.boolean().default(true),
+  }).default({}),
+  backup: z.object({
+    enabled: z.boolean().default(false),
+    frequency: z.enum(['daily', 'weekly', 'monthly']).default('weekly'),
+    time: z.string().regex(/^\d{2}:\d{2}$/).default('02:00'),
+    retentionCount: z.number().min(1).max(100).default(10),
+    // Google Drive folder where backups are stored.
+    // Use the folder name (e.g. "evload-backups") or a full Drive path like "MyFolder/evload-backups".
+    // Leave empty to use the default "evload-backups" folder at Drive root.
+    driveFolderPath: z.string().default('evload-backups'),
   }).default({}),
 })
 

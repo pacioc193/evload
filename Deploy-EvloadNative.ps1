@@ -63,14 +63,16 @@ chmod +x install.sh
 echo "[5/7] Compilazione ed esecuzione migrazioni database..."
 cd /opt/evload/backend
 npx prisma generate
+if npx prisma migrate deploy; then
+    echo "✅ Prisma migrate deploy completato."
+else
+    echo "⚠️ Prisma migrate deploy fallito, provo fallback con prisma db push..."
+    npx prisma db push --accept-data-loss
+fi
 cd /opt/evload
 
 chmod +x build-prod.sh
 ./build-prod.sh
-
-cd /opt/evload/backend
-npx prisma migrate deploy
-cd /opt/evload
 
 echo "[6/7] Configurazione del servizio Systemd (evload.service)..."
 cat << 'EOF' > /etc/systemd/system/evload.service
@@ -86,6 +88,7 @@ Environment=NODE_ENV=production
 ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
 RestartSec=10
+KillMode=process
 
 [Install]
 WantedBy=multi-user.target
@@ -94,6 +97,12 @@ EOF
 systemctl daemon-reload
 systemctl enable evload
 systemctl restart evload
+
+if ! systemctl is-active --quiet evload; then
+    echo "❌ Servizio evload non attivo dopo il deploy. Ultimi log:"
+    journalctl -u evload -n 120 --no-pager || true
+    exit 1
+fi
 
 echo ""
 echo "=========================================================="
@@ -127,6 +136,12 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Avvio esecuzione sul server..."
-ssh -t "$ServerUser@$ServerIP" "sed -i 's///g' /root/install_evload.sh && chmod +x /root/install_evload.sh && bash /root/install_evload.sh"
+ssh -t "$ServerUser@$ServerIP" "chmod +x /root/install_evload.sh && bash /root/install_evload.sh"
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "❌ Deploy remoto fallito. Controlla i log mostrati sopra." -ForegroundColor Red
+    Remove-Item $TempScript.FullName
+    exit 1
+}
 
 Remove-Item $TempScript.FullName

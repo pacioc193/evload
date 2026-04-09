@@ -6,6 +6,13 @@
 # config.yaml is in .gitignore (not committed)
 
 # ============================================================
+# ENVIRONMENT VARIABLES (set in .env file, not here)
+# ============================================================
+# LOG_LEVEL: error | warn | info | verbose | debug | silly (default: info)
+# GARAGE_MODE: true | false (enable physical display control on RPi via vcgencmd)
+# PORT: HTTP port (default: 3001)
+
+# ============================================================
 # DEMO MODE
 # ============================================================
 demo: false
@@ -105,14 +112,55 @@ proxy:
   # Friendly name for the vehicle
   vehicleName: ""
 
-  # Polling interval (ms) for vehicle_data status refresh
-  normalPollIntervalMs: 5000
+  # ── Polling intervals ──────────────────────────────────────────────────────
+  # body_controller_state is ALWAYS polled (never wakes the vehicle).
+  # vehicle_data is only fetched when actively charging or within the wake window.
 
-  # Polling interval (ms) when vehicle is not charging and engine is idle
-  idlePollIntervalMs: 60000
+  # Polling interval (ms) when charging — both body_controller_state + vehicle_data are fetched.
+  chargingPollIntervalMs: 5000
+
+  # Polling interval (ms) during the vehicle_data wake window (after wake/connect).
+  # Both body_controller_state + vehicle_data are fetched.
+  idlePollIntervalMs: 10000
+
+  # Polling interval (ms) after the wake window expires and vehicle is not charging.
+  # Only body_controller_state is fetched (both awake and asleep) — vehicle_data is NOT called
+  # so the car can fall asleep and stay asleep undisturbed.
+  bodyPollIntervalMs: 60000
+
+  # Duration (ms) of the vehicle_data polling window after a wake or connect event.
+  # During this window vehicle_data is fetched at idlePollIntervalMs even when not charging.
+  # After the window expires, only body_controller_state is polled (bodyPollIntervalMs).
+  vehicleDataWindowMs: 300000
 
   # Anticipatory wake lead time (sec) - wakes vehicle before scheduled charge execution
   scheduleLeadTimeSec: 1800
   
   # TLS certificate validation for proxy HTTPS (set false only for self-signed certs in local dev)
   rejectUnauthorized: true
+
+  # If true, evload will send charge_stop when it detects the car started charging autonomously
+  # after the proxy reconnects (e.g. car plugged in while proxy was temporarily offline).
+  # Set false if you want the car to continue any charge it started on its own.
+  stopAutonomousCharge: true
+
+# ============================================================
+# BACKUP TO GOOGLE DRIVE
+# ============================================================
+backup:
+  # Enable automatic backup to Google Drive
+  enabled: false
+
+  # Backup frequency: daily | weekly | monthly
+  frequency: weekly
+
+  # Time of day for scheduled backup (HH:MM, 24h format)
+  time: "02:00"
+
+  # Number of backup files to retain on Google Drive (older ones are deleted)
+  retentionCount: 10
+
+  # Google Drive destination folder name (or path, e.g. "Documenti/evload-backups").
+  # Folder is created automatically at root if it does not exist.
+  # Leave empty to use the default "evload-backups" folder.
+  driveFolderPath: "evload-backups"
