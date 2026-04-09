@@ -152,6 +152,7 @@ export async function saveConfig(content: string) {
 export interface AppSettings {
   demo: boolean
   logLevel: 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly'
+  timezone: string
   haUrl: string
   haPowerEntityId: string
   haChargerEntityId: string
@@ -216,6 +217,11 @@ export async function getSettings() {
 export async function patchSettings(partial: Partial<AppSettings>) {
   const res = await api.patch('/settings', partial)
   return res.data as { success: boolean }
+}
+
+export async function setSystemTime(iso: string) {
+  const res = await api.post('/settings/system-time', { iso })
+  return res.data as { success: boolean; appliedUtc: string }
 }
 
 export async function sendTelegramTestNotification(input: {

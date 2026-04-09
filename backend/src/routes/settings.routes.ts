@@ -2,6 +2,8 @@ import { Router } from 'express'
 import fs from 'fs'
 import path from 'path'
 import yaml from 'js-yaml'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import rateLimit from 'express-rate-limit'
 import dotenv from 'dotenv'
 import { requireAuth } from '../middleware/auth.middleware'
@@ -17,6 +19,8 @@ import {
 } from '../services/notification-rules.service'
 import { getTelegramPrerequisiteStatus, initTelegram } from '../services/telegram.service'
 
+const execFileAsync = promisify(execFile)
+
 const CONFIG_PATH = process.env.CONFIG_PATH ?? path.join(process.cwd(), 'config.yaml')
 const ENV_PATH = path.join(process.cwd(), '.env')
 const EXAMPLE_PATH = path.join(__dirname, '../../config.example.yaml')
@@ -31,6 +35,7 @@ router.get('/', limiter, requireAuth, (_req, res) => {
   res.json({
     demo: cfg.demo,
     logLevel: cfg.logLevel,
+    timezone: cfg.timezone,
     haUrl: cfg.homeAssistant.url,
     haPowerEntityId: cfg.homeAssistant.powerEntityId,
     haChargerEntityId: cfg.homeAssistant.chargerEntityId,
@@ -65,6 +70,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   const incoming = req.body as Partial<{
     demo: boolean
     logLevel: 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly'
+    timezone: string
     haUrl: string
     haPowerEntityId: string
     haChargerEntityId: string
@@ -124,6 +130,10 @@ router.patch('/', limiter, requireAuth, (req, res) => {
 
   if (incoming.demo !== undefined) parsed['demo'] = incoming.demo
   if (incoming.logLevel !== undefined) parsed['logLevel'] = incoming.logLevel
+  if (incoming.timezone !== undefined) {
+    const tz = String(incoming.timezone).trim()
+    parsed['timezone'] = tz
+  }
 
   const activeCfg = getConfig()
 
@@ -266,12 +276,60 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   try {
     const nextCfg = reloadConfig()
     setLoggerLevel(nextCfg.logLevel)
+    // Apply timezone to the running process immediately (no restart needed on Linux).
+    if (nextCfg.timezone && nextCfg.timezone !== 'UTC') {
+      process.env.TZ = nextCfg.timezone
+      logger.info('Timezone updated', { timezone: nextCfg.timezone })
+    } else if (nextCfg.timezone === 'UTC') {
+      process.env.TZ = 'UTC'
+    }
     initTelegram()
   } catch (err) {
     logger.warn('Config reload failed after settings update', { err })
   }
 
   res.json({ success: true })
+})
+
+// ─── System Time ──────────────────────────────────────────────────────────────
+
+router.post('/system-time', limiter, requireAuth, async (req, res) => {
+  const cfg = getConfig()
+  if (cfg.demo) {
+    res.status(403).json({ error: 'System time cannot be changed in demo mode' })
+    return
+  }
+
+  const { iso } = req.body as { iso?: string }
+  if (!iso || typeof iso !== 'string') {
+    res.status(400).json({ error: 'iso field (ISO 8601 datetime string) is required' })
+    return
+  }
+
+  // Validate that it is a parseable ISO date
+  const parsed = new Date(iso)
+  if (isNaN(parsed.getTime())) {
+    res.status(400).json({ error: 'iso value is not a valid date string' })
+    return
+  }
+
+  // Format for `date -s`: "YYYY-MM-DD HH:MM:SS"
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const dateStr = `${parsed.getUTCFullYear()}-${pad(parsed.getUTCMonth() + 1)}-${pad(parsed.getUTCDate())} ${pad(parsed.getUTCHours())}:${pad(parsed.getUTCMinutes())}:${pad(parsed.getUTCSeconds())}`
+
+  try {
+    // Try timedatectl first (systemd), fall back to `date -s`
+    try {
+      await execFileAsync('timedatectl', ['set-time', dateStr])
+    } catch {
+      await execFileAsync('date', ['-s', dateStr])
+    }
+    logger.info('System time updated', { iso, dateStr })
+    res.json({ success: true, appliedUtc: dateStr })
+  } catch (err) {
+    logger.error('Failed to set system time', { err, iso })
+    res.status(500).json({ error: 'Failed to set system time. Ensure the process has the required privileges (CAP_SYS_TIME or sudo).' })
+  }
 })
 
 router.post('/password', limiter, requireAuth, async (req, res) => {

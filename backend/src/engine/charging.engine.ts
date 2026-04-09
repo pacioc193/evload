@@ -1183,12 +1183,34 @@ function computeHaAllowedAmps(
   vState: ReturnType<typeof getVehicleState>
 ): number | null {
   const haS = getHaState()
-  if (!haS.connected || haS.powerW === null || cfg.homeAssistant.maxHomePowerW <= 0) return null
-  const chargerPowerW = haS.chargerW ?? ((vState.chargeRateKw ?? 0) * 1000)
-  const houseOnlyW = haS.powerW - chargerPowerW
+  if (!haS.connected || haS.smoothedPowerW === null || cfg.homeAssistant.maxHomePowerW <= 0) return null
+
+  // If charger sensor is currently faulty (chargerW < 0), skip HA-based adjustment
+  // for this tick and preserve the current setpoint to avoid reacting to bad data.
+  if (haS.chargerFault) {
+    pushEngineLog(`[HA_POWER_CALC] charger sensor fault — skipping HA amp adjustment this tick`)
+    return null
+  }
+
+  // Prefer smoothed values for stability; fall back to vehicle telemetry when charger entity unavailable.
+  const smoothedPowerW = haS.smoothedPowerW
+  const smoothedChargerW = haS.smoothedChargerW ?? ((vState.chargeRateKw ?? 0) * 1000)
+
+  // powerW ≤ 0 means solar is exporting to the grid — house load is effectively zero,
+  // all headroom is available.  Clamp houseOnlyW to [0, maxHomePowerW] to avoid negative
+  // available headroom from corrupting the setpoint calculation.
+  const houseOnlyW = Math.max(0, Math.min(
+    smoothedPowerW - smoothedChargerW,
+    cfg.homeAssistant.maxHomePowerW
+  ))
   const availableW = cfg.homeAssistant.maxHomePowerW - houseOnlyW
   const voltage = vState.chargerVoltage ?? 230
-  pushEngineLog(`HA window: homeTotal=${haS.powerW ?? 0}W charger=${Math.round(chargerPowerW)}W homeWithoutCharger=${Math.round(houseOnlyW)}W available=${Math.round(availableW)}W voltage=${voltage}V`)
+
+  pushEngineLog(
+    `[HA_POWER_CALC] raw=${haS.powerW ?? 0}W(charger=${haS.chargerW ?? 'n/a'}W)` +
+    ` smoothed=${Math.round(smoothedPowerW)}W(charger=${Math.round(smoothedChargerW)}W)` +
+    ` houseOnly=${Math.round(houseOnlyW)}W available=${Math.round(availableW)}W voltage=${voltage}V`
+  )
   return Math.floor(availableW / voltage)
 }
 

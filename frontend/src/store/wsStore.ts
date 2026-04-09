@@ -16,6 +16,8 @@ export interface ProxyHealthState {
   connected: boolean
   lastSuccessAt: string | null
   lastEndpoint: string | null
+  /** Timestamp of the last successful body_controller_state poll. */
+  lastBodySuccessAt: string | null
   error: string | null
   /** Unix timestamp (ms) when the vehicle_data polling window expires. null when inactive. */
   vehicleDataWindowExpiresAt: number | null

@@ -9,6 +9,12 @@ export interface HaState {
   connected: boolean
   powerW: number | null
   chargerW: number | null
+  /** EMA-smoothed grid/home power (W). Null until first valid sample. */
+  smoothedPowerW: number | null
+  /** EMA-smoothed charger power (W). Null until first valid sample. */
+  smoothedChargerW: number | null
+  /** True when the last chargerW reading was negative (sensor fault). */
+  chargerFault: boolean
   lastUpdated: Date | null
   failureCount: number
   maxFailuresBeforeManualReconnect: number
@@ -30,11 +36,23 @@ let haState: HaState = {
   connected: false,
   powerW: null,
   chargerW: null,
+  smoothedPowerW: null,
+  smoothedChargerW: null,
+  chargerFault: false,
   lastUpdated: null,
   failureCount: 0,
   maxFailuresBeforeManualReconnect: 3,
   requiresManualReconnect: false,
   lastError: null,
+}
+
+/** EMA smoothing factor (0 < α ≤ 1). Lower = more smoothing, slower response. */
+const HA_EMA_ALPHA = 0.3
+
+/** Apply an EMA step: returns new smoothed value given the previous and the new raw sample. */
+function applyEma(prev: number | null, raw: number): number {
+  if (prev === null) return raw
+  return prev + HA_EMA_ALPHA * (raw - prev)
 }
 
 let pollLock = false
@@ -135,6 +153,9 @@ function registerHaFailure(reason: string, statusCode?: number): void {
     connected: false,
     powerW: null,
     chargerW: null,
+    smoothedPowerW: null,
+    smoothedChargerW: null,
+    chargerFault: false,
     lastUpdated: new Date(),
     failureCount: nextFailureCount,
     maxFailuresBeforeManualReconnect: HA_MAX_FAILURES_BEFORE_MANUAL_RECONNECT,
@@ -175,6 +196,9 @@ function registerHaEntityFailure(reason: string, statusCode?: number): void {
     connected: false,
     powerW: null,
     chargerW: null,
+    smoothedPowerW: null,
+    smoothedChargerW: null,
+    chargerFault: false,
     lastUpdated: new Date(),
     lastError: normalizedReason,
     error: `HA entity read failed: ${normalizedReason}`,
@@ -212,6 +236,9 @@ function markHaManualReconnectRequired(reason: string): void {
     connected: false,
     powerW: null,
     chargerW: null,
+    smoothedPowerW: null,
+    smoothedChargerW: null,
+    chargerFault: false,
     lastUpdated: new Date(),
     failureCount: HA_MAX_FAILURES_BEFORE_MANUAL_RECONNECT,
     maxFailuresBeforeManualReconnect: HA_MAX_FAILURES_BEFORE_MANUAL_RECONNECT,
@@ -464,11 +491,16 @@ async function pollHaOnce(): Promise<void> {
       const carW = Math.max(0, ((v.chargerActualCurrent ?? 0) * (v.chargerVoltage ?? 0)))
       const baseHomeW = 900 + Math.round((Date.now() / 1000) % 120)
       const homePowerW = baseHomeW + carW
+      const nextSmoothedPower = applyEma(haState.smoothedPowerW, homePowerW)
+      const nextSmoothedCharger = applyEma(haState.smoothedChargerW, carW)
       haState = {
         ...haState,
         connected: true,
         powerW: homePowerW,
         chargerW: carW,
+        smoothedPowerW: nextSmoothedPower,
+        smoothedChargerW: nextSmoothedCharger,
+        chargerFault: false,
         lastUpdated: new Date(),
         error: undefined,
       }
@@ -546,11 +578,17 @@ async function pollHaOnce(): Promise<void> {
 
     registerHaSuccess()
     const nowMs = Date.now()
-    if (powerW < 0 || (chargerW != null && chargerW < 0)) {
+
+    // ── Anomaly detection ────────────────────────────────────────────────────
+    // powerW < 0 is VALID: it means solar surplus is exported to the grid.
+    // Only chargerW < 0 is a true sensor fault.
+    const chargerFault = chargerW != null && chargerW < 0
+
+    if (chargerFault) {
       if (nowMs - lastHaInputQualityWarningAtMs >= 30000) {
         lastHaInputQualityWarningAtMs = nowMs
         logger.warn('HA_INPUT_QUALITY_ANOMALY', {
-          kind: 'negative_power',
+          kind: 'negative_charger_power',
           powerEntityId: cfg.homeAssistant.powerEntityId,
           chargerEntityId: cfg.homeAssistant.chargerEntityId,
           powerW,
@@ -570,11 +608,23 @@ async function pollHaOnce(): Promise<void> {
         })
       }
     }
+
+    // ── EMA smoothing ────────────────────────────────────────────────────────
+    // When chargerW is faulty (< 0), exclude it from the smoothed value so the
+    // engine can fall back to vehicle telemetry.
+    const nextSmoothedPower = applyEma(haState.smoothedPowerW, powerW)
+    const nextSmoothedCharger = chargerFault || chargerW == null
+      ? haState.smoothedChargerW   // keep previous smoothed value on fault/unavailable
+      : applyEma(haState.smoothedChargerW, chargerW)
+
     haState = {
       ...haState,
       connected: true,
       powerW,
       chargerW,
+      smoothedPowerW: nextSmoothedPower,
+      smoothedChargerW: nextSmoothedCharger,
+      chargerFault,
       lastUpdated: new Date(),
       error: undefined,
     }
