@@ -434,7 +434,7 @@ export default function StatisticsPage() {
         >
           <div
             className="bg-evload-surface border border-evload-border rounded-2xl p-6 w-full max-w-4xl shadow-2xl"
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-base">
