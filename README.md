@@ -214,12 +214,13 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 
 - Statistics page includes a `Download CSV` action for the selected charging session (metadata + telemetry)
 - Statistics charts (SoC, Power/Current, Voltage) use telemetry `recordedAt` datetime on the X axis
+- **Statistics chart zoom**: each chart card has an expand (⤢) button that opens the chart in a fullscreen popup modal (closes on Escape, overlay click, or ✕)
 - Dashboard "Evload average" uses a rolling-meter-energy slope over recent samples for responsive ETA and power estimation
 - OFF mode stop resilience: failed `charge_stop` commands are retried in background with bounded attempts and retriggered on proxy reconnect
 - Engine auto-resync for current requests: if Tesla `charge_current_request` diverges from evload setpoint, backend retries `set_charging_amps` until aligned
 - Dashboard target SoC persistence split by mode (`on` / `off`) and shared across browser sessions via backend API
 - Dashboard SoC slider editable in `on` and `off` (read-only only in `plan`), with live target update during active manual charging sessions
-- Load-aware charging using Home Assistant power entities
+- **Robust HA power calculation**: `powerW < 0` (solar export) is treated as valid (house load = 0, all headroom available); `chargerW < 0` is a sensor fault — EMA smoothing (α=0.3) applied to both values; faulty charger tick skipped; `houseOnlyW` clamped to `[0, maxHomePowerW]`; detailed `[HA_POWER_CALC]` log tag for diagnostics
 - Charging current ramp logic with configurable bounds and cadence
 - Sleep-aware proxy polling: `GET /vehicle_data` never wakes the vehicle
 - Immediate proxy poll on engine start (no 30-second wait)
@@ -258,6 +259,8 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Demo/simulator mode for development without a real Tesla
 - **Verbose production logging**: every critical engine operation (`charge_start`, `charge_stop`, `set_charging_amps`, engine start/stop, HA throttle, failsafe, plan mode) emits a structured log entry with emoji-prefixed tag, context values (vehicleId, sessionId, before/after amps, reasons, costs) for post-mortem analysis of overnight sessions
 - **Log download from Settings**: authenticated Settings panel lets operators download backend `combined.log` / `error.log` and frontend browser logs directly from the UI
+- **Timezone & system clock settings**: new System panel in Settings to configure IANA timezone (applied immediately to backend process for log timestamps) and to set the OS clock via `POST /api/settings/system-time`
+- **Garage unlatch fix**: corrected command from `charge_port_open` → `charge_port_door_open` (matching the proxy allowlist); sync execution via `?wait=true` confirmed
 
 ## Prerequisites
 

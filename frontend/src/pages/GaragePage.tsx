@@ -148,7 +148,8 @@ export default function GaragePage() {
     setBusy(true)
     setStatusMsg(null)
     try {
-      await sendVehicleCommand('charge_port_open')
+      flog.info('GARAGE', 'Unlatch triggered', { cmd: 'charge_port_door_open' })
+      await sendVehicleCommand('charge_port_door_open')
       setStatusMsg('🔌 Charge port opened')
       flog.info('GARAGE', 'Charge port open')
     } catch (e) {

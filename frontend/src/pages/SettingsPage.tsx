@@ -10,6 +10,7 @@ import {
   type VersionInfoResponse,
   getSettings,
   patchSettings,
+  setSystemTime,
   type AppSettings,
   type HaTokenStatus,
   downloadBackendLog,
@@ -33,14 +34,14 @@ import {
   type CommitInfo,
 } from '../api/index'
 import { changePassword } from '../api/auth'
-import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch, UploadCloud, RefreshCw, Trash2, FolderOpen, GitCommit, ArrowDown, RotateCcw, Terminal, CheckCircle, XCircle, Loader2, Download } from 'lucide-react'
+import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch, UploadCloud, RefreshCw, Trash2, FolderOpen, GitCommit, ArrowDown, RotateCcw, Terminal, CheckCircle, XCircle, Loader2, Download, Clock } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useNavigate } from 'react-router-dom'
 import { useWsStore } from '../store/wsStore'
 import { flog, downloadFrontendLogs, serializeLogsForUpload, getLogEntries } from '../utils/frontendLogger'
 import { clsx } from 'clsx'
 
-type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'versioning' | 'security' | 'yaml' | 'logs' | 'backup'
+type PanelKey = 'homeAssistant' | 'proxy' | 'engine' | 'versioning' | 'security' | 'yaml' | 'logs' | 'backup' | 'system'
 
 const SETTINGS_PANEL_STATE_KEY = 'evload.settings.expandedPanels'
 
@@ -53,6 +54,7 @@ const defaultExpandedPanels: Record<PanelKey, boolean> = {
   yaml: true,
   logs: true,
   backup: true,
+  system: true,
 }
 
 function readExpandedPanels(): Record<PanelKey, boolean> {
@@ -69,6 +71,7 @@ function readExpandedPanels(): Record<PanelKey, boolean> {
       yaml: typeof parsed.yaml === 'boolean' ? parsed.yaml : defaultExpandedPanels.yaml,
       logs: typeof parsed.logs === 'boolean' ? parsed.logs : defaultExpandedPanels.logs,
       backup: typeof parsed.backup === 'boolean' ? parsed.backup : defaultExpandedPanels.backup,
+      system: typeof parsed.system === 'boolean' ? parsed.system : defaultExpandedPanels.system,
     }
   } catch {
     return defaultExpandedPanels
@@ -276,6 +279,11 @@ export default function SettingsPage() {
   const [logError, setLogError] = useState(false)
   const [logBusy, setLogBusy] = useState(false)
   const [logSince, setLogSince] = useState('')
+
+  // System panel (timezone + system time)
+  const [systemTimeInput, setSystemTimeInput] = useState('')
+  const [systemTimeMsg, setSystemTimeMsg] = useState('')
+  const [systemTimeBusy, setSystemTimeBusy] = useState(false)
 
   // Backup panel
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
@@ -600,6 +608,25 @@ export default function SettingsPage() {
       }
     } finally {
       setChangingPassword(false)
+    }
+  }
+
+  const handleSetSystemTime = async () => {
+    if (!systemTimeInput) return
+    setSystemTimeBusy(true)
+    setSystemTimeMsg('')
+    try {
+      const iso = new Date(systemTimeInput).toISOString()
+      await setSystemTime(iso)
+      setSystemTimeMsg('✅ System time updated')
+      flog.info('SYSTEM', 'System time set', { iso })
+    } catch (err) {
+      const msg = axios.isAxiosError(err) ? (err.response?.data?.error ?? 'Unknown error') : String(err)
+      setSystemTimeMsg(`❌ ${msg}`)
+      flog.error('SYSTEM', 'System time update failed', { error: String(err) })
+    } finally {
+      setSystemTimeBusy(false)
+      setTimeout(() => setSystemTimeMsg(''), 6000)
     }
   }
 
@@ -1109,6 +1136,65 @@ export default function SettingsPage() {
                   {settings.stopChargeOnManualStart ? <ToggleRight size={32} /> : <ToggleLeft size={32} className="text-evload-muted" />}
                 </button>
               </div>
+            </div>
+          </CollapsiblePanel>
+
+          <CollapsiblePanel
+            title="System"
+            subtitle="Timezone for logs and timestamps, and system clock adjustment."
+            expanded={expandedPanels.system}
+            onToggle={() => togglePanel('system')}
+            action={
+              <div className="flex items-center gap-2 ml-auto">
+                {settingsMsg && settingsMsgPanel === 'system' && (
+                  <span className={`text-xs ${settingsMsg.includes('failed') ? 'text-evload-error' : 'text-evload-success'}`}>{settingsMsg}</span>
+                )}
+                <button onClick={() => handleSettingsSave('system')}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-xs">
+                  <Save size={12} />Save
+                </button>
+              </div>
+            }
+          >
+            <div className="pt-5 space-y-4">
+              <SectionCard title="Timezone">
+                <Field
+                  label="Timezone"
+                  value={settings.timezone ?? 'UTC'}
+                  onChange={upd('timezone')}
+                  placeholder="e.g. Europe/Rome"
+                  description="IANA timezone name used for all log timestamps and date display. Changes take effect immediately without restart."
+                />
+                <p className="text-xs text-evload-muted mt-1">Current server time (UTC): {new Date().toUTCString()}</p>
+              </SectionCard>
+              <SectionCard title="Set System Clock">
+                <p className="text-xs text-evload-muted mb-2">Set the OS system clock directly. Requires the backend process to have CAP_SYS_TIME or sudo privileges.</p>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <label className="flex items-center gap-1 text-sm text-evload-muted mb-1">
+                      <Clock size={13} />
+                      <span>New Date/Time (local)</span>
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={systemTimeInput}
+                      onChange={(e) => setSystemTimeInput(e.target.value)}
+                      className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSetSystemTime}
+                    disabled={systemTimeBusy || !systemTimeInput}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {systemTimeBusy ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
+                    Apply
+                  </button>
+                </div>
+                {systemTimeMsg && (
+                  <p className={`text-xs mt-2 ${systemTimeMsg.startsWith('✅') ? 'text-evload-success' : 'text-evload-error'}`}>{systemTimeMsg}</p>
+                )}
+              </SectionCard>
             </div>
           </CollapsiblePanel>
 

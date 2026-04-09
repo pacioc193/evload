@@ -1132,3 +1132,41 @@ Accettazione:
 - C5: `docker-compose.yml` aggiunto `LOG_LEVEL` e `GARAGE_MODE` all'environment section.
 - C6: `README.md` env table aggiornata con `LOG_LEVEL` livelli completi e `GARAGE_MODE`.
 - C7: Pannello Logs spostato dopo il pannello Backup nella Settings UI.
+
+## F-61 Robust HA Power Calculation
+
+Requisito: "Rendere il calcolo della potenza reale dal contatore HA robusto — evitare che valori negativi o anomali del sensore rompano il motore di ricarica."
+Accettazione:
+- C1: `ha.service.ts`: `HaState` arricchito con `smoothedPowerW`, `smoothedChargerW` (EMA, α=0.3) e `chargerFault` (boolean).
+- C2: `powerW < 0` (surplus solare → esportazione in rete) è ora un valore VALIDO: non viene più emesso warning né interrompe la logica. Solo `chargerW < 0` è un fault reale del sensore.
+- C3: Quando `chargerW < 0` (sensor fault): si mantiene il valore smoothed precedente, si imposta `chargerFault = true` e si logga `HA_INPUT_QUALITY_ANOMALY` con kind `negative_charger_power`.
+- C4: `charging.engine.ts` → `computeHaAllowedAmps`: usa `smoothedPowerW`/`smoothedChargerW`; quando `chargerFault = true` restituisce `null` (skip tick); `houseOnlyW` è clampato a `[0, maxHomePowerW]`.
+- C5: Log `[HA_POWER_CALC]` mostra raw vs. smoothed ad ogni tick per diagnostica.
+
+## F-62 Timezone e Set System Clock
+
+Requisito: "Dal pannello impostazioni poter aggiornare timezone e data/ora del sistema (log ora in UTC)."
+Accettazione:
+- C1: `config.ts`: aggiunto campo `timezone: z.string().default('UTC')` nello schema Zod.
+- C2: GET `/api/settings` espone `timezone`.
+- C3: PATCH `/api/settings` accetta `timezone` e lo persiste in `config.yaml`; al salvataggio `process.env.TZ` viene aggiornato senza riavvio.
+- C4: POST `/api/settings/system-time` con body `{ iso: string }` imposta il clock di sistema tramite `timedatectl set-time` (fallback: `date -s`). Disabilitato in demo mode.
+- C5: `AppSettings` (frontend) include `timezone`.
+- C6: Settings UI: nuovo pannello "System" con campo Timezone (IANA) + sezione "Set System Clock" con input datetime-local e pulsante Apply.
+
+## F-63 Fix Unlatch Garage (charge_port_door_open)
+
+Requisito: "Il comando unlatch in garage non funzionava — verificare e correggere."
+Accettazione:
+- C1: `GaragePage.tsx`: corretto `sendVehicleCommand('charge_port_open')` → `sendVehicleCommand('charge_port_door_open')` (nome comando corretto nell'allowlist di `vehicle.routes.ts`).
+- C2: Aggiunto `flog.info('GARAGE', 'Unlatch triggered', { cmd: 'charge_port_door_open' })` prima del comando per visibilità nei log frontend.
+- C3: `sendProxyCommand` aggiunge già `?wait=true` → esecuzione sincrona garantita.
+
+## F-64 Statistics Chart Zoom
+
+Requisito: "Nella pagina statistiche poter zoomare i grafici in un popup a schermo intero."
+Accettazione:
+- C1: `StatisticsPage.tsx`: stato `zoomedChart: 'soc' | 'powerCurrent' | 'voltage' | 'energyBar' | null`.
+- C2: Modale fullscreen (`fixed inset-0 z-50`) con sfondo scuro semitrasparente; chiusura su click overlay, pulsante ✕ o tasto Escape.
+- C3: Ogni card grafico ha un pulsante `Maximize2` (lucide-react) nell'header per aprire il relativo grafico a 500px di altezza nel modale.
+- C4: Il modale riutilizza gli stessi dati `telemetryData`/`sessions` già in memoria — nessuna chiamata API aggiuntiva.
