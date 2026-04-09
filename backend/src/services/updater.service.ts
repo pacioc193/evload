@@ -288,9 +288,9 @@ echo ""
 
 echo "🔄 [1/5] Fetching latest changes (branch: ${branch})..."
 cd "$REPO"
-git fetch --all
-git checkout -B "${branch}" "origin/${branch}"
-git reset --hard "origin/${branch}"
+git fetch origin "${branch}"
+git checkout -B "${branch}" FETCH_HEAD
+git reset --hard FETCH_HEAD
 git branch --set-upstream-to="origin/${branch}" "${branch}" >/dev/null 2>&1 || true
 echo "  Checked out branch: $(git rev-parse --abbrev-ref HEAD)"
 echo "  Local HEAD: $(git log -1 --format='%h %s')"
