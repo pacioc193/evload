@@ -688,6 +688,9 @@ export default function SettingsPage() {
   const proxyLastSuccessAt = proxy?.lastSuccessAt
     ? new Date(proxy.lastSuccessAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : null
+  const proxyLastBodySuccessAt = proxy?.lastBodySuccessAt
+    ? new Date(proxy.lastBodySuccessAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null
   const dataWindowExpiresAt = proxy?.vehicleDataWindowExpiresAt ?? null
   const dataWindowRemainSec = dataWindowExpiresAt != null
     ? Math.max(0, Math.round((dataWindowExpiresAt - Date.now()) / 1000))
@@ -923,6 +926,9 @@ export default function SettingsPage() {
                 <div className="mt-1 text-xs text-evload-muted">Reason: {runtimeReason}</div>
                 <div className="mt-1 text-xs text-evload-muted">
                   Last successful proxy call: {proxyLastEndpoint ?? 'unknown'}{proxyLastSuccessAt ? ` at ${proxyLastSuccessAt}` : ''}.
+                </div>
+                <div className="mt-1 text-xs text-evload-muted">
+                  Last body_controller_state: {proxyLastBodySuccessAt ? <span className="text-evload-success font-medium">{proxyLastBodySuccessAt}</span> : <span className="text-evload-muted">never</span>}.
                 </div>
                 <div className="mt-1 text-xs text-evload-muted">
                   Data window: {dataWindowRemainSec != null && dataWindowRemainSec > 0

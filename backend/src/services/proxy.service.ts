@@ -74,6 +74,8 @@ export interface ProxyHealthState {
   connected: boolean
   lastSuccessAt: string | null
   lastEndpoint: SimulatorEndpointKey | null
+  /** Timestamp of the last successful body_controller_state poll. */
+  lastBodySuccessAt: string | null
   error: string | null
   /** Unix timestamp (ms) when the vehicle_data polling window expires. null when inactive. */
   vehicleDataWindowExpiresAt: number | null
@@ -122,6 +124,7 @@ let proxyHealthState: ProxyHealthState = {
   connected: false,
   lastSuccessAt: null,
   lastEndpoint: null,
+  lastBodySuccessAt: null,
   error: null,
   vehicleDataWindowExpiresAt: null,
 }
@@ -201,10 +204,12 @@ function debugEnabled(): boolean {
 function markProxySuccess(url: string): void {
   const wasConnected = proxyHealthState.connected
   const endpointKey = endpointKeyFromUrl(url)
+  const now = new Date().toISOString()
   proxyHealthState = {
     connected: true,
-    lastSuccessAt: new Date().toISOString(),
+    lastSuccessAt: now,
     lastEndpoint: endpointKey,
+    lastBodySuccessAt: endpointKey === 'vehicle.body_controller_state' ? now : proxyHealthState.lastBodySuccessAt,
     error: null,
     vehicleDataWindowExpiresAt: null,
   }
