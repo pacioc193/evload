@@ -5,6 +5,12 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 ## Aggiornamenti Recenti (2026-04-10) — v1.5.5
 
+- **Dashboard — fix cursore SoC non mostra valore salvato nel backend**:
+	- Il `useEffect` che sincronizzava `manualTargetSocOn`/`manualTargetSocOff` dallo store WS aveva `engine` (oggetto) nel dependency array.
+	- Il backend fa broadcast WS ogni **1 secondo** → il riferimento dell'oggetto `engine` cambia ad ogni messaggio → l'effect si rieseguiva ogni secondo con il vecchio valore del backend, resettando il cursore durante il trascinamento.
+	- Fix: rimosso `engine` dal dependency array; si traccia solo `engine?.targetSocOn` e `engine?.targetSocOff` (valori primitivi) che cambiano solo quando il backend persiste un nuovo valore.
+	- Risultato: il cursore mostra sempre il valore salvato nel backend, si aggiorna correttamente quando un altro utente connesso modifica il target, e non viene più resettato durante il trascinamento locale.
+
 - **Garage — Unlatch sempre disponibile**:
 	- Il pulsante Unlatch in GaragePage non richiede più che il cavo sia collegato (`vehicle.pluggedIn`).
 	- Il pulsante è disabilitato solo mentre un comando è in corso (`busy`), consentendo di aprire lo sportello anche quando l'auto è in stato idle/sleep in garage.

@@ -19,6 +19,7 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Dashboard SoC slider sync fix**: the Target SoC slider was resetting every second during active drag because the WS engine object reference changes on every 1s broadcast; fixed by tracking only the primitive values `targetSocOn`/`targetSocOff` in the effect dependency array
 - **Garage unlatch always available**: the Unlatch button in Garage mode is no longer gated on `vehicle.pluggedIn`; it can now open the charge-port door even when the car is idle or sleeping in the garage
 - **Statistics popup chart drag-to-zoom**: in the fullscreen chart popup (SoC, Power/Current, Voltage), drag horizontally on the chart to zoom into a time range; Y axis auto-adjusts; "Reset zoom" restores full view
 - **Frontend build fix (Statistics page)**: removed an unused default `React` import in `StatisticsPage` to restore strict TypeScript compilation (`TS6133`) during production builds

@@ -293,7 +293,8 @@ export default function DashboardPage() {
     if (typeof engine.targetSocOff === 'number' && Number.isFinite(engine.targetSocOff)) {
       setManualTargetSocOff(engine.targetSocOff)
     }
-  }, [engine?.targetSocOn, engine?.targetSocOff, engine])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine?.targetSocOn, engine?.targetSocOff])
 
   useEffect(() => {
     if (!wsConnected) return
