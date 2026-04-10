@@ -76,6 +76,7 @@ const COMMON_PLACEHOLDERS: Record<string, PlaceholderInfo> = {
 }
 
 const EVENT_PLACEHOLDER_CATALOG: Record<string, string[]> = {
+  engine_started: ['event', 'timestamp', 'sessionId', 'targetSoc', 'targetAmps', 'vehicleId'],
   engine_stopped: ['event', 'timestamp', 'sessionId', 'reason'],
   charge_start_blocked: ['event', 'timestamp', 'sessionId', 'reason', 'chargingState', 'pluggedIn', 'vehicleConnected', 'soc'],
   ha_throttled: ['event', 'timestamp', 'homePowerW', 'maxHomePowerW', 'throttledAmps', 'reason'],
@@ -100,6 +101,7 @@ const EVENT_PLACEHOLDER_CATALOG: Record<string, string[]> = {
 }
 
 const EVENT_PAYLOAD_PRESETS: Record<string, Record<string, unknown>> = {
+  engine_started: { sessionId: 123, targetSoc: 80, targetAmps: 16, vehicleId: 'VIN123456' },
   engine_stopped: { sessionId: 123, reason: 'finished' },
   charge_start_blocked: {
     sessionId: 123,
@@ -131,6 +133,10 @@ const EVENT_PAYLOAD_PRESETS: Record<string, Record<string, unknown>> = {
 }
 
 const EVENT_PAYLOAD_SCHEMAS: Record<string, NotificationEventSchema> = {
+  engine_started: {
+    required: ['sessionId', 'targetSoc', 'targetAmps', 'vehicleId'],
+    fields: { sessionId: 'number', targetSoc: 'number', targetAmps: 'number', vehicleId: 'string' },
+  },
   engine_stopped: {
     required: ['sessionId'],
     fields: { sessionId: 'number', reason: 'string' },
