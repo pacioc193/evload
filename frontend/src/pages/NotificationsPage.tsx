@@ -729,7 +729,10 @@ export default function NotificationsPage() {
                 <Trash2 size={14} /> Delete All
               </button>
               <button
-                onClick={generateFromScratch}
+                onClick={() => {
+                  setSettings((prev) => prev ? { ...prev, telegramRules: [] } : prev)
+                  setTestResult('Rule set cleared. Remember to save.')
+                }}
                 className="flex items-center justify-center gap-1.5 px-2 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-xs transition-colors"
                 title="Create an empty rule set"
               >
