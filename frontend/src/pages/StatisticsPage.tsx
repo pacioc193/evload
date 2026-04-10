@@ -128,7 +128,7 @@ export default function StatisticsPage() {
       setZoomRefRight(null)
       return
     }
-    if (x1 > x2) { const tmp = x1; x1 = x2; x2 = tmp }
+    if (x1 > x2) { [x1, x2] = [x2, x1] }
     setZoomXDomain([x1, x2])
     setZoomYDomain(['auto', 'auto'])
     setZoomRefLeft(null)
