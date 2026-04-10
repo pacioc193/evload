@@ -140,7 +140,7 @@ jest.mock('../../../src/config', () => ({
     demo: mockIsDemo,
     charging: { defaultAmps: 16, maxAmps: 32, minAmps: 5, batteryCapacityKwh: 75, stopChargeOnManualStart: mockStopChargeOnManualStart },
     homeAssistant: { url: '', powerEntityId: '', maxHomePowerW: mockMaxHomePowerW },
-    proxy: { vehicleId: 'vid1', url: '', scheduleLeadTimeSec: 1800 },
+    proxy: { vehicleId: 'vid1', url: '' },
   }),
 }), { virtual: true })
 

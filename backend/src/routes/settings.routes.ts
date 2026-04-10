@@ -48,7 +48,6 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     windowPollIntervalMs: cfg.proxy.windowPollIntervalMs,
     bodyPollIntervalMs: cfg.proxy.bodyPollIntervalMs,
     vehicleDataWindowMs: cfg.proxy.vehicleDataWindowMs,
-    scheduleLeadTimeSec: cfg.proxy.scheduleLeadTimeSec,
     rejectUnauthorized: cfg.proxy.rejectUnauthorized,
     batteryCapacityKwh: cfg.charging.batteryCapacityKwh,
     energyPriceEurPerKwh: cfg.charging.energyPriceEurPerKwh,
@@ -83,7 +82,6 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     windowPollIntervalMs: number
     bodyPollIntervalMs: number
     vehicleDataWindowMs: number
-    scheduleLeadTimeSec: number
     rejectUnauthorized: boolean
     batteryCapacityKwh: number
     energyPriceEurPerKwh: number
@@ -168,7 +166,6 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.windowPollIntervalMs !== undefined) proxy['windowPollIntervalMs'] = incoming.windowPollIntervalMs
   if (incoming.bodyPollIntervalMs !== undefined) proxy['bodyPollIntervalMs'] = incoming.bodyPollIntervalMs
   if (incoming.vehicleDataWindowMs !== undefined) proxy['vehicleDataWindowMs'] = incoming.vehicleDataWindowMs
-  if (incoming.scheduleLeadTimeSec !== undefined) proxy['scheduleLeadTimeSec'] = incoming.scheduleLeadTimeSec
   if (incoming.rejectUnauthorized !== undefined) proxy['rejectUnauthorized'] = incoming.rejectUnauthorized
   parsed['proxy'] = proxy
 

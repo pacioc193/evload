@@ -1,13 +1,12 @@
 import { logger } from '../logger'
 import { startEngine, getEngineStatus } from '../engine/charging.engine'
-import { sendProxyCommand, getVehicleState, requestWakeMode } from './proxy.service'
+import { sendProxyCommand, getVehicleState } from './proxy.service'
 import { getConfig } from '../config'
 import { isFailsafeActive } from './failsafe.service'
 import { dispatchTelegramNotificationEvent } from './notification-rules.service'
 import { prisma } from '../prisma'
 
 let schedulerTimer: NodeJS.Timeout | null = null
-let lastLeadWakeKey: string | null = null
 
 async function startEngineWithWake(scheduleId: number, vehicleId: string, targetSoc: number, targetAmps?: number): Promise<void> {
   logger.debug('Scheduler: startEngineWithWake', { scheduleId, vehicleId, targetSoc, targetAmps })
@@ -26,28 +25,6 @@ async function runSchedulerTick(): Promise<void> {
   const now = new Date()
   const cfg = getConfig()
   const chargeSchedulesEnabled = getEngineStatus().mode !== 'off'
-
-  const nextPlanned = await resolveNextPlannedCharge(now)
-  if (chargeSchedulesEnabled && nextPlanned) {
-    const nextStartMs = nextPlanned.computedStartAt.getTime() - now.getTime()
-    const leadWindowMs = Math.max(0, cfg.proxy.scheduleLeadTimeSec) * 1000
-    if (nextStartMs > 0 && nextStartMs <= leadWindowMs) {
-      const wakeKey = `${nextPlanned.id}:${nextPlanned.computedStartAt.getTime()}`
-      if (lastLeadWakeKey !== wakeKey) {
-        logger.info('Upcoming schedule within lead window, requesting wake mode', {
-          scheduleId: nextPlanned.id,
-          nextStartMs,
-          leadWindowMs,
-        })
-        await requestWakeMode(true)
-        lastLeadWakeKey = wakeKey
-      }
-    } else {
-      lastLeadWakeKey = null
-    }
-  } else {
-    lastLeadWakeKey = null
-  }
 
   // ── Start-at scheduled charges ────────────────────────────────────────────
   const pendingStartAt = await prisma.scheduledCharge.findMany({

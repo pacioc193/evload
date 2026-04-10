@@ -83,7 +83,6 @@ const ConfigSchema = z.object({
     // How long (ms) to keep polling vehicle_data after a wake or connect event.
     // After this window, only body_controller_state is polled until the next charge session starts.
     vehicleDataWindowMs: z.number().min(10000).default(300000),
-    scheduleLeadTimeSec: z.number().min(0).default(1800),
     rejectUnauthorized: z.boolean().default(true),
     // If true, stop an autonomous Tesla charge detected after proxy reconnects
     // (e.g. car started charging on its own while the proxy was offline)

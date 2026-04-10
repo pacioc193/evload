@@ -5,6 +5,15 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 ## Aggiornamenti Recenti (2026-04-10) — v1.5.5
 
+- **Rimozione targetSocOff e scheduleLead**:
+	- Eliminato il concetto di `targetSocOff` (target SoC separato per quando il motore è spento): esiste ora un solo `targetSoc` persisted che si applica in tutti i modi (idle, on, plan).
+	- Rimosso `targetSocOn`/`targetSocOff` da `EngineStatus`, `PersistedEngineRestoreState`, store WS frontend, API `/engine/targets`.
+	- L'endpoint `PATCH /api/engine/targets` non richiede più il parametro `mode` ("on"/"off"): accetta direttamente `{ targetSoc, applyToRunningSession }`.
+	- La funzione `getTargetSocPreferences()` restituisce `{ value: number }` invece di `{ on, off }`.
+	- Rimosso `scheduleLeadTimeSec` dal backend (`config.ts`, `settings.routes.ts`) e dal frontend (`SettingsPage.tsx`, `api/index.ts`): il programma non sveglia più il veicolo in anticipo rispetto all'orario pianificato.
+	- Rimossa la sezione "Scheduler" dalla pagina Impostazioni.
+	- Il cursore della Dashboard ora opera su un singolo `manualTargetSoc` (prima `manualTargetSocOn`/`manualTargetSocOff` separati).
+
 - **Dashboard — fix cursore SoC non mostra valore salvato nel backend**:
 	- Il `useEffect` che sincronizzava `manualTargetSocOn`/`manualTargetSocOff` dallo store WS aveva `engine` (oggetto) nel dependency array.
 	- Il backend fa broadcast WS ogni **1 secondo** → il riferimento dell'oggetto `engine` cambia ad ogni messaggio → l'effect si rieseguiva ogni secondo con il vecchio valore del backend, resettando il cursore durante il trascinamento.

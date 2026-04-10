@@ -531,7 +531,7 @@ export default function SettingsPage() {
 
   const numberFields = new Set<keyof AppSettings>([
     'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
-    'chargingPollIntervalMs', 'windowPollIntervalMs', 'bodyPollIntervalMs', 'vehicleDataWindowMs', 'scheduleLeadTimeSec',
+    'chargingPollIntervalMs', 'windowPollIntervalMs', 'bodyPollIntervalMs', 'vehicleDataWindowMs',
   ])
 
   const upd = (key: keyof AppSettings) => (val: string) =>
@@ -1016,17 +1016,6 @@ export default function SettingsPage() {
                   type="number"
                   unit="sec"
                   description="How often vehicle_data is fetched while the vehicle is actively charging or the engine is running. Independent of the body poll timer. Default: 5 s."
-                />
-              </SectionCard>
-
-              <SectionCard title="Scheduler">
-                <Field
-                  label="Schedule Lead Time"
-                  value={settings.scheduleLeadTimeSec}
-                  onChange={upd('scheduleLeadTimeSec')}
-                  type="number"
-                  unit="sec"
-                  description="How many seconds before the scheduled charge time the scheduler wakes the vehicle (default: 1800 s = 30 min)."
                 />
               </SectionCard>
             </div>

@@ -19,7 +19,8 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
-- **Dashboard SoC slider sync fix**: the Target SoC slider was resetting every second during active drag because the WS engine object reference changes on every 1s broadcast; fixed by tracking only the primitive values `targetSocOn`/`targetSocOff` in the effect dependency array
+- **Single targetSoc and scheduleLead removal**: unified to one persisted targetSoc (removed `targetSocOff`/`targetSocOn` distinction); removed `scheduleLeadTimeSec` and pre-wake logic entirely
+- **Dashboard SoC slider sync fix**: the Target SoC slider was resetting every second during active drag because the WS engine object reference changes on every 1s broadcast; fixed by tracking only the primitive `targetSoc` value in the effect dependency array
 - **Garage unlatch always available**: the Unlatch button in Garage mode is no longer gated on `vehicle.pluggedIn`; it can now open the charge-port door even when the car is idle or sleeping in the garage
 - **Statistics popup chart drag-to-zoom**: in the fullscreen chart popup (SoC, Power/Current, Voltage), drag horizontally on the chart to zoom into a time range; Y axis auto-adjusts; "Reset zoom" restores full view
 - **Frontend build fix (Statistics page)**: removed an unused default `React` import in `StatisticsPage` to restore strict TypeScript compilation (`TS6133`) during production builds
@@ -255,8 +256,6 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Engine live log rendered newest-first (latest line on top)
 - Climate control commands and scheduling
 - Charging schedules: `start_at`, `finish_by`, `start_end`, `weekly`
-- Climate schedules: `start_at`, `start_end`, `weekly`
-- Schedule lead wake support through `scheduleLeadTimeSec`
 - Proxy diagnostics in Settings and raw proxy payload inspection in Dashboard
 - Failsafe protection with automatic reset on proxy reconnect, without latching on transient vehicle reachability drops
 - Telegram notifications with dynamic event catalog and configurable rules
@@ -586,7 +585,6 @@ Relevant proxy fields:
 | `proxy.windowPollIntervalMs` | Poll interval (ms) for vehicle_data during the wake window (not charging) |
 | `proxy.bodyPollIntervalMs` | Poll interval (ms) for body_controller_state — always active, independent of window/charging |
 | `proxy.vehicleDataWindowMs` | Duration (ms) of the vehicle_data window after wake/connect (default 300000 = 5 min) |
-| `proxy.scheduleLeadTimeSec` | Scheduler pre-wake lead time |
 | `proxy.rejectUnauthorized` | TLS certificate validation for proxy HTTPS |
 
 ## Settings UI
