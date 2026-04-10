@@ -71,34 +71,37 @@ export interface NotificationPayloadValidationResult {
 
 const COMMON_PLACEHOLDERS: Record<string, PlaceholderInfo> = {
   event: { name: 'event', description: 'Nome dell\'evento emesso' },
-  timestamp: { name: 'timestamp', description: 'Data e ora dell\'evento' },
+  timestamp: { name: 'timestamp', description: 'Data e ora ISO dell\'evento' },
+  timestamp_time: { name: 'timestamp_time', description: 'Ora dell\'evento in formato HH:MM (24h)' },
+  timestamp_date: { name: 'timestamp_date', description: 'Data e ora completa dell\'evento (gg/mm/aaaa HH:MM)' },
   reason: { name: 'reason', description: 'Motivazione tecnica dell\'azione' },
 }
 
 const EVENT_PLACEHOLDER_CATALOG: Record<string, string[]> = {
-  engine_started: ['event', 'timestamp', 'sessionId', 'targetSoc', 'targetAmps', 'vehicleId'],
-  engine_stopped: ['event', 'timestamp', 'sessionId', 'reason'],
-  charge_start_blocked: ['event', 'timestamp', 'sessionId', 'reason', 'chargingState', 'pluggedIn', 'vehicleConnected', 'soc'],
-  ha_throttled: ['event', 'timestamp', 'homePowerW', 'maxHomePowerW', 'throttledAmps', 'reason'],
-  failsafe_activated: ['event', 'timestamp', 'reason'],
-  soc_increased: ['event', 'timestamp', 'soc', 'deltaSoc', 'reason'],
-  start_charging: ['event', 'timestamp', 'reason'],
-  stop_charging: ['event', 'timestamp', 'reason'],
-  plan_start: ['event', 'timestamp', 'planId', 'targetSoc', 'reason'],
-  plan_completed: ['event', 'timestamp', 'planId', 'reason'],
-  plan_skipped: ['event', 'timestamp', 'planId', 'reason'],
-  target_soc_reached: ['event', 'timestamp', 'soc', 'targetSoc', 'reason'],
-  ha_paused: ['event', 'timestamp', 'homePowerW', 'maxHomePowerW', 'retrySec'],
-  charging_paused: ['event', 'timestamp', 'reason'],
-  charging_resumed: ['event', 'timestamp', 'reason'],
-  home_power_limit_exceeded: ['event', 'timestamp', 'homePowerW', 'limitW', 'reason'],
-  home_power_limit_restored: ['event', 'timestamp', 'homePowerW', 'limitW', 'reason'],
-  vehicle_connected: ['event', 'timestamp', 'vehicleId', 'reason'],
-  vehicle_disconnected: ['event', 'timestamp', 'vehicleId', 'reason'],
-  vehicle_in_garage: ['event', 'timestamp', 'vehicleId', 'reason'],
-  vehicle_not_in_garage: ['event', 'timestamp', 'vehicleId', 'reason'],
-  proxy_error: ['event', 'timestamp', 'vehicleId', 'reason'],
-  failsafe_cleared: ['event', 'timestamp', 'reason'],
+  engine_started: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'sessionId', 'targetSoc', 'targetAmps', 'vehicleId'],
+  engine_stopped: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'sessionId', 'reason'],
+  charge_start_blocked: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'sessionId', 'reason', 'chargingState', 'pluggedIn', 'vehicleConnected', 'soc'],
+  ha_throttled: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'homePowerW', 'maxHomePowerW', 'throttledAmps', 'reason'],
+  failsafe_activated: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'reason'],
+  soc_increased: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'soc', 'deltaSoc', 'reason'],
+  start_charging: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'reason'],
+  stop_charging: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'reason'],
+  plan_start: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'planId', 'targetSoc', 'reason'],
+  plan_completed: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'planId', 'reason'],
+  plan_skipped: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'planId', 'reason'],
+  plan_wake: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'planId', 'wakeBeforeMinutes'],
+  target_soc_reached: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'soc', 'targetSoc', 'reason'],
+  ha_paused: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'homePowerW', 'maxHomePowerW', 'retrySec'],
+  charging_paused: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'reason'],
+  charging_resumed: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'reason'],
+  home_power_limit_exceeded: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'homePowerW', 'limitW', 'reason'],
+  home_power_limit_restored: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'homePowerW', 'limitW', 'reason'],
+  vehicle_connected: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'vehicleId', 'reason'],
+  vehicle_disconnected: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'vehicleId', 'reason'],
+  vehicle_in_garage: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'vehicleId', 'reason'],
+  vehicle_not_in_garage: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'vehicleId', 'reason'],
+  proxy_error: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'vehicleId', 'reason'],
+  failsafe_cleared: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'reason'],
 }
 
 const EVENT_PAYLOAD_PRESETS: Record<string, Record<string, unknown>> = {
@@ -120,6 +123,7 @@ const EVENT_PAYLOAD_PRESETS: Record<string, Record<string, unknown>> = {
   plan_start: { planId: 'plan-001', targetSoc: 90, reason: 'scheduled_time' },
   plan_completed: { planId: 'plan-001', reason: 'target_reached' },
   plan_skipped: { planId: 'plan-001', reason: 'low_priority' },
+  plan_wake: { planId: 'plan-001', wakeBeforeMinutes: 5 },
   target_soc_reached: { soc: 80, targetSoc: 80, reason: 'limit_reached' },
   ha_paused: { homePowerW: 5000, maxHomePowerW: 4000, retrySec: 60 },
   charging_paused: { reason: 'ha_power' },
@@ -186,6 +190,10 @@ const EVENT_PAYLOAD_SCHEMAS: Record<string, NotificationEventSchema> = {
     required: ['planId', 'reason'],
     fields: { planId: 'string', reason: 'string' },
   },
+  plan_wake: {
+    required: ['planId', 'wakeBeforeMinutes'],
+    fields: { planId: 'string', wakeBeforeMinutes: 'number' },
+  },
   target_soc_reached: {
     required: ['soc'],
     fields: { soc: 'number', targetSoc: 'number', reason: 'string' },
@@ -239,6 +247,8 @@ const EVENT_PAYLOAD_SCHEMAS: Record<string, NotificationEventSchema> = {
 const PLACEHOLDER_DESCRIPTIONS: Record<string, string> = {
   event: 'Nome dell\'evento',
   timestamp: 'Data e ora ISO',
+  timestamp_time: 'Ora dell\'evento (HH:MM, 24h)',
+  timestamp_date: 'Data e ora completa (gg/mm/aaaa HH:MM)',
   sessionId: 'ID sessione di ricarica',
   chargingState: 'Stato di ricarica riportato dal veicolo',
   pluggedIn: 'Cavo di ricarica inserito',
@@ -254,6 +264,7 @@ const PLACEHOLDER_DESCRIPTIONS: Record<string, string> = {
   soc: 'Livello carica attuale (%)',
   deltaSoc: 'Incremento SoC (%)',
   planId: 'ID del piano programmato',
+  wakeBeforeMinutes: 'Minuti di anticipo sveglia rispetto all\'avvio del piano',
   vehicleId: 'Identificativo del veicolo',
   vehicleInGarage: 'Veicolo in garage?',
 }
@@ -441,13 +452,31 @@ function getRules(): NotificationRule[] {
   return rules.filter((rule) => rule.enabled)
 }
 
+function buildTimestampPayload(now: Date): { timestamp: string; timestamp_time: string; timestamp_date: string } {
+  const tz = getConfig().timezone
+  return {
+    timestamp: now.toISOString(),
+    timestamp_time: now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz }),
+    timestamp_date: now.toLocaleString('it-IT', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: tz,
+    }),
+  }
+}
+
 export async function dispatchTelegramNotificationEvent(
   event: string,
   payload: Record<string, unknown>
 ): Promise<NotificationDispatchResult> {
+  const now = new Date()
   const basePayload: Record<string, unknown> = {
     event,
-    timestamp: new Date().toISOString(),
+    ...buildTimestampPayload(now),
     ...payload,
   }
 
@@ -481,9 +510,10 @@ export async function sendTelegramNotificationTest(
   payload: Record<string, unknown>,
   template: string
 ): Promise<{ rendered: string; delivered: boolean }> {
+  const now = new Date()
   const basePayload = {
     event,
-    timestamp: new Date().toISOString(),
+    ...buildTimestampPayload(now),
     ...payload,
   }
   const rendered = renderNotificationTemplate(template, basePayload)

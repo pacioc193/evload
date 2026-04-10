@@ -42,6 +42,7 @@ const ConfigSchema = z.object({
     maxAmps: z.number().min(1).max(48).default(32),
     minAmps: z.number().min(1).max(48).default(5),
     startAmps: z.number().min(1).max(48).default(8),
+    planWakeBeforeMinutes: z.number().min(0).default(0),
     stopChargeOnManualStart: z.boolean().default(false),
     rampIntervalSec: z.number().min(1).default(10),
     chargeStartRetryMs: z.number().min(500).default(10000),

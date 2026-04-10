@@ -256,6 +256,8 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Engine live log rendered newest-first (latest line on top)
 - Climate control commands and scheduling
 - Charging schedules: `start_at`, `finish_by`, `start_end`, `weekly`
+- **Plan pre-wake**: configurable `charging.planWakeBeforeMinutes` sends a `wake_up` command to the vehicle X minutes before a planned charge session starts; exposed in Settings → Charging → Plan Mode; emits a `plan_wake` Telegram notification event
+- Notification templates with emojis: all example templates updated with meaningful Italian messages and emoji; new `{{timestamp_time}}` (HH:MM 24h) and `{{timestamp_date}}` (full date/time) placeholders available alongside `{{timestamp}}`
 - Proxy diagnostics in Settings and raw proxy payload inspection in Dashboard
 - Failsafe protection with automatic reset on proxy reconnect, without latching on transient vehicle reachability drops
 - Telegram notifications with dynamic event catalog and configurable rules

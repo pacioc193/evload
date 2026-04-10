@@ -530,7 +530,7 @@ export default function SettingsPage() {
   }
 
   const numberFields = new Set<keyof AppSettings>([
-    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
+    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'planWakeBeforeMinutes', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
     'chargingPollIntervalMs', 'windowPollIntervalMs', 'bodyPollIntervalMs', 'vehicleDataWindowMs',
   ])
 
@@ -1131,6 +1131,19 @@ export default function SettingsPage() {
                   {settings.stopChargeOnManualStart ? <ToggleRight size={32} /> : <ToggleLeft size={32} className="text-evload-muted" />}
                 </button>
               </div>
+
+              <SectionCard title="Plan Mode">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <Field
+                    label="Pre-wake (min)"
+                    value={settings.planWakeBeforeMinutes}
+                    onChange={upd('planWakeBeforeMinutes')}
+                    type="number"
+                    unit="min"
+                    description="Minutes before a planned charge to send a wake-up command to the vehicle. Set to 0 to disable."
+                  />
+                </div>
+              </SectionCard>
             </div>
           </CollapsiblePanel>
 

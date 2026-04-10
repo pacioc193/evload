@@ -53,6 +53,7 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     energyPriceEurPerKwh: cfg.charging.energyPriceEurPerKwh,
     defaultAmps: cfg.charging.defaultAmps,
     startAmps: cfg.charging.startAmps,
+    planWakeBeforeMinutes: cfg.charging.planWakeBeforeMinutes,
     maxAmps: cfg.charging.maxAmps,
     minAmps: cfg.charging.minAmps,
     stopChargeOnManualStart: cfg.charging.stopChargeOnManualStart,
@@ -87,6 +88,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     energyPriceEurPerKwh: number
     defaultAmps: number
     startAmps: number
+    planWakeBeforeMinutes: number
     maxAmps: number
     minAmps: number
     stopChargeOnManualStart: boolean
@@ -174,6 +176,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.energyPriceEurPerKwh !== undefined) charging['energyPriceEurPerKwh'] = incoming.energyPriceEurPerKwh
   if (incoming.defaultAmps !== undefined) charging['defaultAmps'] = incoming.defaultAmps
   if (incoming.startAmps !== undefined) charging['startAmps'] = incoming.startAmps
+  if (incoming.planWakeBeforeMinutes !== undefined) charging['planWakeBeforeMinutes'] = incoming.planWakeBeforeMinutes
   if (incoming.maxAmps !== undefined) charging['maxAmps'] = incoming.maxAmps
   if (incoming.minAmps !== undefined) charging['minAmps'] = incoming.minAmps
   if (incoming.stopChargeOnManualStart !== undefined) charging['stopChargeOnManualStart'] = incoming.stopChargeOnManualStart

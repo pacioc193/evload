@@ -168,6 +168,7 @@ export interface AppSettings {
   energyPriceEurPerKwh: number
   defaultAmps: number
   startAmps: number
+  planWakeBeforeMinutes: number
   maxAmps: number
   minAmps: number
   stopChargeOnManualStart: boolean

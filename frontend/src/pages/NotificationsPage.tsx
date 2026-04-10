@@ -141,10 +141,30 @@ interface TestPayloadPreset {
 }
 
 const EVENT_EXAMPLE_TEMPLATES: Record<string, string> = {
-  engine_started: 'Charging session {{sessionId}} started. Target: {{targetSoc}}%. Ref: {{reason}}',
-  home_power_limit_exceeded: 'Power limit exceeded: {{homePowerW}}W (Max: {{limitW}}W). Charging throttled.',
-  soc_increased: 'EV Charge: {{soc}}% (+{{deltaSoc}}%)',
-  charge_start_blocked: '⚠️ Charge start blocked: {{reason}}. State={{chargingState}}, pluggedIn={{pluggedIn}}, connected={{vehicleConnected}}, SoC={{soc}}%',
+  engine_started: '🔌 Ricarica avviata alle {{timestamp_time}} — Obiettivo: {{targetSoc}}% — {{targetAmps}}A — {{vehicleId}}',
+  engine_stopped: '🏁 Sessione ricarica terminata alle {{timestamp_time}} — ID: {{sessionId}} — {{reason}}',
+  charge_start_blocked: '⚠️ Avvio ricarica bloccato alle {{timestamp_time}}: {{reason}} (Cavo: {{pluggedIn}}, SoC: {{soc}}%)',
+  ha_throttled: '⚡ Potenza ridotta alle {{timestamp_time}} — Casa: {{homePowerW}}W / Max: {{maxHomePowerW}}W — Corrente: {{throttledAmps}}A',
+  failsafe_activated: '🚨 Failsafe attivato alle {{timestamp_time}} — {{reason}}',
+  failsafe_cleared: '✅ Failsafe disattivato alle {{timestamp_time}} — {{reason}}',
+  soc_increased: '🔋 Carica: {{soc}}% (+{{deltaSoc}}%)',
+  start_charging: '⚡ Ricarica avviata alle {{timestamp_time}} — {{reason}}',
+  stop_charging: '🛑 Ricarica fermata alle {{timestamp_time}} — {{reason}}',
+  plan_start: '🗓️ Piano avviato alle {{timestamp_time}} — Piano: {{planId}} — Obiettivo: {{targetSoc}}%',
+  plan_completed: '✅ Piano completato alle {{timestamp_time}} — Piano: {{planId}}',
+  plan_skipped: '⏭️ Piano saltato alle {{timestamp_time}} — Piano: {{planId}} — {{reason}}',
+  plan_wake: '⏰ Sveglia pre-ricarica alle {{timestamp_time}} — Piano: {{planId}} — Avvio tra {{wakeBeforeMinutes}} min',
+  target_soc_reached: '🏆 SoC obiettivo raggiunto alle {{timestamp_time}} — {{soc}}% / {{targetSoc}}%',
+  ha_paused: '⏸️ Ricarica in pausa alle {{timestamp_time}} — Casa: {{homePowerW}}W / Max: {{maxHomePowerW}}W — Riprova tra {{retrySec}}s',
+  charging_paused: '⏸️ Ricarica in pausa alle {{timestamp_time}} — {{reason}}',
+  charging_resumed: '▶️ Ricarica ripresa alle {{timestamp_time}} — {{reason}}',
+  home_power_limit_exceeded: '🔴 Potenza casa superata alle {{timestamp_time}} — {{homePowerW}}W / Limite: {{limitW}}W',
+  home_power_limit_restored: '🟢 Potenza casa rientrata alle {{timestamp_time}} — {{homePowerW}}W / Limite: {{limitW}}W',
+  vehicle_connected: '🚗 Veicolo connesso alle {{timestamp_time}} — {{vehicleId}}',
+  vehicle_disconnected: '🔌 Veicolo disconnesso alle {{timestamp_time}} — {{vehicleId}}',
+  vehicle_in_garage: '🏠 Veicolo in garage alle {{timestamp_time}} — {{vehicleId}}',
+  vehicle_not_in_garage: '🚙 Veicolo non in garage alle {{timestamp_time}} — {{vehicleId}}',
+  proxy_error: '❌ Errore proxy alle {{timestamp_time}} — Veicolo: {{vehicleId}} — {{reason}}',
 }
 
 function CollapsibleHeader({
@@ -318,24 +338,24 @@ export default function NotificationsPage() {
     const examples: TelegramNotificationRule[] = [
       {
         id: `example-1`,
-        name: 'Engine Started Alert',
+        name: 'Ricarica avviata',
         enabled: true,
         event: 'engine_started',
-        template: 'Charging session {{sessionId}} started. Target: {{targetSoc}}%. Ref: {{reason}}',
+        template: '🔌 Ricarica avviata alle {{timestamp_time}} — Obiettivo: {{targetSoc}}% — {{targetAmps}}A — {{vehicleId}}',
       },
       {
         id: `example-2`,
-        name: 'Home Power Limit Warning',
+        name: 'Potenza casa superata',
         enabled: true,
         event: 'home_power_limit_exceeded',
-        template: '⚠️ Power limit exceeded: {{homePowerW}}W (Max: {{limitW}}W). Charging throttled.',
+        template: '🔴 Potenza casa superata alle {{timestamp_time}} — {{homePowerW}}W / Limite: {{limitW}}W',
       },
       {
         id: `example-3`,
-        name: 'SoC Step (Every 10%)',
+        name: 'Avanzamento ricarica (ogni 10%)',
         enabled: true,
         event: 'soc_increased',
-        template: 'EV Charge: {{soc}}% (+{{deltaSoc}}%)',
+        template: '🔋 Carica: {{soc}}% (+{{deltaSoc}}%)',
         condition: {
           field: 'soc',
           operator: 'mod_step',
@@ -344,26 +364,35 @@ export default function NotificationsPage() {
       },
       {
         id: `example-4`,
-        name: 'Major SoC Increase (Delta)',
+        name: 'SoC obiettivo raggiunto',
         enabled: true,
-        event: 'soc_increased',
-        template: '🚀 Significant charge boost! Now at {{soc}}% (+{{deltaSoc}}% in one step)',
-        condition: {
-          field: 'soc',
-          operator: 'increased_by',
-          value: 2,
-        },
+        event: 'target_soc_reached',
+        template: '🏆 SoC obiettivo raggiunto alle {{timestamp_time}} — {{soc}}% / {{targetSoc}}%',
       },
       {
         id: `example-5`,
-        name: 'Charge Start Blocked',
+        name: 'Avvio ricarica bloccato',
         enabled: true,
         event: 'charge_start_blocked',
-        template: '⚠️ Charge start blocked: {{reason}}. State={{chargingState}}, pluggedIn={{pluggedIn}}, connected={{vehicleConnected}}, SoC={{soc}}%',
-      }
+        template: '⚠️ Avvio ricarica bloccato alle {{timestamp_time}}: {{reason}} (Cavo: {{pluggedIn}}, SoC: {{soc}}%)',
+      },
+      {
+        id: `example-6`,
+        name: 'Piano avviato',
+        enabled: true,
+        event: 'plan_start',
+        template: '🗓️ Piano avviato alle {{timestamp_time}} — Piano: {{planId}} — Obiettivo: {{targetSoc}}%',
+      },
+      {
+        id: `example-7`,
+        name: 'Sveglia pre-piano',
+        enabled: true,
+        event: 'plan_wake',
+        template: '⏰ Sveglia pre-ricarica alle {{timestamp_time}} — Piano: {{planId}} — Avvio tra {{wakeBeforeMinutes}} min',
+      },
     ]
     setSettings((prev) => prev ? { ...prev, telegramRules: examples } : prev)
-    setTestResult('Loaded 5 example rules (Advanced conditions included)')
+    setTestResult('Loaded 7 example rules (Advanced conditions included)')
   }
 
   const generateFromScratch = () => {

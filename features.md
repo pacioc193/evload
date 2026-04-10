@@ -1218,3 +1218,16 @@ Accettazione:
 - C5: Quando lo zoom non è attivo: testo guida "Drag to zoom" visibile (solo per grafici time-series).
 - C6: `openZoomedChart` resetta lo zoom prima di aprire ogni grafico; chiusura modale (overlay, ✕, Escape) resetta lo zoom.
 - C7: Nessuna dipendenza esterna aggiunta — usa solo `ReferenceArea` già incluso in recharts.
+
+## F-66 Piano Pre-Wake + Miglioramento Template Notifiche
+
+Requisito: "Aggiungere parametro per svegliare l'auto X minuti prima in modalità Plan. Modificare template con emoticon e messaggi significativi. Due varianti timestamp: data completa e solo orario HH:MM (H24). Default template con solo orario. Revisione messaggi (es. engine_started aveva ref vuoto)."
+Accettazione:
+- C1: `config.ts`: aggiunto `planWakeBeforeMinutes: z.number().min(0).default(0)` in `charging`.
+- C2: `settings.routes.ts`: `planWakeBeforeMinutes` esposto in GET e PATCH `/api/settings`.
+- C3: `scheduler.service.ts`: in `runSchedulerTick`, se `planWakeBeforeMinutes > 0`, invia `requestWakeMode(true)` e evento `plan_wake` quando una carica pianificata è entro `planWakeBeforeMinutes` minuti; set `preWakeArmedIds` evita wake multipli per lo stesso ID; per schedule settimanali, l'ID viene rimosso dal set alla fine di ogni esecuzione.
+- C4: `notification-rules.service.ts`: nuovi placeholder `{{timestamp_time}}` (HH:MM 24h) e `{{timestamp_date}}` (gg/mm/aaaa HH:MM) aggiunti automaticamente al payload base; nuovo evento `plan_wake` con campi `planId`, `wakeBeforeMinutes`; catalogo placeholder aggiornato per tutti gli eventi.
+- C5: `notification-rules.service.ts`: Fix `engine_started` — rimosso `{{reason}}` dal catalogo (non è in payload); `vehicleId` sempre correttamente incluso.
+- C6: `NotificationsPage.tsx`: tutti i template di esempio aggiornati con emoji e messaggi in italiano significativi; `loadExampleRules()` ora carica 7 regole; default template usa `{{timestamp_time}}`.
+- C7: `SettingsPage.tsx`: nuovo campo "Pre-wake (min)" nel pannello Charging → Plan Mode.
+- C8: `api/index.ts`: `planWakeBeforeMinutes: number` aggiunto a `AppSettings`.

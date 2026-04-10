@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.5.6'
+export const VERSION = '1.5.7'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.5.7',
+    releasedAt: '2026-04-10',
+    summary: 'Plan pre-wake: new planWakeBeforeMinutes config parameter wakes the vehicle X minutes before a scheduled charge in Plan mode (exposed in Settings → Charging → Plan Mode). New {{timestamp_time}} (HH:MM) and {{timestamp_date}} (full date) placeholders for notification templates; default templates updated to use {{timestamp_time}}. New plan_wake notification event. Fixed engine_started template (removed stale {{reason}} placeholder). All example notification templates updated with emojis and meaningful Italian messages.',
+  },
   {
     version: '1.5.6',
     releasedAt: '2026-04-10',

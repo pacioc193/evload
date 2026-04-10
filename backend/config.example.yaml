@@ -35,6 +35,10 @@ charging:
   
   # Initial charging current when a session starts (ramp begins from here, then climbs to defaultAmps)
   startAmps: 8
+
+  # Minutes before a planned (scheduled) charge start to send a wake-up command to the vehicle.
+  # Set to 0 to disable pre-wake (default). The scheduler will send one wake_up per charge session.
+  planWakeBeforeMinutes: 0
   
   # Battery capacity in kWh (used for charge time estimation)
   batteryCapacityKwh: 75
