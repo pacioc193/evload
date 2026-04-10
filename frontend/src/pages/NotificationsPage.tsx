@@ -547,6 +547,11 @@ export default function NotificationsPage() {
           setTestResult(`Schema validation failed:\n- ${details.join('\n- ')}`)
           return
         }
+        // Fallback: show the raw backend error message if present
+        if (data?.error) {
+          setTestResult(`Test failed: ${data.error}`)
+          return
+        }
       }
       setTestResult('Test failed: invalid payload JSON or backend error')
     }
@@ -609,6 +614,10 @@ export default function NotificationsPage() {
             ...(data.schema?.unknownFields || []).map((f) => `Unknown field: ${f}`),
           ]
           setTestResult(`Schema validation failed:\n- ${details.join('\n- ')}`)
+          return
+        }
+        if (data?.error) {
+          setTestResult(`Trigger failed: ${data.error}`)
           return
         }
       }

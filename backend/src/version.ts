@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.5.8'
+export const VERSION = '1.5.9'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.5.9',
+    releasedAt: '2026-04-10',
+    summary: 'Fix notification test regression: settings.routes.test.ts now mocks ../../auth and ../../prisma so jest.resetModules() does not break the Prisma client import chain. Added 6 new regression tests for the /telegram/test endpoint (400 on bad event/payload/prereq, 200 on success, 500 on throw). Added 6 new unit tests in notification-rules.service.test.ts: every event has a preset, every event has a schema, every preset passes validateNotificationPayload (the key guard against "Test failed: invalid payload JSON or backend error"), template rendering, sendTelegramNotificationTest renders and injects timestamps. Fixed frontend catch block in NotificationsPage to show the actual backend error message for unhandled Axios errors instead of the generic fallback.',
+  },
   {
     version: '1.5.8',
     releasedAt: '2026-04-10',

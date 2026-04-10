@@ -9,6 +9,15 @@ jest.mock('../../middleware/auth.middleware', () => ({
   requireAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
 }))
 
+jest.mock('../../auth', () => ({
+  setPassword: jest.fn(),
+  verifyPassword: jest.fn(),
+}))
+
+jest.mock('../../prisma', () => ({
+  prisma: {},
+}))
+
 jest.mock('../../config', () => ({
   getConfig: jest.fn(() => ({
     demo: false,
@@ -229,5 +238,155 @@ describe('settings routes persistence', () => {
 
     const saved = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, any>
     expect(saved.proxy.vehicleName).toBe('My EV')
+  })
+})
+
+// ─── /telegram/test endpoint tests ──────────────────────────────────────────
+// Regression suite: these tests verify the exact HTTP responses that the UI
+// interprets. If the response shape changes, the frontend catch-block may
+// fall to the generic "Test failed: invalid payload JSON or backend error".
+
+describe('/telegram/test endpoint', () => {
+  let app: express.Express
+  const originalCwd = process.cwd()
+  let tmpDir = ''
+
+  // Mock references are resolved inside beforeAll (after the final resetModules
+  // from the persistence tests above) so they point to the same instances that
+  // the freshly imported route handler uses.
+  let mockValidate: jest.Mock
+  let mockEventOptions: jest.Mock
+  let mockSendTest: jest.Mock
+  let mockExtract: jest.Mock
+  let mockPrereq: jest.Mock
+
+  beforeAll(async () => {
+    jest.resetModules()
+    const module = await import('../settings.routes')
+    app = express()
+    app.use(express.json())
+    app.use('/', module.default)
+
+    // Resolve AFTER reset so refs match what the route handler uses
+    const notifMocks = jest.requireMock('../../services/notification-rules.service') as {
+      validateNotificationPayload: jest.Mock
+      getNotificationEventOptions: jest.Mock
+      sendTelegramNotificationTest: jest.Mock
+      extractMissingTemplatePlaceholders: jest.Mock
+    }
+    const telMocks = jest.requireMock('../../services/telegram.service') as {
+      getTelegramPrerequisiteStatus: jest.Mock
+    }
+    mockValidate = notifMocks.validateNotificationPayload
+    mockEventOptions = notifMocks.getNotificationEventOptions
+    mockSendTest = notifMocks.sendTelegramNotificationTest
+    mockExtract = notifMocks.extractMissingTemplatePlaceholders
+    mockPrereq = telMocks.getTelegramPrerequisiteStatus
+  })
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evload-test-notify-'))
+    const configPath = path.join(tmpDir, 'config.yaml')
+    fs.writeFileSync(
+      configPath,
+      yaml.dump({ demo: false, telegram: { enabled: true, allowedChatIds: ['123'], notifications: { rules: [] } } }),
+      'utf8'
+    )
+    process.env.CONFIG_PATH = configPath
+    process.chdir(tmpDir)
+    delete process.env.TELEGRAM_BOT_TOKEN
+
+    jest.clearAllMocks()
+    mockEventOptions.mockReturnValue(['engine_started', 'engine_stopped'])
+    mockValidate.mockReturnValue({ valid: true, missingRequired: [], invalidTypes: [], unknownFields: [] })
+    mockExtract.mockReturnValue([])
+    mockSendTest.mockResolvedValue({ rendered: 'ok', delivered: true })
+    mockPrereq.mockReturnValue({ ok: true, missing: [] })
+  })
+
+  afterEach(() => {
+    process.chdir(originalCwd)
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  test('returns 400 with "event and template are required" when event is missing', async () => {
+    const res = await request(app).post('/telegram/test').send({ template: 'hello' })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('event and template are required')
+  })
+
+  test('returns 400 with "event and template are required" when template is missing', async () => {
+    const res = await request(app).post('/telegram/test').send({ event: 'engine_started' })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('event and template are required')
+  })
+
+  test('returns 400 with "unknown event" for unrecognised event names', async () => {
+    const res = await request(app).post('/telegram/test').send({ event: 'not_an_event', template: 'hi' })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('unknown event')
+  })
+
+  test('returns 400 with "payload does not match selected event schema" on invalid payload', async () => {
+    mockValidate.mockReturnValue({
+      valid: false,
+      missingRequired: ['sessionId'],
+      invalidTypes: [],
+      unknownFields: [],
+    })
+    const res = await request(app)
+      .post('/telegram/test')
+      .send({ event: 'engine_started', template: 'hi', payload: {} })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('payload does not match selected event schema')
+    expect(res.body.schema.missingRequired).toContain('sessionId')
+  })
+
+  test('returns 400 with "telegram prerequisites not satisfied" when prereq fails', async () => {
+    mockPrereq.mockReturnValue({ ok: false, missing: ['bot_token_missing'] })
+    const res = await request(app)
+      .post('/telegram/test')
+      .send({ event: 'engine_started', template: 'hi', payload: { sessionId: 1 } })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('telegram prerequisites not satisfied')
+    expect(res.body.prerequisites.missing).toContain('bot_token_missing')
+  })
+
+  test('returns 200 with rendered message and delivered=true on success', async () => {
+    mockSendTest.mockResolvedValue({ rendered: 'rendered text', delivered: true })
+    const res = await request(app)
+      .post('/telegram/test')
+      .send({ event: 'engine_started', template: 'hi {{sessionId}}', payload: { sessionId: 1 } })
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.rendered).toBe('rendered text')
+    expect(res.body.delivered).toBe(true)
+  })
+
+  test('returns 200 with delivered=false when Telegram bot is unreachable', async () => {
+    mockSendTest.mockResolvedValue({ rendered: 'rendered text', delivered: false })
+    const res = await request(app)
+      .post('/telegram/test')
+      .send({ event: 'engine_started', template: 'hi', payload: { sessionId: 1 } })
+    expect(res.status).toBe(200)
+    expect(res.body.delivered).toBe(false)
+  })
+
+  test('returns 500 when sendTelegramNotificationTest throws', async () => {
+    mockSendTest.mockRejectedValue(new Error('network failure'))
+    const res = await request(app)
+      .post('/telegram/test')
+      .send({ event: 'engine_started', template: 'hi', payload: { sessionId: 1 } })
+    expect(res.status).toBe(500)
+    expect(res.body.error).toBe('Failed to send Telegram test notification')
+  })
+
+  test('includes missingPlaceholders array in successful response', async () => {
+    mockExtract.mockReturnValue(['targetSoc'])
+    const res = await request(app)
+      .post('/telegram/test')
+      .send({ event: 'engine_started', template: 'hi {{targetSoc}}', payload: { sessionId: 1 } })
+    expect(res.status).toBe(200)
+    expect(res.body.missingPlaceholders).toEqual(['targetSoc'])
   })
 })
