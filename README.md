@@ -257,6 +257,7 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Climate control commands and scheduling
 - Charging schedules: `start_at`, `finish_by`, `start_end`, `weekly`
 - **Plan pre-wake**: configurable `charging.planWakeBeforeMinutes` sends a `wake_up` command to the vehicle X minutes before a planned charge session starts; exposed in Settings → Charging → Plan Mode; emits a `plan_wake` Telegram notification event
+- **Robust charge start grace window**: configurable `charging.chargeStartGraceSec` (default 120s) — during this window after engine start, temporary vehicle block states (not connected to proxy, BLE wake delay, `chargingState=Disconnected`) are tolerated and `charge_start` retries continue; only after the grace window expires without charging does the engine declare `chargeStartBlocked` and send the Telegram notification
 - Notification templates with emojis: all example templates updated with meaningful Italian messages and emoji; new `{{timestamp_time}}` (HH:MM 24h) and `{{timestamp_date}}` (full date/time) placeholders available alongside `{{timestamp}}`
 - Proxy diagnostics in Settings and raw proxy payload inspection in Dashboard
 - Failsafe protection with automatic reset on proxy reconnect, without latching on transient vehicle reachability drops

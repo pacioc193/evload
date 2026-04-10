@@ -48,7 +48,13 @@ charging:
   
   # Retry timeout in milliseconds for charge start command
   chargeStartRetryMs: 10000
-  
+
+  # Grace window in seconds after engine start during which temporary vehicle block states
+  # (not connected to proxy, BLE wake delay, chargingState=Disconnected) are tolerated.
+  # charge_start retries continue normally within the window. After expiry, the engine
+  # declares chargeStartBlocked. Set to 0 to disable grace window.
+  chargeStartGraceSec: 120
+
   # Energy price in EUR per kWh (used for cost estimation)
   energyPriceEurPerKwh: 0.30
   

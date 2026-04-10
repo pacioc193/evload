@@ -1231,3 +1231,16 @@ Accettazione:
 - C6: `NotificationsPage.tsx`: tutti i template di esempio aggiornati con emoji e messaggi in italiano significativi; `loadExampleRules()` ora carica 7 regole; default template usa `{{timestamp_time}}`.
 - C7: `SettingsPage.tsx`: nuovo campo "Pre-wake (min)" nel pannello Charging → Plan Mode.
 - C8: `api/index.ts`: `planWakeBeforeMinutes: number` aggiunto a `AppSettings`.
+
+## F-67 Robust Charge Start Grace Window
+
+Requisito: "Assicurati che quando un piano parte non venga interrotto se l'auto non risponde subito mettendosi in charging. Crea un sistema robusto prima di dichiarare errore e stoppare il piano di ricarica."
+Accettazione:
+- C1: `config.ts`: aggiunto `chargeStartGraceSec: z.number().min(0).default(120)` in `charging`.
+- C2: `charging.engine.ts`: aggiunto `engineStartedAtMs: number` (reset a 0 in `stopEngine`, impostato a `Date.now()` in `startEngine`).
+- C3: `runEngineStep` — blocco `!vState.connected` al top: se entro la grace window, invece di impostare `chargeStartBlocked=true`, imposta fase `charge_start_grace_not_connected` e ritorna senza bloccare i retry; solo dopo scaduta la grace window si dichiara blocked e si invia la notifica Telegram.
+- C4: `runEngineStep` — ramo `resolveChargeStartBlockReason` nel case `continue_charging`: stessa logica grace window; durante il periodo si logga `⏳ [CHARGE_START_GRACE]` e si ritorna senza impostare blocked; alla scadenza si dichiara blocked normalmente.
+- C5: Il messaggio di stato durante la grace window mostra i secondi trascorsi e quelli rimanenti.
+- C6: `chargeStartGraceSec` esposto in GET/PATCH `/api/settings`.
+- C7: `AppSettings` (frontend) e `SettingsPage` aggiornati con campo "Charge Start Grace" (secondi) nel pannello Charging → Current Limits.
+- C8: `config.example.yaml`, `features.md`, `README.md` aggiornati.

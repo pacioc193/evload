@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.5.7'
+export const VERSION = '1.5.8'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.5.8',
+    releasedAt: '2026-04-10',
+    summary: 'Robust charge start: new chargeStartGraceSec parameter (default 120s). During the grace window after engine start, temporary vehicle block states (not connected, BLE wake delay, chargingState=Disconnected) are tolerated and charge_start retries continue. Only after the grace window expires with no charging does the engine declare chargeStartBlocked and send the Telegram notification. Exposed in Settings → Charging → Current Limits.',
+  },
   {
     version: '1.5.7',
     releasedAt: '2026-04-10',

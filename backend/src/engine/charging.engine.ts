@@ -73,6 +73,7 @@ let vehicleBatteryEnergyBaselineKwh: number | null = null
 let chargeStartBlockedNotified = false
 let pendingForceStopVehicleId: string | null = null
 let pendingForceStopRetries = 0
+let engineStartedAtMs = 0
 let pendingForceStopTimer: NodeJS.Timeout | null = null
 
 const FORCE_STOP_RETRY_MS = 15000
@@ -492,6 +493,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number, fromPl
   lastRampUpMs = Date.now()
   lastSetpointSentMs = 0
   lastSetpointResyncAttemptMs = 0
+  engineStartedAtMs = Date.now()
 
   const session = await prisma.chargingSession.create({
     data: {
@@ -625,6 +627,7 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
   lastRampUpMs = 0
   lastSetpointSentMs = 0
   lastSetpointResyncAttemptMs = 0
+  engineStartedAtMs = 0
   sessionEnergyPriceEurPerKwh = 0
   lastEnergySampleAtMs = null
   lastEngineHealthSnapshotAtMs = 0
@@ -746,6 +749,20 @@ async function runEngineStep(): Promise<void> {
 
     const vState = getVehicleState()
     if (!vState.connected) {
+      const cfg = getConfig()
+      const graceMs = cfg.charging.chargeStartGraceSec * 1000
+      const inGrace = engineStartedAtMs > 0 && (Date.now() - engineStartedAtMs) < graceMs
+      if (inGrace) {
+        const elapsedSec = Math.floor((Date.now() - engineStartedAtMs) / 1000)
+        const remainingSec = Math.ceil((graceMs - (Date.now() - engineStartedAtMs)) / 1000)
+        setEnginePhase('paused', 'charge_start_grace_not_connected')
+        status.message = `Vehicle not connected — waiting for wake-up (grace ${elapsedSec}s elapsed, ${remainingSec}s remaining)`
+        if (!chargeStartBlockedNotified) {
+          pushEngineLog(`vehicle not connected — grace window active (${elapsedSec}/${cfg.charging.chargeStartGraceSec}s)`)
+        }
+        engineEvents.emit('tick', status)
+        return
+      }
       const blockReason = resolveChargeStartBlockReason(vState) ?? 'Vehicle not connected to proxy'
       const changed = !status.chargeStartBlocked || status.chargeStartBlockReason !== blockReason
       status.chargeStartBlocked = true
@@ -1005,6 +1022,26 @@ async function runEngineStep(): Promise<void> {
         } else {
           const blockReason = resolveChargeStartBlockReason(vState)
           if (blockReason) {
+            const graceMs = cfg.charging.chargeStartGraceSec * 1000
+            const inGrace = engineStartedAtMs > 0 && (Date.now() - engineStartedAtMs) < graceMs
+            if (inGrace) {
+              const elapsedSec = Math.floor((Date.now() - engineStartedAtMs) / 1000)
+              const remainingSec = Math.ceil((graceMs - (Date.now() - engineStartedAtMs)) / 1000)
+              setEnginePhase('paused', 'charge_start_grace_waiting')
+              status.message = `Waiting for vehicle to start charging — grace window (${elapsedSec}s elapsed, ${remainingSec}s remaining): ${blockReason}`
+              pushEngineLog(`charge_start grace: ${blockReason} (${elapsedSec}/${cfg.charging.chargeStartGraceSec}s)`)
+              logger.info('⏳ [CHARGE_START_GRACE] Block reason present but within grace window — continuing retries', {
+                sessionId: status.sessionId,
+                blockReason,
+                elapsedSec,
+                graceSec: cfg.charging.chargeStartGraceSec,
+                chargingState: vState.chargingState,
+                pluggedIn: vState.pluggedIn,
+                vehicleConnected: vState.connected,
+              })
+              engineEvents.emit('tick', status)
+              return
+            }
             const changed = !status.chargeStartBlocked || status.chargeStartBlockReason !== blockReason
             status.chargeStartBlocked = true
             status.chargeStartBlockReason = blockReason

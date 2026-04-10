@@ -530,7 +530,7 @@ export default function SettingsPage() {
   }
 
   const numberFields = new Set<keyof AppSettings>([
-    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'planWakeBeforeMinutes', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs',
+    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'planWakeBeforeMinutes', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs', 'chargeStartGraceSec',
     'chargingPollIntervalMs', 'windowPollIntervalMs', 'bodyPollIntervalMs', 'vehicleDataWindowMs',
   ])
 
@@ -1085,6 +1085,14 @@ export default function SettingsPage() {
                     type="number"
                     unit="ms"
                     description="How long to wait before retrying charge_start when the vehicle is connected but not charging."
+                  />
+                  <Field
+                    label="Charge Start Grace"
+                    value={settings.chargeStartGraceSec}
+                    onChange={upd('chargeStartGraceSec')}
+                    type="number"
+                    unit="s"
+                    description="Seconds after engine start during which temporary vehicle block states (waking up, BLE delay) are tolerated and retries continue. Set to 0 to disable."
                   />
                 </div>
               </SectionCard>

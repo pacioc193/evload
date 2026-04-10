@@ -46,6 +46,7 @@ const ConfigSchema = z.object({
     stopChargeOnManualStart: z.boolean().default(false),
     rampIntervalSec: z.number().min(1).default(10),
     chargeStartRetryMs: z.number().min(500).default(10000),
+    chargeStartGraceSec: z.number().min(0).default(120),
     batteryCapacityKwh: z.number().min(1).default(75),
     energyPriceEurPerKwh: z.number().min(0).default(0.3),
   }).default({}),

@@ -59,6 +59,7 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     stopChargeOnManualStart: cfg.charging.stopChargeOnManualStart,
     rampIntervalSec: cfg.charging.rampIntervalSec,
     chargeStartRetryMs: cfg.charging.chargeStartRetryMs,
+    chargeStartGraceSec: cfg.charging.chargeStartGraceSec,
     telegramEnabled: cfg.telegram.enabled,
     telegramBotToken: currentToken ? '********' : '',
     telegramAllowedChatIds: cfg.telegram.allowedChatIds,
@@ -94,6 +95,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     stopChargeOnManualStart: boolean
     rampIntervalSec: number
     chargeStartRetryMs: number
+    chargeStartGraceSec: number
     telegramEnabled: boolean
     telegramBotToken: string
     telegramAllowedChatIds: string[]
@@ -182,6 +184,7 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.stopChargeOnManualStart !== undefined) charging['stopChargeOnManualStart'] = incoming.stopChargeOnManualStart
   if (incoming.rampIntervalSec !== undefined) charging['rampIntervalSec'] = incoming.rampIntervalSec
   if (incoming.chargeStartRetryMs !== undefined) charging['chargeStartRetryMs'] = incoming.chargeStartRetryMs
+  if (incoming.chargeStartGraceSec !== undefined) charging['chargeStartGraceSec'] = incoming.chargeStartGraceSec
 
   const nextDefaultAmps = Number(charging['defaultAmps'] ?? activeCfg.charging.defaultAmps)
   const nextMaxAmps = Number(charging['maxAmps'] ?? activeCfg.charging.maxAmps)

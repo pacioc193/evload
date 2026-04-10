@@ -174,6 +174,7 @@ export interface AppSettings {
   stopChargeOnManualStart: boolean
   rampIntervalSec: number
   chargeStartRetryMs: number
+  chargeStartGraceSec: number
   telegramEnabled: boolean
   telegramBotToken?: string
   telegramAllowedChatIds: string[]
