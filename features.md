@@ -5,6 +5,12 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 ## Aggiornamenti Recenti (2026-04-10) — v1.5.5
 
+- **Garage — Unlatch sempre disponibile**:
+	- Il pulsante Unlatch in GaragePage non richiede più che il cavo sia collegato (`vehicle.pluggedIn`).
+	- Il pulsante è disabilitato solo mentre un comando è in corso (`busy`), consentendo di aprire lo sportello anche quando l'auto è in stato idle/sleep in garage.
+	- Aggiornato il testo descrittivo del pulsante da "Open the charge-port door for cable removal" a "Open the charge-port door".
+
+
 - **Statistics — zoom drag su grafici nel popup**:
 	- Nella modale di espansione grafici (SoC, Power/Current, Voltage) è ora possibile trascinare orizzontalmente per zoomare sull'asse X.
 	- Al rilascio del mouse il dominio X viene aggiornato a `[x1, x2]` e l'asse Y si adatta automaticamente ai dati visibili (`auto`).
