@@ -87,7 +87,8 @@ const EVENT_PLACEHOLDER_CATALOG: Record<string, string[]> = {
   plan_start: ['event', 'timestamp', 'planId', 'targetSoc', 'reason'],
   plan_completed: ['event', 'timestamp', 'planId', 'reason'],
   plan_skipped: ['event', 'timestamp', 'planId', 'reason'],
-  target_soc_reached: ['event', 'timestamp', 'soc', 'reason'],
+  target_soc_reached: ['event', 'timestamp', 'soc', 'targetSoc', 'reason'],
+  ha_paused: ['event', 'timestamp', 'homePowerW', 'maxHomePowerW', 'retrySec'],
   charging_paused: ['event', 'timestamp', 'reason'],
   charging_resumed: ['event', 'timestamp', 'reason'],
   home_power_limit_exceeded: ['event', 'timestamp', 'homePowerW', 'limitW', 'reason'],
@@ -119,7 +120,8 @@ const EVENT_PAYLOAD_PRESETS: Record<string, Record<string, unknown>> = {
   plan_start: { planId: 'plan-001', targetSoc: 90, reason: 'scheduled_time' },
   plan_completed: { planId: 'plan-001', reason: 'target_reached' },
   plan_skipped: { planId: 'plan-001', reason: 'low_priority' },
-  target_soc_reached: { soc: 80, reason: 'limit_reached' },
+  target_soc_reached: { soc: 80, targetSoc: 80, reason: 'limit_reached' },
+  ha_paused: { homePowerW: 5000, maxHomePowerW: 4000, retrySec: 60 },
   charging_paused: { reason: 'ha_power' },
   charging_resumed: { reason: 'power_restored' },
   home_power_limit_exceeded: { homePowerW: 6000, limitW: 3000, reason: 'oven_on' },
@@ -186,7 +188,11 @@ const EVENT_PAYLOAD_SCHEMAS: Record<string, NotificationEventSchema> = {
   },
   target_soc_reached: {
     required: ['soc'],
-    fields: { soc: 'number', reason: 'string' },
+    fields: { soc: 'number', targetSoc: 'number', reason: 'string' },
+  },
+  ha_paused: {
+    required: ['homePowerW', 'maxHomePowerW', 'retrySec'],
+    fields: { homePowerW: 'number', maxHomePowerW: 'number', retrySec: 'number' },
   },
   charging_paused: {
     required: ['reason'],
