@@ -19,6 +19,7 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Statistics popup chart drag-to-zoom**: in the fullscreen chart popup (SoC, Power/Current, Voltage), drag horizontally on the chart to zoom into a time range; Y axis auto-adjusts; "Reset zoom" restores full view
 - **Frontend build fix (Statistics page)**: removed an unused default `React` import in `StatisticsPage` to restore strict TypeScript compilation (`TS6133`) during production builds
 - **Version bump 1.5.5**: release metadata updated across backend source-of-truth and all package manifests
 - **Statistics CSV export**: from the selected charging session you can now download a CSV file with session metadata and full telemetry rows
@@ -215,7 +216,7 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 
 - Statistics page includes a `Download CSV` action for the selected charging session (metadata + telemetry)
 - Statistics charts (SoC, Power/Current, Voltage) use telemetry `recordedAt` datetime on the X axis
-- **Statistics chart zoom**: each chart card has an expand (⤢) button that opens the chart in a fullscreen popup modal (closes on Escape, overlay click, or ✕)
+- **Statistics chart zoom**: each chart card has an expand (⤢) button that opens the chart in a fullscreen popup modal (closes on Escape, overlay click, or ✕); inside the popup, drag horizontally on the chart to zoom the X axis — the Y axis auto-adjusts to visible data; a "Reset zoom" button restores the full view
 - Dashboard "Evload average" uses a rolling-meter-energy slope over recent samples for responsive ETA and power estimation
 - OFF mode stop resilience: failed `charge_stop` commands are retried in background with bounded attempts and retriggered on proxy reconnect
 - Engine auto-resync for current requests: if Tesla `charge_current_request` diverges from evload setpoint, backend retries `set_charging_amps` until aligned

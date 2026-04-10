@@ -3,7 +3,16 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
-## Aggiornamenti Recenti (2026-04-08) — v1.5.6
+## Aggiornamenti Recenti (2026-04-10) — v1.5.5
+
+- **Statistics — zoom drag su grafici nel popup**:
+	- Nella modale di espansione grafici (SoC, Power/Current, Voltage) è ora possibile trascinare orizzontalmente per zoomare sull'asse X.
+	- Al rilascio del mouse il dominio X viene aggiornato a `[x1, x2]` e l'asse Y si adatta automaticamente ai dati visibili (`auto`).
+	- Durante il trascinamento viene mostrata una `ReferenceArea` semitrasparente come anteprima della selezione.
+	- Quando lo zoom è attivo compare il pulsante "Reset zoom" nell'header del modale; in caso contrario viene mostrato il testo guida "Drag to zoom".
+	- La funzione `openZoomedChart` resetta sempre lo zoom prima di aprire un nuovo grafico.
+	- Chiusura del modale (click overlay, pulsante ✕, Escape) resetta lo zoom.
+
 
 - **Fix compilazione frontend (TypeScript strict)**:
 	- Build bloccata da `TS6133` in `frontend/src/pages/StatisticsPage.tsx` per import `React` non usato.
@@ -1175,3 +1184,16 @@ Accettazione:
 - C2: Modale fullscreen (`fixed inset-0 z-50`) con sfondo scuro semitrasparente; chiusura su click overlay, pulsante ✕ o tasto Escape.
 - C3: Ogni card grafico ha un pulsante `Maximize2` (lucide-react) nell'header per aprire il relativo grafico a 500px di altezza nel modale.
 - C4: Il modale riutilizza gli stessi dati `telemetryData`/`sessions` già in memoria — nessuna chiamata API aggiuntiva.
+
+
+## F-65 Statistics Popup Chart Zoom (X-axis drag)
+
+Requisito: "Il grafico che si apre nella finestra pop-up deve avere la possibilità di essere zommato sull'asse X e Y così da migliorare la lettura dei dati."
+Accettazione:
+- C1: I grafici SoC, Power/Current e Voltage nella modale di espansione supportano zoom X via drag del mouse.
+- C2: Durante il trascinamento una `ReferenceArea` semitrasparente indica la selezione in corso.
+- C3: Al rilascio il dominio XAxis viene impostato a `[x1, x2]`; YAxis si adatta automaticamente (`auto`/`allowDataOverflow`).
+- C4: Quando lo zoom è attivo: pulsante "Reset zoom" visibile nell'header → ripristina `['dataMin','dataMax']`.
+- C5: Quando lo zoom non è attivo: testo guida "Drag to zoom" visibile (solo per grafici time-series).
+- C6: `openZoomedChart` resetta lo zoom prima di aprire ogni grafico; chiusura modale (overlay, ✕, Escape) resetta lo zoom.
+- C7: Nessuna dipendenza esterna aggiunta — usa solo `ReferenceArea` già incluso in recharts.
