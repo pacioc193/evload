@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.5.5'
+export const VERSION = '1.5.6'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.5.6',
+    releasedAt: '2026-04-10',
+    summary: 'Mobile UX improvements for Notifications panel: responsive header with stacked buttons, compact 3-column action grid, separated enable/disable toggle from expand/collapse (fixes invalid nested button), consistent toggle sizes across Event Widget and Rules Builder. Bug fixes: ha_paused event and targetSoc field added to notification catalogs.',
+  },
   {
     version: '1.5.5',
     releasedAt: '2026-04-09',

@@ -600,24 +600,24 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
         <h1 className="text-2xl font-bold flex items-center gap-2"><Bell size={22} />Notifications Panel</h1>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
             onClick={() => {
               setPhModalContext(undefined);
               setIsPhModalOpen(true);
             }}
-            className="flex items-center gap-2 px-4 py-2 bg-evload-bg/50 border border-evload-border hover:bg-evload-border rounded-lg text-sm font-medium transition-colors"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-evload-bg/50 border border-evload-border hover:bg-evload-border rounded-lg text-sm font-medium transition-colors"
           >
-            <HelpCircle size={15} /> All Placeholders
+            <HelpCircle size={15} /> Placeholders
           </button>
           <button
             onClick={saveNotifications}
             disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
           >
-            <Save size={15} />{saving ? 'Saving...' : 'Save Notifications'}
+            <Save size={15} />{saving ? 'Saving...' : 'Save'}
           </button>
         </div>
       </div>
@@ -684,35 +684,35 @@ export default function NotificationsPage() {
         </div>
         {openSections.eventWidget && (
           <div className="space-y-4">
-            <div className="flex items-center gap-2">
+          <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={loadExampleRules}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-sm transition-colors"
+                className="flex items-center justify-center gap-1.5 px-2 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-xs transition-colors"
                 title="Populate rules with predefined templates"
               >
-                <FolderOpen size={16} /> Load Examples
+                <FolderOpen size={14} /> Examples
               </button>
               <button
                 onClick={generateFromScratch}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-sm transition-colors"
+                className="flex items-center justify-center gap-1.5 px-2 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-xs transition-colors"
                 title="Clear all current rules"
               >
-                <Trash2 size={16} /> Delete All
+                <Trash2 size={14} /> Delete All
               </button>
               <button
                 onClick={generateFromScratch}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-sm transition-colors"
+                className="flex items-center justify-center gap-1.5 px-2 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-xs transition-colors"
                 title="Create an empty rule set"
               >
-                <Plus size={16} /> Generate From Scratch
+                <Plus size={14} /> New Rules
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <select
                 value={newEvent}
                 onChange={(e) => setNewEvent(e.target.value)}
-                className="w-full bg-evload-bg border border-evload-border rounded px-2 py-2 text-sm"
+                className="flex-1 bg-evload-bg border border-evload-border rounded px-2 py-2 text-sm"
               >
                 {eventOptions.map((event) => <option key={event} value={event}>{event}</option>)}
               </select>
@@ -722,7 +722,7 @@ export default function NotificationsPage() {
                   setPendingAddEvent(newEvent)
                 }}
                 disabled={!newEvent}
-                className="px-3 py-2 bg-evload-border hover:bg-evload-bg rounded text-sm disabled:opacity-50"
+                className="sm:whitespace-nowrap px-3 py-2 bg-evload-border hover:bg-evload-bg rounded text-sm disabled:opacity-50"
               >
                 Add Event Message
               </button>
@@ -766,25 +766,22 @@ export default function NotificationsPage() {
               const eventPlaceholders = getPlaceholdersForEvent(eventName)
               return (
                 <div key={rule.id} className="border border-evload-border rounded-lg p-2">
-                  <button
-                    onClick={() => setOpenEvents((prev) => ({ ...prev, [eventName]: !prev[eventName] }))}
-                    className="w-full flex items-center justify-between gap-2 text-left"
-                  >
-                    <div className="text-sm font-medium">{eventName}</div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          upsertPrimaryRuleForEvent(eventName, (prev) => ({ ...prev, enabled: !prev.enabled }))
-                        }}
-                        className="text-evload-accent hover:text-red-400 transition-colors"
-                        title="Enable/disable event message"
-                      >
-                        {(rule?.enabled ?? true) ? <ToggleRight size={24} /> : <ToggleLeft size={24} className="text-evload-muted" />}
-                      </button>
-                      {eventOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </div>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => upsertPrimaryRuleForEvent(eventName, (prev) => ({ ...prev, enabled: !prev.enabled }))}
+                      className="shrink-0 text-evload-accent hover:text-red-400 transition-colors p-1"
+                      title="Enable/disable event message"
+                    >
+                      {(rule?.enabled ?? true) ? <ToggleRight size={22} /> : <ToggleLeft size={22} className="text-evload-muted" />}
+                    </button>
+                    <button
+                      onClick={() => setOpenEvents((prev) => ({ ...prev, [eventName]: !prev[eventName] }))}
+                      className="flex-1 flex items-center justify-between gap-2 text-left min-w-0"
+                    >
+                      <div className="text-sm font-medium truncate">{eventName}</div>
+                      {eventOpen ? <ChevronUp size={16} className="shrink-0" /> : <ChevronDown size={16} className="shrink-0" />}
+                    </button>
+                  </div>
 
                   {eventOpen && (
                     <div className="mt-2 space-y-2">
@@ -881,13 +878,13 @@ export default function NotificationsPage() {
                   <input
                     value={rule.name}
                     onChange={(e) => updateRule(rule.id, (prev) => ({ ...prev, name: e.target.value }))}
-                    className="flex-1 bg-evload-bg border border-evload-border rounded px-2 py-2 text-sm"
+                    className="flex-1 min-w-0 bg-evload-bg border border-evload-border rounded px-2 py-2 text-sm"
                     placeholder="Rule name"
                   />
-                  <button onClick={() => updateRule(rule.id, (prev) => ({ ...prev, enabled: !prev.enabled }))} className="text-evload-accent">
-                    {rule.enabled ? <ToggleRight size={24} /> : <ToggleLeft size={24} className="text-evload-muted" />}
+                  <button onClick={() => updateRule(rule.id, (prev) => ({ ...prev, enabled: !prev.enabled }))} className="shrink-0 text-evload-accent p-1">
+                    {rule.enabled ? <ToggleRight size={22} /> : <ToggleLeft size={22} className="text-evload-muted" />}
                   </button>
-                  <button onClick={() => deleteRule(rule.id)} className="px-2 py-2 border border-evload-border rounded text-evload-muted hover:text-evload-error">
+                  <button onClick={() => deleteRule(rule.id)} className="shrink-0 p-2 border border-evload-border rounded text-evload-muted hover:text-evload-error">
                     <Trash2 size={14} />
                   </button>
                 </div>
