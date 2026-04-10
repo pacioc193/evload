@@ -5,6 +5,11 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 ## Aggiornamenti Recenti (2026-04-08) — v1.5.6
 
+- **Fix compilazione frontend (TypeScript strict)**:
+	- Build bloccata da `TS6133` in `frontend/src/pages/StatisticsPage.tsx` per import `React` non usato.
+	- Rimosso default import inutilizzato (`import { useEffect, useRef, useState } from 'react'`).
+	- `npm run build` root ora completa con successo (backend `tsc` + frontend `tsc && vite build`).
+
 ## Aggiornamenti Recenti (2026-04-09) — v1.5.5
 
 - **Version bump**:

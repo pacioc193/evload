@@ -19,6 +19,7 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Frontend build fix (Statistics page)**: removed an unused default `React` import in `StatisticsPage` to restore strict TypeScript compilation (`TS6133`) during production builds
 - **Version bump 1.5.5**: release metadata updated across backend source-of-truth and all package manifests
 - **Statistics CSV export**: from the selected charging session you can now download a CSV file with session metadata and full telemetry rows
 - **Statistics chart timeline on real timestamps**: session charts now use real telemetry date/time on X axis instead of elapsed charging minutes
