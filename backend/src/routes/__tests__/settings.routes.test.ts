@@ -41,6 +41,8 @@ jest.mock('../../config', () => ({
 
 jest.mock('../../services/telegram.service', () => ({
   initTelegram: jest.fn(),
+  hasBotToken: jest.fn(() => false),
+  setBotToken: jest.fn(),
   getTelegramPrerequisiteStatus: jest.fn(() => ({ ok: false, missing: ['telegram_disabled'] })),
 }))
 
@@ -145,20 +147,30 @@ describe('settings routes persistence', () => {
     expect(saved.telegram.notifications.rules).toEqual([])
   })
 
-  test('writes token to .env and removes token from config yaml', async () => {
+  test('saves token to database (not .env) and removes botToken from config yaml', async () => {
     const app = await createApp()
+
+    // Resolve AFTER createApp() so refs match the re-imported module
+    const { setBotToken: mockSetBotToken } = jest.requireMock('../../services/telegram.service') as {
+      setBotToken: jest.Mock
+    }
+    mockSetBotToken.mockClear()
 
     await request(app)
       .patch('/')
-      .send({ telegramBotToken: 'env-token-value', telegramRules: [] })
+      .send({ telegramBotToken: 'db-token-value', telegramRules: [] })
       .expect(200)
 
-    const savedConfig = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, any>
-    expect(savedConfig.telegram.botToken).toBeUndefined()
+    // Token must be saved to DB, not to config.yaml
+    expect(mockSetBotToken).toHaveBeenCalledWith('db-token-value')
 
+    // .env file should NOT be created
     const envPath = path.join(tmpDir, '.env')
-    const envContent = fs.readFileSync(envPath, 'utf8')
-    expect(envContent).toContain('TELEGRAM_BOT_TOKEN=env-token-value')
+    expect(fs.existsSync(envPath)).toBe(false)
+
+    // botToken field in yaml must not be set
+    const savedConfig = yaml.load(fs.readFileSync(configPath, 'utf8')) as Record<string, any>
+    expect(savedConfig.telegram?.botToken).toBeUndefined()
   })
 
   test('rejects invalid charging amperage relation when min > default or default > max', async () => {
@@ -276,6 +288,8 @@ describe('/telegram/test endpoint', () => {
     }
     const telMocks = jest.requireMock('../../services/telegram.service') as {
       getTelegramPrerequisiteStatus: jest.Mock
+      hasBotToken: jest.Mock
+      setBotToken: jest.Mock
     }
     mockValidate = notifMocks.validateNotificationPayload
     mockEventOptions = notifMocks.getNotificationEventOptions

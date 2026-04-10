@@ -351,7 +351,7 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 23. Policy `.env` Minimo Obbligatorio.
 - Una configurazione environment resta necessaria anche se molte impostazioni applicative sono persistite nel `.db` o in `config.yaml`, perché contiene variabili runtime e segreti di bootstrap.
 - Variabili obbligatorie minime: `DATABASE_URL`, `JWT_SECRET`.
-- Variabili opzionali (da tenere come placeholder commentati nel template): `TELEGRAM_BOT_TOKEN`, `HA_CLIENT_ID`, `HA_CLIENT_SECRET`, `APP_URL`, `FRONTEND_URL`, `PORT`, `LOG_LEVEL`.
+- Variabili opzionali (da tenere come placeholder commentati nel template): `TELEGRAM_BOT_TOKEN` (legacy, migrato automaticamente al DB al primo avvio), `HA_CLIENT_ID`, `HA_CLIENT_SECRET`, `APP_URL`, `FRONTEND_URL`, `PORT`, `LOG_LEVEL`.
 - Ogni modifica alla policy `.env` deve aggiornare `backend/.env.example` e la sezione Environment Variables in `README.md`.
 
 24. Tutti i valori configurabili devono essere presenti nella pagina Impostazioni.

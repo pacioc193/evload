@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.5.9'
+export const VERSION = '1.6.0'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.6.0',
+    releasedAt: '2026-04-10',
+    summary: 'Telegram bot token now stored in database (AppConfig.telegram_bot_token) instead of .env file — token survives container updates/restarts. On first boot, any TELEGRAM_BOT_TOKEN env var is automatically migrated to the DB. Settings PATCH /api/settings now calls setBotToken() (DB write + in-memory cache); GET /api/settings reads hasBotToken() from cache. Removed .env write logic for telegram token. Added loadBotTokenFromDB() called during initializeSecrets() at startup.',
+  },
   {
     version: '1.5.9',
     releasedAt: '2026-04-10',

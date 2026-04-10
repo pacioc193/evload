@@ -5,7 +5,6 @@ import yaml from 'js-yaml'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import rateLimit from 'express-rate-limit'
-import dotenv from 'dotenv'
 import { requireAuth } from '../middleware/auth.middleware'
 import { getConfig, reloadConfig } from '../config'
 import { logger, setLoggerLevel } from '../logger'
@@ -17,12 +16,11 @@ import {
   sendTelegramNotificationTest,
   validateNotificationPayload,
 } from '../services/notification-rules.service'
-import { getTelegramPrerequisiteStatus, initTelegram } from '../services/telegram.service'
+import { getTelegramPrerequisiteStatus, hasBotToken, initTelegram, setBotToken } from '../services/telegram.service'
 
 const execFileAsync = promisify(execFile)
 
 const CONFIG_PATH = process.env.CONFIG_PATH ?? path.join(process.cwd(), 'config.yaml')
-const ENV_PATH = path.join(process.cwd(), '.env')
 const EXAMPLE_PATH = path.join(__dirname, '../../config.example.yaml')
 const LOG_DIR = path.join(process.cwd(), 'logs')
 
@@ -31,7 +29,6 @@ const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 })
 
 router.get('/', limiter, requireAuth, (_req, res) => {
   const cfg = getConfig()
-  const currentToken = process.env.TELEGRAM_BOT_TOKEN
   res.json({
     demo: cfg.demo,
     logLevel: cfg.logLevel,
@@ -61,13 +58,13 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     chargeStartRetryMs: cfg.charging.chargeStartRetryMs,
     chargeStartGraceSec: cfg.charging.chargeStartGraceSec,
     telegramEnabled: cfg.telegram.enabled,
-    telegramBotToken: currentToken ? '********' : '',
+    telegramBotToken: hasBotToken() ? '********' : '',
     telegramAllowedChatIds: cfg.telegram.allowedChatIds,
     telegramRules: cfg.telegram.notifications.rules,
   })
 })
 
-router.patch('/', limiter, requireAuth, (req, res) => {
+router.patch('/', limiter, requireAuth, async (req, res) => {
   const incoming = req.body as Partial<{
     demo: boolean
     logLevel: 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly'
@@ -208,17 +205,10 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     const newToken = incoming.telegramBotToken.trim()
     if (newToken) {
       try {
-        let envContent = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : ''
-        if (envContent.includes('TELEGRAM_BOT_TOKEN=')) {
-          envContent = envContent.replace(/TELEGRAM_BOT_TOKEN=.*/, `TELEGRAM_BOT_TOKEN=${newToken}`)
-        } else {
-          envContent += `\nTELEGRAM_BOT_TOKEN=${newToken}\n`
-        }
-        fs.writeFileSync(ENV_PATH, envContent.trim() + '\n', 'utf8')
-        process.env.TELEGRAM_BOT_TOKEN = newToken
-        logger.info('Telegram Bot Token saved to .env')
+        await setBotToken(newToken)
+        logger.info('Telegram Bot Token saved to database')
       } catch (err) {
-        logger.error('Failed to update .env for telegram token', { err })
+        logger.error('Failed to save Telegram bot token to database', { err })
       }
     }
   }

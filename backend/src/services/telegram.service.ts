@@ -1,8 +1,12 @@
 import TelegramBot from 'node-telegram-bot-api'
 import { logger } from '../logger'
 import { getConfig } from '../config'
+import { prisma } from '../prisma'
 
 let bot: TelegramBot | null = null
+
+// In-memory cache for the bot token, populated from DB at startup
+let cachedBotToken: string | undefined = undefined
 
 type CommandHandler = (chatId: string, args: string[]) => Promise<string>
 const commandHandlers = new Map<string, CommandHandler>()
@@ -16,8 +20,61 @@ export function registerTelegramCommand(command: string, handler: CommandHandler
   commandHandlers.set(command, handler)
 }
 
+/**
+ * Load the bot token from the database into the in-memory cache.
+ * Falls back to TELEGRAM_BOT_TOKEN env var for backward compatibility.
+ * If a token is found in env but not in DB, it is migrated to the DB.
+ */
+export async function loadBotTokenFromDB(): Promise<void> {
+  try {
+    const config = await prisma.appConfig.findUnique({ where: { id: 1 } })
+    if (config?.telegram_bot_token) {
+      cachedBotToken = config.telegram_bot_token
+      logger.debug('Telegram bot token loaded from database')
+      return
+    }
+  } catch (err) {
+    logger.error('Failed to load Telegram bot token from database', { err })
+  }
+
+  // Backward-compat: migrate token from env var to DB
+  const envToken = process.env.TELEGRAM_BOT_TOKEN
+  if (envToken) {
+    cachedBotToken = envToken
+    try {
+      await prisma.appConfig.upsert({
+        where: { id: 1 },
+        update: { telegram_bot_token: envToken },
+        create: { id: 1, telegram_bot_token: envToken },
+      })
+      logger.info('Telegram bot token migrated from TELEGRAM_BOT_TOKEN env to database')
+    } catch (err) {
+      logger.error('Failed to persist migrated Telegram token to database', { err })
+    }
+  }
+}
+
+/**
+ * Persist a new bot token to the database and refresh the in-memory cache.
+ */
+export async function setBotToken(token: string): Promise<void> {
+  await prisma.appConfig.upsert({
+    where: { id: 1 },
+    update: { telegram_bot_token: token },
+    create: { id: 1, telegram_bot_token: token },
+  })
+  cachedBotToken = token
+}
+
+/**
+ * Return whether a bot token is currently configured.
+ */
+export function hasBotToken(): boolean {
+  return Boolean(cachedBotToken)
+}
+
 function getBotToken(): string | undefined {
-  return process.env.TELEGRAM_BOT_TOKEN
+  return cachedBotToken
 }
 
 function getNotificationChatIds(): string[] {

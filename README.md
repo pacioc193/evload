@@ -553,7 +553,7 @@ The backend requires environment configuration at startup, typically via a `.env
 |---|---|
 | `DATABASE_URL` | Required. Database connection string used by Prisma |
 | `JWT_SECRET` | Required. Secret used to sign auth tokens |
-| `TELEGRAM_BOT_TOKEN` | Optional. Can also be written from Notifications UI |
+| `TELEGRAM_BOT_TOKEN` | Legacy/optional. If set at first boot, migrated automatically to the database. Can also be set from Notifications UI (stored in DB, survives container updates) |
 | `HA_CLIENT_ID` | Optional Home Assistant OAuth client id override |
 | `HA_CLIENT_SECRET` | Optional Home Assistant OAuth client secret |
 | `APP_URL` | Optional. If omitted, backend auto-detects a LAN URL for HA OAuth |
