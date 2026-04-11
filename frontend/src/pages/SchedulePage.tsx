@@ -49,15 +49,6 @@ function nextWeeklyOccurrenceIso(weekday: number, timeHHmm: string): string {
   return target.toISOString()
 }
 
-function setDateToTodayOrTomorrow(value: string, offsetDays: number): string {
-  const source = new Date(value)
-  const now = new Date()
-  const out = new Date(now)
-  out.setHours(source.getHours(), source.getMinutes(), 0, 0)
-  out.setDate(out.getDate() + offsetDays)
-  return toLocalDatetimeInputValue(out.toISOString())
-}
-
 export default function SchedulePage() {
   const [charges, setCharges] = useState<ScheduledCharge[]>([])
   const [climates, setClimates] = useState<ScheduledClimate[]>([])
