@@ -302,6 +302,7 @@ export async function uploadFrontendLogs(logs: string): Promise<{ success: boole
 export interface ScheduledCharge {
   id: number
   vehicleId: string
+  name: string | null
   scheduleType: string
   scheduledAt: string | null
   finishBy: string | null
@@ -315,6 +316,7 @@ export interface ScheduledCharge {
 export interface ScheduledClimate {
   id: number
   vehicleId: string
+  name: string | null
   scheduleType: string
   scheduledAt: string | null
   finishBy: string | null
@@ -326,6 +328,7 @@ export interface ScheduledClimate {
 
 export interface NextPlannedCharge {
   id: number
+  name: string | null
   scheduleType: string
   targetSoc: number
   targetAmps: number | null
@@ -345,10 +348,10 @@ export async function getScheduledCharges() {
 
 export async function createScheduledCharge(
   options:
-    | { scheduleType: 'start_at'; scheduledAt: string; targetSoc: number; targetAmps?: number }
-    | { scheduleType: 'finish_by'; finishBy: string; targetSoc: number; targetAmps?: number }
-    | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetSoc: number; targetAmps?: number }
-    | { scheduleType: 'weekly'; scheduledAt: string; targetSoc: number; targetAmps?: number }
+    | { scheduleType: 'start_at'; scheduledAt: string; targetSoc: number; targetAmps?: number; name?: string }
+    | { scheduleType: 'finish_by'; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
+    | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
+    | { scheduleType: 'weekly'; scheduledAt: string; targetSoc: number; targetAmps?: number; name?: string }
 ) {
   const res = await api.post('/schedule/charges', options)
   return res.data as ScheduledCharge
@@ -366,9 +369,9 @@ export async function getScheduledClimates() {
 
 export async function createScheduledClimate(
   options:
-    | { scheduleType: 'start_at'; scheduledAt: string; targetTempC: number }
-    | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetTempC: number }
-    | { scheduleType: 'weekly'; scheduledAt: string; targetTempC: number }
+    | { scheduleType: 'start_at'; scheduledAt: string; targetTempC: number; name?: string }
+    | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetTempC: number; name?: string }
+    | { scheduleType: 'weekly'; scheduledAt: string; targetTempC: number; name?: string }
 ) {
   const res = await api.post('/schedule/climate', options)
   return res.data as ScheduledClimate

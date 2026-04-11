@@ -102,6 +102,7 @@ model ChargingTelemetry {
 model ScheduledCharge {
   id           Int       @id @default(autoincrement())
   vehicleId    String
+  name         String?
   scheduleType String    @default("start_at")
   scheduledAt  DateTime?
   finishBy     DateTime?
@@ -116,6 +117,7 @@ model ScheduledCharge {
 model ScheduledClimate {
   id           Int       @id @default(autoincrement())
   vehicleId    String
+  name         String?
   scheduleType String    @default("start_at")
   scheduledAt  DateTime?
   finishBy     DateTime?

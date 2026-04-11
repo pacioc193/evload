@@ -78,6 +78,7 @@ export default function SchedulePage() {
   })
   const [chargeSoc, setChargeSoc] = useState(80)
   const [chargeAmps, setChargeAmps] = useState(16)
+  const [chargeName, setChargeName] = useState('')
 
   const [climateType, setClimateType] = useState<ClimateType>('start_at')
   const [climateAt, setClimateAt] = useState(toLocalDatetimeInputValue())
@@ -89,6 +90,7 @@ export default function SchedulePage() {
     return `${pad(d.getHours())}:${pad(d.getMinutes())}`
   })
   const [climateTemp, setClimateTemp] = useState(21)
+  const [climateName, setClimateName] = useState('')
 
   const [saving, setSaving] = useState(false)
 
@@ -140,6 +142,11 @@ export default function SchedulePage() {
     setFormMsg('')
     try {
       if (settingsMode === 'charger') {
+        const nameVal = chargeName.trim() || undefined
+        if (nameVal && nameVal.length > 50) {
+          setFormMsg('Name must be at most 50 characters')
+          return
+        }
         if (chargeType === 'weekly') {
           if (chargeWeekdays.length === 0) {
             setFormMsg('Select at least one weekday')
@@ -153,6 +160,7 @@ export default function SchedulePage() {
                 scheduledAt: nextWeeklyOccurrenceIso(day, chargeWeeklyTime),
                 targetSoc: chargeSoc,
                 targetAmps: chargeAmps,
+                name: nameVal,
               })
             )
           )
@@ -169,6 +177,7 @@ export default function SchedulePage() {
             finishBy: end.toISOString(),
             targetSoc: chargeSoc,
             targetAmps: chargeAmps,
+            name: nameVal,
           })
         } else if (chargeType === 'finish_by') {
           await createScheduledCharge({
@@ -176,6 +185,7 @@ export default function SchedulePage() {
             finishBy: new Date(chargeFinishBy).toISOString(),
             targetSoc: chargeSoc,
             targetAmps: chargeAmps,
+            name: nameVal,
           })
         } else {
           await createScheduledCharge({
@@ -183,10 +193,16 @@ export default function SchedulePage() {
             scheduledAt: new Date(chargeAt).toISOString(),
             targetSoc: chargeSoc,
             targetAmps: chargeAmps,
+            name: nameVal,
           })
         }
         await loadCharges()
       } else {
+        const nameVal = climateName.trim() || undefined
+        if (nameVal && nameVal.length > 50) {
+          setFormMsg('Name must be at most 50 characters')
+          return
+        }
         if (climateType === 'weekly') {
           if (climateWeekdays.length === 0) {
             setFormMsg('Select at least one weekday')
@@ -199,6 +215,7 @@ export default function SchedulePage() {
                 scheduleType: 'weekly',
                 scheduledAt: nextWeeklyOccurrenceIso(day, climateWeeklyTime),
                 targetTempC: climateTemp,
+                name: nameVal,
               })
             )
           )
@@ -214,12 +231,14 @@ export default function SchedulePage() {
             scheduledAt: start.toISOString(),
             finishBy: end.toISOString(),
             targetTempC: climateTemp,
+            name: nameVal,
           })
         } else {
           await createScheduledClimate({
             scheduleType: 'start_at',
             scheduledAt: new Date(climateAt).toISOString(),
             targetTempC: climateTemp,
+            name: nameVal,
           })
         }
         await loadClimates()
@@ -377,10 +396,23 @@ export default function SchedulePage() {
                 <label className="block text-sm text-evload-muted mb-1">Target Amps: {chargeAmps}A</label>
                 <input type="range" min={5} max={32} value={chargeAmps} onChange={(e) => setChargeAmps(Number(e.target.value))} className="w-full accent-evload-accent" />
               </div>
+              <div>
+                <label className="block text-sm text-evload-muted mb-1">
+                  Nome piano <span className="text-evload-muted/60 text-xs">(opzionale, max 50 car.)</span>
+                </label>
+                <input
+                  type="text"
+                  maxLength={50}
+                  placeholder="es. Notturna, Lavoro…"
+                  value={chargeName}
+                  onChange={(e) => setChargeName(e.target.value)}
+                  className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
+                />
+              </div>
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center justify-center gap-2 px-4 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+                className="sm:col-start-3 flex items-center justify-center gap-2 px-4 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
               >
                 <Plus size={16} />{saving ? 'Saving…' : 'Save Charger Schedule'}
               </button>
@@ -459,10 +491,23 @@ export default function SchedulePage() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
               <div>
                 <label className="block text-sm text-evload-muted mb-1">Target Temperature: {climateTemp}°C</label>
                 <input type="range" min={15} max={30} value={climateTemp} onChange={(e) => setClimateTemp(Number(e.target.value))} className="w-full accent-evload-accent" />
+              </div>
+              <div>
+                <label className="block text-sm text-evload-muted mb-1">
+                  Nome piano <span className="text-evload-muted/60 text-xs">(opzionale, max 50 car.)</span>
+                </label>
+                <input
+                  type="text"
+                  maxLength={50}
+                  placeholder="es. Mattina, Sera…"
+                  value={climateName}
+                  onChange={(e) => setClimateName(e.target.value)}
+                  className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
+                />
               </div>
               <button
                 onClick={handleSave}
@@ -494,25 +539,32 @@ export default function SchedulePage() {
             <div className="space-y-2">
               {charges.map((sc) => (
                 <div key={sc.id} className="flex items-center justify-between p-3 rounded-lg border border-evload-border bg-evload-bg">
-                  <div className="flex items-center gap-4 text-sm">
-                    <span className={`w-2 h-2 rounded-full ${sc.enabled ? 'bg-evload-success' : 'bg-evload-muted'}`} />
-                    <span className="text-xs px-2 py-0.5 rounded bg-evload-border text-evload-muted">
-                      {sc.scheduleType === 'weekly' ? 'Weekly' : sc.scheduleType === 'finish_by' ? 'Finish by' : sc.scheduleType === 'start_end' ? 'Start + End' : 'Start at'}
-                    </span>
-                    <span className="font-medium">
-                      {sc.scheduleType === 'weekly'
-                        ? `Every ${weekdayNameFromDate(sc.scheduledAt)} at ${timeFromDate(sc.scheduledAt)}`
-                        : sc.scheduleType === 'finish_by'
-                          ? `Finish ${formatDateTime(sc.finishBy)}`
-                          : sc.scheduleType === 'start_end'
-                            ? `Start ${formatDateTime(sc.scheduledAt)} · End ${formatDateTime(sc.finishBy)}`
-                            : formatDateTime(sc.scheduledAt)}
-                    </span>
-                    <span className="text-evload-muted">→ {sc.targetSoc}%</span>
-                    {sc.targetAmps && <span className="text-evload-muted">{sc.targetAmps}A</span>}
-                    {!sc.enabled && <span className="text-xs text-evload-muted italic">executed</span>}
+                  <div className="flex flex-col gap-1 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className={`w-2 h-2 flex-shrink-0 rounded-full ${sc.enabled ? 'bg-evload-success' : 'bg-evload-muted'}`} />
+                      {sc.name && (
+                        <span className="font-semibold text-evload-text truncate max-w-[160px]" title={sc.name}>{sc.name}</span>
+                      )}
+                      <span className="text-xs px-2 py-0.5 rounded bg-evload-border text-evload-muted flex-shrink-0">
+                        {sc.scheduleType === 'weekly' ? 'Weekly' : sc.scheduleType === 'finish_by' ? 'Finish by' : sc.scheduleType === 'start_end' ? 'Start + End' : 'Start at'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-evload-muted flex-wrap pl-4">
+                      <span>
+                        {sc.scheduleType === 'weekly'
+                          ? `Every ${weekdayNameFromDate(sc.scheduledAt)} at ${timeFromDate(sc.scheduledAt)}`
+                          : sc.scheduleType === 'finish_by'
+                            ? `Finish ${formatDateTime(sc.finishBy)}`
+                            : sc.scheduleType === 'start_end'
+                              ? `Start ${formatDateTime(sc.scheduledAt)} · End ${formatDateTime(sc.finishBy)}`
+                              : formatDateTime(sc.scheduledAt)}
+                      </span>
+                      <span>→ {sc.targetSoc}%</span>
+                      {sc.targetAmps && <span>{sc.targetAmps}A</span>}
+                      {!sc.enabled && <span className="italic">executed</span>}
+                    </div>
                   </div>
-                  <button onClick={() => handleDeleteCharge(sc.id)} className="p-1 text-evload-muted hover:text-evload-error transition-colors">
+                  <button onClick={() => handleDeleteCharge(sc.id)} className="p-1 ml-2 flex-shrink-0 text-evload-muted hover:text-evload-error transition-colors">
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -534,22 +586,29 @@ export default function SchedulePage() {
             <div className="space-y-2">
               {climates.map((sc) => (
                 <div key={sc.id} className="flex items-center justify-between p-3 rounded-lg border border-evload-border bg-evload-bg">
-                  <div className="flex items-center gap-4 text-sm">
-                    <span className={`w-2 h-2 rounded-full ${sc.enabled ? 'bg-evload-success' : 'bg-evload-muted'}`} />
-                    <span className="text-xs px-2 py-0.5 rounded bg-evload-border text-evload-muted">
-                      {sc.scheduleType === 'weekly' ? 'Weekly' : sc.scheduleType === 'start_end' ? 'Start + End' : 'Start at'}
-                    </span>
-                    <span className="font-medium">
-                      {sc.scheduleType === 'weekly'
-                        ? `Every ${weekdayNameFromDate(sc.scheduledAt)} at ${timeFromDate(sc.scheduledAt)}`
-                        : sc.scheduleType === 'start_end'
-                          ? `Start ${formatDateTime(sc.scheduledAt)} · End ${formatDateTime(sc.finishBy)}`
-                          : formatDateTime(sc.scheduledAt)}
-                    </span>
-                    <span className="text-evload-muted">→ {sc.targetTempC}°C</span>
-                    {!sc.enabled && <span className="text-xs text-evload-muted italic">executed</span>}
+                  <div className="flex flex-col gap-1 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className={`w-2 h-2 flex-shrink-0 rounded-full ${sc.enabled ? 'bg-evload-success' : 'bg-evload-muted'}`} />
+                      {sc.name && (
+                        <span className="font-semibold text-evload-text truncate max-w-[160px]" title={sc.name}>{sc.name}</span>
+                      )}
+                      <span className="text-xs px-2 py-0.5 rounded bg-evload-border text-evload-muted flex-shrink-0">
+                        {sc.scheduleType === 'weekly' ? 'Weekly' : sc.scheduleType === 'start_end' ? 'Start + End' : 'Start at'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-evload-muted flex-wrap pl-4">
+                      <span>
+                        {sc.scheduleType === 'weekly'
+                          ? `Every ${weekdayNameFromDate(sc.scheduledAt)} at ${timeFromDate(sc.scheduledAt)}`
+                          : sc.scheduleType === 'start_end'
+                            ? `Start ${formatDateTime(sc.scheduledAt)} · End ${formatDateTime(sc.finishBy)}`
+                            : formatDateTime(sc.scheduledAt)}
+                      </span>
+                      <span>→ {sc.targetTempC}°C</span>
+                      {!sc.enabled && <span className="italic">executed</span>}
+                    </div>
                   </div>
-                  <button onClick={() => handleDeleteClimate(sc.id)} className="p-1 text-evload-muted hover:text-evload-error transition-colors">
+                  <button onClick={() => handleDeleteClimate(sc.id)} className="p-1 ml-2 flex-shrink-0 text-evload-muted hover:text-evload-error transition-colors">
                     <Trash2 size={16} />
                   </button>
                 </div>

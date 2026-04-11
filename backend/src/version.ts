@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.6.1'
+export const VERSION = '1.6.2'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.6.2',
+    releasedAt: '2026-04-11',
+    summary: 'Plan name field for scheduled charges and climate: ScheduledCharge and ScheduledClimate now have an optional name field (max 50 chars). The name is shown in the Schedule page recap list (bold, with tooltip for long names), displayed as a 📌 badge on the Dashboard "Next Charge" widget, and stored as locationName on the resulting ChargingSession — visible in Statistics session list and detail panel, and exported in CSV. In Telegram notifications, all plan events (plan_start, plan_completed, plan_skipped, plan_wake) now include {{planName}} placeholder (falls back to "#id" when no name is set) alongside {{planId}}; default templates updated accordingly. DB migration 20260411100000_add_schedule_name adds the column with zero downtime (nullable, backward compatible).',
+  },
   {
     version: '1.6.1',
     releasedAt: '2026-04-11',

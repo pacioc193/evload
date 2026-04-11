@@ -727,6 +727,13 @@ export default function DashboardPage() {
                 <span className="text-sm text-evload-muted font-normal lowercase italic">— no schedule —</span>
               )}
             </div>
+            {nextCharge?.name && (
+              <div className="mt-1 flex items-center justify-center">
+                <span className="inline-flex items-center gap-1 rounded-full border border-evload-border bg-evload-bg px-2 py-0.5 text-[10px] font-medium text-evload-muted max-w-[120px] truncate" title={nextCharge.name}>
+                  📌 {nextCharge.name}
+                </span>
+              </div>
+            )}
             <div className="mt-2 flex items-center justify-center">
               <span className="inline-flex items-center rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-300">
                 Polling Active

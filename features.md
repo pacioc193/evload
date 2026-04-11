@@ -1276,3 +1276,22 @@ Accettazione:
 - C1: `NotificationsPage.tsx`: tutti i 24 template in `EVENT_EXAMPLE_TEMPLATES` riformattati con `\n` per andare a capo; ogni template include header con emoji + titolo, riga `📅 {{timestamp_date}}` e righe dedicate per ogni campo rilevante dell'evento.
 - C2: Le 7 regole di esempio in `loadExamples()` aggiornate con lo stesso formato multiriga; in particolare `charge_start_blocked` ora include `{{chargingState}}` e `{{soc}}%`; `soc_increased` include la riga data.
 - C3: Tutti i template usano `{{timestamp_date}}` (data+ora completa) invece di `{{timestamp_time}}` inline nel testo, garantendo leggibilità anche su notifiche ricevute a distanza di ore.
+
+## F-72 Piano di Ricarica: Campo Nome e Uso Costruttivo
+
+Requisito: "Aggiungi un campo nome per ogni piano di ricarica così da avere un rapido sguardo a quale piano è partito. Il nome deve comparire nella dashboard, nelle notifiche Telegram e nelle statistiche per raggruppare le ricariche."
+Accettazione:
+- C1: `prisma/schema.prisma`: aggiunto campo `name String?` a `ScheduledCharge` e `ScheduledClimate`.
+- C2: Migrazione `20260411100000_add_schedule_name`: `ALTER TABLE "ScheduledCharge" ADD COLUMN "name" TEXT; ALTER TABLE "ScheduledClimate" ADD COLUMN "name" TEXT;` — campo nullable, backward compatible, zero-downtime.
+- C3: `schedule.routes.ts`: le POST `/schedule/charges` e `/schedule/climate` accettano il campo `name` (opzionale, stringa non vuota, max 50 caratteri); validation 400 se fuori range.
+- C4: `scheduler.service.ts`: `startEngineWithWake` accetta `planName?: string` e lo passa a `startEngine`; tutte le chiamate a `dispatchTelegramNotificationEvent` per eventi plan_* ora includono `planId: String(sc.id)` e `planName: sc.name ?? \`#${sc.id}\``.
+- C5: `charging.engine.ts`: `startEngine` accetta `planName?: string` (4° parametro); il nome viene salvato come `locationName` sulla sessione di ricarica creata, rendendo le sessioni plan-aware nelle statistiche.
+- C6: `scheduler.service.ts`: `NextPlannedCharge` interface e `resolveNextPlannedCharge()` includono il campo `name: string | null`.
+- C7: `notification-rules.service.ts`: aggiunto `planName` al catalogo placeholder, alle presets, agli schemi e alle descrizioni per tutti gli eventi plan_*; presets aggiornate a `planId: '1', planName: 'Ricarica Notturna'`; descrizione `planId` aggiornata a "ID numerico del piano programmato".
+- C8: `NotificationsPage.tsx`: tutti i template plan_* aggiornati per usare `{{planName}}` invece di `{{planId}}`; le 2 regole di esempio nel panel aggiornate di conseguenza.
+- C9: `api/index.ts` (frontend): `ScheduledCharge`, `ScheduledClimate`, `NextPlannedCharge` ora includono `name: string | null`; `createScheduledCharge` e `createScheduledClimate` accettano `name?: string` in tutte le varianti.
+- C10: `SchedulePage.tsx`: aggiunto campo input "Nome piano (opzionale, max 50 car.)" al form charger e climate; la lista recap mostra il nome in grassetto con truncate + tooltip per nomi lunghi; type badge e orario spostati in seconda riga per leggibilità.
+- C11: `DashboardPage.tsx`: il widget "Next Charge" mostra un badge 📌 con il nome del piano (se presente) tra l'orario e il badge "Polling Active".
+- C12: `StatisticsPage.tsx`: interfacce `Session` e `SessionDetail` includono `locationName?: string | null`; nella lista sessioni compare un badge 📌 inline con il nome piano (se non null); nel pannello dettaglio viene mostrata una riga dedicata "Piano di ricarica" se presente; il CSV esportato include la colonna `plan_name`.
+- C13: `version.ts`: versione bumped a 1.6.2; history entry aggiunta.
+- C14: `backend/package.json`, `frontend/package.json`, `package.json`: versione aggiornata a 1.6.2.

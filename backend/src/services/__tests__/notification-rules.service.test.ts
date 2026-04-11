@@ -171,11 +171,11 @@ describe('notification-rules.service', () => {
     expect(invalidEngineStopped.valid).toBe(false)
     expect(invalidEngineStopped.invalidTypes).toContain('sessionId:number')
 
-    const invalidPlanStart = validateNotificationPayload('plan_start', { planId: 'plan-1' })
+    const invalidPlanStart = validateNotificationPayload('plan_start', { planId: '1' })
     expect(invalidPlanStart.valid).toBe(false)
-    expect(invalidPlanStart.missingRequired).toContain('targetSoc')
+    expect(invalidPlanStart.missingRequired).toContain('planName')
 
-    const valid = validateNotificationPayload('plan_start', { planId: 'plan-1', targetSoc: 80 })
+    const valid = validateNotificationPayload('plan_start', { planId: '1', planName: 'Ricarica Notturna', targetSoc: 80 })
     expect(valid.valid).toBe(true)
   })
 

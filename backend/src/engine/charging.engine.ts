@@ -400,7 +400,7 @@ export async function setTargetSocPreference(
   engineEvents.emit('target_soc_updated', status)
 }
 
-export async function startEngine(targetSoc: number, targetAmps?: number, fromPlan = false): Promise<void> {
+export async function startEngine(targetSoc: number, targetAmps?: number, fromPlan = false, planName?: string): Promise<void> {
   const cfg = getConfig()
   if (status.running) {
     logger.warn('⚠️  [START_ENGINE] Engine already running — ignoring start request', {
@@ -501,6 +501,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number, fromPl
       targetSoc: safeTargetSoc,
       targetAmps: requestedAmps,
       energyPriceEurPerKwh: cfg.charging.energyPriceEurPerKwh,
+      locationName: planName?.trim() || null,
     },
   })
   status.sessionId = session.id
