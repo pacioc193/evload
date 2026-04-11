@@ -554,7 +554,7 @@ export default function DashboardPage() {
   const vehicleInGarage = vehicle?.connected ?? false
   const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
   const carStatusLabel = isVehicleSleeping ? 'Sleeping' : vehicleInGarage ? 'In garage' : 'Not in garage / unreachable'
-  const statusReason = vehicle?.reason ?? proxy?.error ?? vehicle?.error ?? 'No reason available yet'
+  const statusReason = vehicle?.error ?? proxy?.error ?? vehicle?.reason ?? null
   const controlsDisabled = loading || !!failsafe?.active
 
   const persistTargetSocPreference = async (targetSoc: number): Promise<void> => {
@@ -770,7 +770,9 @@ export default function DashboardPage() {
                   👤 User present
                 </span>
               )}
-              <p className="text-xs text-evload-muted mt-1">Reason: {statusReason}</p>
+              {statusReason && (
+                <p className="text-xs text-evload-muted mt-1">Reason: {statusReason}</p>
+              )}
               {canWakeVehicle && (
                 <button
                   onClick={handleWakeVehicle}

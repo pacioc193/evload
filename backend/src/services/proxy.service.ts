@@ -591,7 +591,7 @@ async function pollBodyController(): Promise<void> {
   try {
     const vid = vehicleId()
     if (!vid) {
-      vehicleState = { ...vehicleState, connected: false, error: 'No vehicle ID configured' }
+      vehicleState = { ...vehicleState, connected: false, reason: 'No vehicle ID configured', error: 'No vehicle ID configured' }
       vehicleEvents.emit('state', vehicleState)
       return
     }
@@ -631,6 +631,8 @@ async function pollBodyController(): Promise<void> {
         chargingState: 'Sleeping',
         charging: false,
         connected: true,
+        reason: null,
+        error: undefined,
       }
       if (prevSleepStatus !== 'VEHICLE_SLEEP_STATUS_ASLEEP') {
         logger.info('😴[SLEEP_DETECTED] Vehicle is asleep – vehicle_data polling suspended', { vehicleId: vid })
@@ -647,6 +649,8 @@ async function pollBodyController(): Promise<void> {
         vehicleSleepStatus: sleepStatus,
         userPresence,
         connected: true,
+        reason: null,
+        error: undefined,
       }
     }
 
@@ -795,7 +799,9 @@ async function pollVehicleData(): Promise<void> {
       displayName: cfg.proxy.vehicleName || vehicleState.displayName || 'Vehicle',
       vehicleSleepStatus: sleepStatus,
       userPresence: 'VEHICLE_USER_PRESENCE_UNKNOWN',
-      reason: String(fullResponse?.reason ?? (vehicleReachable ? 'The request was successfully processed.' : 'Vehicle unreachable')),
+      reason: fullResponse?.result === false
+        ? String(fullResponse.reason ?? 'Vehicle unreachable')
+        : null,
       error: fullResponse?.result === false ? String(fullResponse.reason ?? 'Vehicle unavailable') : undefined,
     }
 

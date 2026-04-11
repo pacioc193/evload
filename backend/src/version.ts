@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.6.2'
+export const VERSION = '1.6.3'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.6.3',
+    releasedAt: '2026-04-11',
+    summary: 'Stability and operations release: fixed target SoC persistence by separating preferredTargetSoc from plan target in engine_restore_state, added production-safe native DB defaults/path guards, reset stale proxy reason on recovery and render reason only on errors, added always-available Settings action to wake vehicle and manually open proxy Window Duration, and hardened install/update scripts with npm ci -> npm install fallback on lockfile mismatch.',
+  },
   {
     version: '1.6.2',
     releasedAt: '2026-04-11',

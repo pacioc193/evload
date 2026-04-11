@@ -20,6 +20,16 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 	- `initializeEngineState()` ora ricarica la preferenza da `preferredTargetSoc` (con fallback retrocompatibile a `targetSoc` per record vecchi).
 	- Aggiunto test di regressione: `engine.modes.test.ts` verifica che con plan=80 e preferenza=100, dopo restart il piano resti 80 ma la preferenza resti 100.
 
+- **Proxy reason reset e visibilita condizionale in UI**:
+	- Backend (`backend/src/services/proxy.service.ts`): quando la comunicazione proxy/veicolo e ripristinata, `vehicleState.reason` viene azzerato (`null`) e non viene piu popolato con messaggi di successo.
+	- Dashboard (`frontend/src/pages/DashboardPage.tsx`) e Settings (`frontend/src/pages/SettingsPage.tsx`): il campo `Reason` e mostrato solo se esiste un errore reale (`vehicle.error` o `proxy.error` o `vehicle.reason`).
+	- Risultato: niente reason stale quando tutto e tornato online, e reason visibile solo in caso di problema.
+
+- **Comando manuale Window Duration nel pannello Proxy (Settings)**:
+	- Aggiunto pulsante sempre disponibile `Wake / Start Data Window` in `frontend/src/pages/SettingsPage.tsx`.
+	- Il pulsante richiama `POST /api/engine/wake` (API `wakeVehicle`) e forza l'apertura immediata della finestra `vehicle_data` lato backend (`requestWakeMode(true)`).
+	- Utile per attivare manualmente il polling completo del proxy senza attendere trigger automatici.
+
 - **Rimozione targetSocOff e scheduleLead**:
 	- Eliminato il concetto di `targetSocOff` (target SoC separato per quando il motore è spento): esiste ora un solo `targetSoc` persisted che si applica in tutti i modi (idle, on, plan).
 	- Rimosso `targetSocOn`/`targetSocOff` da `EngineStatus`, `PersistedEngineRestoreState`, store WS frontend, API `/engine/targets`.

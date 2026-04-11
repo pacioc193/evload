@@ -7,6 +7,7 @@ import {
   getHaEntities,
   getHaTokenStatus,
   getVersionInfo,
+  wakeVehicle,
   type VersionInfoResponse,
   getSettings,
   patchSettings,
@@ -302,6 +303,7 @@ export default function SettingsPage() {
   const [versionInfo, setVersionInfo] = useState<VersionInfoResponse | null>(null)
   const [settingsMsg, setSettingsMsg] = useState('')
   const [settingsMsgPanel, setSettingsMsgPanel] = useState('')
+  const [proxyWakeBusy, setProxyWakeBusy] = useState(false)
   const [expandedPanels, setExpandedPanels] = useState<Record<PanelKey, boolean>>(() => readExpandedPanels())
 
   // OTA Update
@@ -574,6 +576,24 @@ export default function SettingsPage() {
     }
   }
 
+  const handleProxyWakeWindow = async () => {
+    setProxyWakeBusy(true)
+    setSettingsMsgPanel('proxy')
+    setSettingsMsg('')
+    try {
+      flog.info('PROXY', 'Manual wake/data-window requested from Settings')
+      await wakeVehicle()
+      setSettingsMsg('Wake sent — data window started')
+      flog.info('PROXY', 'Manual wake/data-window completed')
+    } catch (err) {
+      setSettingsMsg('Wake failed')
+      flog.error('PROXY', 'Manual wake/data-window failed', { error: String(err) })
+    } finally {
+      setProxyWakeBusy(false)
+      setTimeout(() => { setSettingsMsg(''); setSettingsMsgPanel('') }, 4000)
+    }
+  }
+
   const numberFields = new Set<keyof AppSettings>([
     'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'planWakeBeforeMinutes', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs', 'chargeStartGraceSec',
     'chargingPollIntervalMs', 'windowPollIntervalMs', 'bodyPollIntervalMs', 'vehicleDataWindowMs',
@@ -728,7 +748,7 @@ export default function SettingsPage() {
   const vehicleInGarage = vehicle?.connected ?? false
   const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
   const vehicleStatusLabel = vehicleInGarage ? 'In garage' : isVehicleSleeping ? 'Sleeping' : 'Not in garage / unreachable'
-  const runtimeReason = vehicle?.reason ?? proxy?.error ?? vehicle?.error ?? 'No reason available yet'
+  const runtimeReason = vehicle?.error ?? proxy?.error ?? vehicle?.reason ?? null
   const proxyLastEndpoint = proxy?.lastEndpoint ?? null
   const proxyLastSuccessAt = proxy?.lastSuccessAt
     ? new Date(proxy.lastSuccessAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -968,7 +988,9 @@ export default function SettingsPage() {
                       ? <span className="text-evload-success font-medium">Awake ☀️</span>
                       : <span className="text-evload-muted">Unknown</span>}
                 </div>
-                <div className="mt-1 text-xs text-evload-muted">Reason: {runtimeReason}</div>
+                {runtimeReason && (
+                  <div className="mt-1 text-xs text-evload-muted">Reason: {runtimeReason}</div>
+                )}
                 <div className="mt-1 text-xs text-evload-muted">
                   Last successful proxy call: {proxyLastEndpoint ?? 'unknown'}{proxyLastSuccessAt ? ` at ${proxyLastSuccessAt}` : ''}.
                 </div>
@@ -981,6 +1003,20 @@ export default function SettingsPage() {
                     : (vehicle?.charging || engine?.running)
                       ? <span className="text-evload-success font-medium">inactive — vehicle_data polled (charging active)</span>
                       : <span className="text-evload-muted">inactive — body_controller_state only</span>}
+                </div>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={handleProxyWakeWindow}
+                    disabled={proxyWakeBusy}
+                    className="inline-flex items-center gap-2 rounded-md border border-evload-border bg-evload-bg px-3 py-1.5 text-xs font-semibold text-evload-text transition-colors hover:bg-evload-border/60 disabled:opacity-60"
+                  >
+                    <RefreshCw size={13} className={proxyWakeBusy ? 'animate-spin' : ''} />
+                    {proxyWakeBusy ? 'Sending wake...' : 'Wake / Start Data Window'}
+                  </button>
+                  <div className="mt-1 text-[11px] text-evload-muted">
+                    Manual command: wakes vehicle (if needed) and opens proxy Window Duration immediately.
+                  </div>
                 </div>
               </div>
 
