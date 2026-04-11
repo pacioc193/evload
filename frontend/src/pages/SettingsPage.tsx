@@ -340,6 +340,30 @@ export default function SettingsPage() {
   const [systemTimeMsg, setSystemTimeMsg] = useState('')
   const [systemTimeBusy, setSystemTimeBusy] = useState(false)
 
+  // Get current time formatted in selected timezone
+  const getCurrentTimeInTimezone = (tz: string): string => {
+    try {
+      const now = new Date()
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      })
+      const parts = formatter.formatToParts(now)
+      const partMap = Object.fromEntries(parts.map((p) => [p.type, p.value]))
+      const dateStr = `${partMap.year}-${partMap.month}-${partMap.day}`
+      const timeStr = `${partMap.hour}:${partMap.minute}:${partMap.second}`
+      return `${dateStr} ${timeStr} (${tz})`
+    } catch {
+      return 'Invalid timezone'
+    }
+  }
+
   // Backup panel
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
   const [backupFiles, setBackupFiles] = useState<DriveBackupFile[]>([])
@@ -1341,7 +1365,9 @@ export default function SettingsPage() {
                   options={IANA_TIMEZONES}
                   description="IANA timezone name used for all log timestamps and date display. Changes take effect immediately without restart."
                 />
-                <p className="text-xs text-evload-muted mt-1">Current server time (UTC): {new Date().toUTCString()}</p>
+                <p className="text-xs text-evload-muted mt-1">
+                  Current server time: <span className="font-mono">{getCurrentTimeInTimezone(settings.timezone ?? 'UTC')}</span>
+                </p>
               </SectionCard>
               <SectionCard title="Set System Clock">
                 <p className="text-xs text-evload-muted mb-2">Set the OS system clock directly. Requires the backend process to have CAP_SYS_TIME or sudo privileges.</p>

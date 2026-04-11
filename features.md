@@ -5,6 +5,31 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 ## Aggiornamenti Recenti (2026-04-11) — v1.6.5
 
+- **VIN anonimizzazione nei log**:
+	- Tutti i log backend ora anonimizzano VIN e vehicleId, mostrando solo le ultime 4 cifre (es. `***5ABC` instead di `7G1FB1E3XF1234567`).
+	- Implementato tramite funzione `anonimizeVin()` che agisce su tutti i campi `vin` e `vehicleId` nella struttura di logging.
+	- Sensibili: authorization, token, password, api_key, cookie.
+
+- **Timestamp con timezone corretto**:
+	- Frontend Settings → System → Timezone: il display cambia da hardcoded "Current server time (UTC)" a formato dinamico con timezone selezionato.
+	- Usa `Intl.DateTimeFormat()` con la timezone IANA selezionata per mostrare l'ora effettiva nel fuso orario della macchina/server.
+	- Formato: `YYYY-MM-DD HH:MM:SS (Europe/Rome)` instead di sempre UTC.
+
+- **Pre-push local compilation enforcement**:
+	- Nuovo script `scripts/pre-push-checks.ps1` che verifica la compilazione prima permettere il push.
+	- Controlla:
+		1. Backend TypeScript compiles (`npm run build`)
+		2. Frontend build succeeds (Vite + TypeScript)
+	- Exit code 0 = safe to push, 1 = build failed (stop push).
+	- Può essere integrato come git hook pre-push per automazione.
+
+- **OTA come deployment method ufficiale**:
+	- Documentazione in `docs/DEPLOYMENT.md`: "Always use OTA unless OTA is broken."
+	- OTA Update UI in Settings mostra lo status live e i guard-blocking reasons.
+	- Script `Update-EvloadNative.ps1` supporta OTA come fallback quando il push locale non è possibile.
+	- Preserva database, config, log files su update.
+	- Supporta rollback a versioni precedenti.
+
 - **Unified logging system — single log file**:
 	- Rimossi dual transports (`error.log` + `combined.log`) dal logger.
 	- Backend ora scrive unicamente su file `logs/log` (maxsize 50MB, maxFiles 5, formato JSON).

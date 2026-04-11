@@ -11,12 +11,20 @@ const REDACT_KEYS = new Set([
   'api_key',
   'cookie',
   'set-cookie',
+  'vin',
+  'vehicleid',
 ])
 
 function redactString(value: string): string {
   if (/^bearer\s+/i.test(value)) return 'Bearer ***'
   if (value.length > 0) return '***'
   return value
+}
+
+function anonimizeVin(value: string): string {
+  // Mostra solo le ultime 4 cifre del VIN
+  if (value.length >= 4) return '***' + value.slice(-4)
+  return '***'
 }
 
 function redactValue(value: unknown): unknown {
@@ -28,7 +36,10 @@ function redactValue(value: unknown): unknown {
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(obj)) {
       const key = k.toLowerCase()
-      if (REDACT_KEYS.has(key)) {
+      if (key === 'vin' || key === 'vehicleid') {
+        // Anonimizza VIN e vehicleId mostrando solo le ultime 4 cifre
+        out[k] = typeof v === 'string' ? anonimizeVin(v) : '***'
+      } else if (REDACT_KEYS.has(key)) {
         out[k] = typeof v === 'string' ? redactString(v) : '***'
       } else {
         out[k] = redactValue(v)

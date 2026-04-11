@@ -19,6 +19,10 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **VIN anonimizzazione nei log**: TuVIN dell'auto nei log backend viene anonimizzato, mostrando solo le ultime 4 cifre per privacy
+- **Timezone corretto nel frontend**: Ora il display "Current server time" mostra l'ora nel timezone selezionato (non solo UTC hardcoded)
+- **Pre-push compilation check**: Nuovo script `scripts/pre-push-checks.ps1` valida la compilazione locale prima di permettere il push
+- **OTA come deployment ufficiale**: Documentazione `docs/DEPLOYMENT.md` raccomanda OTA per tutti deploy remoti, con database/config preservation
 - **Unified logging system**: removed dual error/combined logs, now single unified `log` file with JSON format; API and UI simplified
 - **Schedule panel mobile redesign**: complete rewrite with sticky header, collapsible form, card-based items, responsive grid (mobile-first)
 - **Vehicle defrost fixed**: corrected from `defrost_max` to `auto_conditioning_start` with `wait: true` for Tesla proxy spec compliance
