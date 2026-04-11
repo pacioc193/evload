@@ -488,7 +488,7 @@ function resolveTimezone(tz: string): string {
   return 'UTC'
 }
 
-function buildTimestampPayload(now: Date): { timestamp: string; timestamp_time: string; timestamp_date: string } {
+export function buildTimestampPayload(now: Date): { timestamp: string; timestamp_time: string; timestamp_date: string } {
   const tz = resolveTimezone(getConfig().timezone)
   return {
     timestamp: now.toISOString(),
