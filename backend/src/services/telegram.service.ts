@@ -29,6 +29,7 @@ export async function loadBotTokenFromDB(): Promise<void> {
     if (config?.telegram_bot_token) {
       cachedBotToken = config.telegram_bot_token
       logger.debug('Telegram bot token loaded from database')
+      return
     }
   } catch (err) {
     logger.error('Failed to load Telegram bot token from database', { err })
