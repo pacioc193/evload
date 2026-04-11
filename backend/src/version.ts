@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.6.1'
+export const VERSION = '1.6.5'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,26 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.6.5',
+    releasedAt: '2026-04-11',
+    summary: 'Scheduler UX refresh and OTA reliability: planner rewritten with ordered step flow, modern target sliders (SOC now shown as % + estimated km, amps bounded by engine min/max), OTA start limiter tuned to prevent false 429 lockouts, and OTA log panel kept visible/pinned during background update transitions.',
+  },
+  {
+    version: '1.6.4',
+    releasedAt: '2026-04-11',
+    summary: 'OTA hardening release: backend dependency step is now live-safe (uses npm install first while service is running, with npm ci fallback), and new OTA safety guards block updates during active/unsafe runtime conditions (engine running, active charging session, charging state, plan armed, failsafe active, or proxy disconnected) unless explicitly forced.',
+  },
+  {
+    version: '1.6.3',
+    releasedAt: '2026-04-11',
+    summary: 'Stability and operations release: fixed target SoC persistence by separating preferredTargetSoc from plan target in engine_restore_state, added production-safe native DB defaults/path guards, reset stale proxy reason on recovery and render reason only on errors, added always-available Settings action to wake vehicle and manually open proxy Window Duration, and hardened install/update scripts with npm ci -> npm install fallback on lockfile mismatch.',
+  },
+  {
+    version: '1.6.2',
+    releasedAt: '2026-04-11',
+    summary: 'Plan name field for scheduled charges and climate: ScheduledCharge and ScheduledClimate now have an optional name field (max 50 chars). The name is shown in the Schedule page recap list (bold, with tooltip for long names), displayed as a 📌 badge on the Dashboard "Next Charge" widget, and stored as locationName on the resulting ChargingSession — visible in Statistics session list and detail panel, and exported in CSV. In Telegram notifications, all plan events (plan_start, plan_completed, plan_skipped, plan_wake) now include {{planName}} placeholder (falls back to "#id" when no name is set) alongside {{planId}}; default templates updated accordingly. DB migration 20260411100000_add_schedule_name adds the column with zero downtime (nullable, backward compatible).',
+  },
   {
     version: '1.6.1',
     releasedAt: '2026-04-11',
@@ -112,7 +132,9 @@ export async function getVersionInfo(): Promise<VersionInfo> {
   
   if (!latestVersionCache || now - lastCheckMs > CHECK_INTERVAL_MS) {
     try {
-      // Use GitHub Releases API for latest release tag.
+      // Prefer GitHub Releases API for latest release tag.
+      // If no release exists yet, fallback to latest tag so Versioning still works
+      // in tag-only workflows.
       // If GITHUB_TOKEN is set it will work for private repos too.
       const headers: Record<string, string> = {
         'Accept': 'application/vnd.github+json',
@@ -121,13 +143,28 @@ export async function getVersionInfo(): Promise<VersionInfo> {
       const token = process.env.GITHUB_TOKEN
       if (token) headers['Authorization'] = `Bearer ${token}`
 
-      const res = await axios.get('https://api.github.com/repos/pacioc193/evload/releases/latest', {
-        timeout: 5000,
-        headers,
-      })
-      const tag: string = res.data?.tag_name ?? ''
-      // Strip leading 'v' if present (e.g. 'v1.3.0' → '1.3.0')
-      const version = tag.replace(/^v/, '')
+      let version = ''
+
+      try {
+        const releaseRes = await axios.get('https://api.github.com/repos/pacioc193/evload/releases/latest', {
+          timeout: 5000,
+          headers,
+        })
+        const releaseTag: string = releaseRes.data?.tag_name ?? ''
+        version = releaseTag.replace(/^v/, '')
+      } catch {
+        // Ignore and fallback to tags API below.
+      }
+
+      if (!version) {
+        const tagsRes = await axios.get('https://api.github.com/repos/pacioc193/evload/tags?per_page=1', {
+          timeout: 5000,
+          headers,
+        })
+        const latestTag: string = Array.isArray(tagsRes.data) ? String(tagsRes.data[0]?.name ?? '') : ''
+        version = latestTag.replace(/^v/, '')
+      }
+
       if (version) {
         latestVersionCache = version
         lastCheckMs = now

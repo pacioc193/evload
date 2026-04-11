@@ -48,7 +48,7 @@ router.get('/oauth/callback', async (req, res) => {
   try {
     await handleOAuthCallback(code)
     // Redirect back to the settings page after successful authorisation
-    res.redirect('/#/settings?backupConnected=1')
+    res.redirect('/settings?backupConnected=1')
   } catch (err) {
     logger.error('BACKUP_ROUTE: oauth callback error', { err })
     // Return plain text — do not interpolate error object into HTML

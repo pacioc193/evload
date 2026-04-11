@@ -179,7 +179,7 @@ export function getUpdateLogs(fromByte = 0): { content: string; totalBytes: numb
 
 export function startUpdate(branch: string): { started: boolean; reason?: string } {
   if (cachedStatus.state === 'running') {
-    return { started: false, reason: 'Update already in progress' }
+    return { started: false, reason: 'Update already in progress on branch ' + (cachedStatus.branch || 'unknown') }
   }
 
   try { fs.writeFileSync(LOG_FILE, '') } catch { /* ignore */ }
@@ -194,15 +194,16 @@ export function startUpdate(branch: string): { started: boolean; reason?: string
   }
   saveStatus(cachedStatus)
 
-  logger.info('🔄 [UPDATER] Starting OTA update', { branch, repoRoot: REPO_ROOT })
+  logger.info('🔄 [UPDATER] Starting OTA update', { branch, repoRoot: REPO_ROOT, logFile: LOG_FILE, scriptPath: path.join(REPO_ROOT, '.evload-update.sh') })
 
   const scriptPath = path.join(REPO_ROOT, '.evload-update.sh')
   const script = buildUpdateScript(branch)
 
   try {
     fs.writeFileSync(scriptPath, script, { mode: 0o755 })
+    logger.debug('✓ [UPDATER] Update script written', { scriptPath, sizeBytes: script.length })
   } catch (err) {
-    const msg = `Failed to write update script: ${String(err)}`
+    const msg = `Failed to write update script to ${scriptPath}: ${String(err)}`
     logger.error('🚨 [UPDATER] ' + msg)
     cachedStatus = { ...cachedStatus, state: 'error', endedAt: new Date().toISOString(), exitCode: -1 }
     saveStatus(cachedStatus)
@@ -216,55 +217,69 @@ export function startUpdate(branch: string): { started: boolean; reason?: string
   let logFd: number
   try {
     logFd = fs.openSync(LOG_FILE, 'w')
+    logger.debug('✓ [UPDATER] Log file opened', { logFile: LOG_FILE })
   } catch (err) {
-    const msg = `Failed to open log file: ${String(err)}`
+    const msg = `Failed to open log file ${LOG_FILE}: ${String(err)}`
     logger.error('🚨 [UPDATER] ' + msg)
     cachedStatus = { ...cachedStatus, state: 'error', endedAt: new Date().toISOString(), exitCode: -1 }
     saveStatus(cachedStatus)
     return { started: false, reason: msg }
   }
 
-  const proc = spawn('bash', [scriptPath], {
-    cwd: REPO_ROOT,
-    detached: true,
-    stdio: ['ignore', logFd, logFd],
-    env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=2048' },
-  })
+  try {
+    const proc = spawn('bash', [scriptPath], {
+      cwd: REPO_ROOT,
+      detached: true,
+      stdio: ['ignore', logFd, logFd],
+      env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=2048' },
+    })
 
-  // Close the fd in the parent — the child has its own reference
-  try { fs.closeSync(logFd) } catch { /* ignore */ }
+    // Close the fd in the parent — the child has its own reference
+    try { fs.closeSync(logFd) } catch { /* ignore */ }
 
-  proc.on('close', (code, signal) => {
-    if (code === null) {
-      // Bash was killed by a signal (e.g. systemd cgroup kill during `systemctl restart evload`).
-      // The bash script pre-writes updater.exit before calling systemctl, so the new Node.js
-      // process will reconcile state correctly via loadStatus().  Do NOT overwrite status with
-      // 'error' here — leave it as 'running' so the reconciliation path can resolve it.
-      logger.warn('🔄 [UPDATER] Update process killed by signal — state will be reconciled by incoming process', { signal })
-      return
-    }
-    // Normal exit path: Node.js was NOT restarted during the update
-    cachedStatus = {
-      ...cachedStatus,
-      state: code === 0 ? 'success' : 'error',
-      endedAt: new Date().toISOString(),
-      exitCode: code,
-    }
-    saveStatus(cachedStatus)
-    logger.info('🔄 [UPDATER] Update process finished', { exitCode: code })
-    try { fs.unlinkSync(scriptPath) } catch { /* ignore */ }
-    try { fs.unlinkSync(EXIT_FILE) } catch { /* ignore */ }
-  })
+    // Store PID for debugging
+    const pid = proc.pid
+    logger.info('🚀 [UPDATER] OTA process spawned', { pid, branch, scriptPath })
 
-  proc.on('error', (err) => {
-    const msg = `\n❌ Spawn error: ${err.message}\n`
-    try { fs.appendFileSync(LOG_FILE, msg) } catch { /* ignore */ }
+    proc.on('close', (code, signal) => {
+      if (code === null) {
+        // Bash was killed by a signal (e.g. systemd cgroup kill during `systemctl restart evload`).
+        // The bash script pre-writes updater.exit before calling systemctl, so the new Node.js
+        // process will reconcile state correctly via loadStatus().  Do NOT overwrite status with
+        // 'error' here — leave it as 'running' so the reconciliation path can resolve it.
+        logger.warn('🔄 [UPDATER] Update process killed by signal — state will be reconciled by incoming process', { pid, signal })
+        return
+      }
+      // Normal exit path: Node.js was NOT restarted during the update
+      cachedStatus = {
+        ...cachedStatus,
+        state: code === 0 ? 'success' : 'error',
+        endedAt: new Date().toISOString(),
+        exitCode: code,
+      }
+      saveStatus(cachedStatus)
+      logger.info('🔄 [UPDATER] Update process finished', { exitCode: code })
+      try { fs.unlinkSync(scriptPath) } catch { /* ignore */ }
+      try { fs.unlinkSync(EXIT_FILE) } catch { /* ignore */ }
+    })
+
+    proc.on('error', (err) => {
+      const msg = `\n❌ Spawn error: ${err.message}\n`
+      try { fs.appendFileSync(LOG_FILE, msg) } catch { /* ignore */ }
+      cachedStatus = { ...cachedStatus, state: 'error', endedAt: new Date().toISOString(), exitCode: -1 }
+      saveStatus(cachedStatus)
+    })
+
+    proc.unref()
+    return { started: true }
+  } catch (err) {
+    try { fs.closeSync(logFd) } catch { /* ignore */ }
+    const msg = `Failed to spawn update process: ${String(err)}`
+    logger.error('🚨 [UPDATER] ' + msg, { err })
     cachedStatus = { ...cachedStatus, state: 'error', endedAt: new Date().toISOString(), exitCode: -1 }
     saveStatus(cachedStatus)
-  })
-
-  proc.unref()
-  return { started: true }
+    return { started: false, reason: msg }
+  }
 }
 
 function buildUpdateScript(branch: string): string {
@@ -288,6 +303,15 @@ echo ""
 
 echo "🔄 [1/5] Fetching latest changes (branch: ${branch})..."
 cd "$REPO"
+
+# If previous runs left local modifications (for example lockfiles), stash them
+# so branch checkout never aborts. Keep stash for post-mortem if needed.
+if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+  STASH_NAME="evload-ota-autostash-$(date -u +%Y%m%dT%H%M%SZ)"
+  echo "ℹ️  Working tree not clean — stashing local changes as $STASH_NAME"
+  git stash push --include-untracked -m "$STASH_NAME" >/dev/null 2>&1 || true
+fi
+
 git fetch origin "${branch}"
 git checkout -B "${branch}" FETCH_HEAD
 git reset --hard FETCH_HEAD
@@ -298,9 +322,21 @@ echo "✅ Source updated to origin/${branch}"
 echo ""
 
 echo "📦 [2/5] Installing dependencies (may take a few minutes)..."
-rm -rf "$REPO/backend/node_modules" "$REPO/frontend/node_modules"
-npm --prefix "$REPO/backend" ci --include=dev
-npm --prefix "$REPO/frontend" ci --include=dev
+echo "  → Backend: live-safe install (non-destructive while service is still running)"
+if npm --prefix "$REPO/backend" install --include=dev --no-audit --no-fund; then
+  echo "✅ Backend dependencies installed with npm install"
+else
+  echo "⚠️  Backend npm install failed, trying npm ci as fallback"
+  npm --prefix "$REPO/backend" ci --include=dev
+fi
+
+echo "  → Frontend: clean install"
+if npm --prefix "$REPO/frontend" ci --include=dev; then
+  echo "✅ Frontend dependencies installed with npm ci"
+else
+  echo "⚠️  Frontend npm ci failed (lock mismatch), falling back to npm install --no-package-lock"
+  npm --prefix "$REPO/frontend" install --include=dev --no-audit --no-fund --no-package-lock
+fi
 echo "✅ Dependencies installed"
 echo ""
 

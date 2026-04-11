@@ -19,6 +19,31 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Version bump 1.6.5**: release metadata aligned across backend source-of-truth (`backend/src/version.ts`) and all package manifests, prepared for first Git tag/release flow
+- **Versioning fallback for first tag**: when `releases/latest` is not available yet, backend now falls back to GitHub `tags` API, so the UI can still detect updates from tag-only releases
+- **VIN anonimizzazione nei log**: TuVIN dell'auto nei log backend viene anonimizzato, mostrando solo le ultime 4 cifre per privacy
+- **Timezone corretto nel frontend**: Ora il display "Current server time" mostra l'ora nel timezone selezionato (non solo UTC hardcoded)
+- **Pre-push compilation check**: Nuovo script `scripts/pre-push-checks.ps1` valida la compilazione locale prima di permettere il push
+- **OTA come deployment ufficiale**: Documentazione `docs/DEPLOYMENT.md` raccomanda OTA per tutti deploy remoti, con database/config preservation
+- **Unified logging system**: removed dual error/combined logs, now single unified `log` file with JSON format; API and UI simplified
+- **Schedule builder rewritten from scratch**: modern step-by-step planner flow with ordered fields (Plan name → Oggi/Domani → Start/Finish/Range → Ripetizione → SOC/A), stronger mobile layout, and redesigned modern sliders
+- **Scheduler target sliders refined**: SOC slider is now green and displays `% + estimated km` together; Amps slider is red and its min/max are bound dynamically to engine settings (`minAmps` / `maxAmps`)
+- **Vehicle defrost fixed**: corrected from `defrost_max` to `auto_conditioning_start` with `wait: true` for Tesla proxy spec compliance
+- **OTA error visibility enhanced**: 
+  - Backend provides detailed error messages per failure scenario (guards, already running, file errors)
+  - Frontend distinguishes error types and shows guard-by-guard blocking reasons
+  - UI shows live status ("Process starting...", "Live", timeout warnings after 30s of no output)
+  - Log viewer displays detailed error context for debugging OTA failures
+- **OTA 429 lockout mitigation**: `/api/update/start` rate limit is now tuned to avoid false lockouts during repeated failed/retried attempts; failed requests (4xx/5xx) are not counted, preventing users from being blocked by `429` while diagnosing guards/errors
+- **OTA log panel persistence fix**: the OTA log viewer no longer disappears right after start; it stays visible (pinned) and keeps polling logs during transient status transitions so background updates remain observable
+- **Docker DB persistence guard**: `docker-compose.yml` now sets a safe default `DATABASE_URL=file:/app/backend/data/db.sqlite` when env is missing, so AppConfig and target SoC preferences survive container rebuild/update on the named volume
+- **Native/Raspberry DB persistence guard**: backend runtime and Prisma CLI now default to `file:./data/evload.db` in production when `DATABASE_URL` is not set, and native systemd services explicitly set that path; this prevents `AppConfig` resets (target SoC returning to 80) after updates
+- **targetSoc persistence fix (plan vs preference)**: `engine_restore_state` now persists `preferredTargetSoc` separately from the currently armed plan target, so a scheduled/manual plan at 80 no longer overwrites the user's persisted target preference
+- **Proxy reason cleanup + conditional UI rendering**: when proxy/vehicle communication recovers, runtime `reason` is reset to `null` (no stale success/failure text); Dashboard and Settings now render the `Reason` field only when an actual error is present
+- **Manual proxy Window Duration trigger in Settings**: the Proxy panel now includes an always-available `Wake / Start Data Window` action that sends wake and immediately opens the proxy vehicle-data window on demand
+- **Versioning UX refresh**: the Settings version history now defaults to a concise recent list, supports progressive "Show 5 more" expansion, and adds per-release "Read more/Show less" summaries to avoid long scrolling noise
+- **OTA safety guards**: OTA start is now blocked by default when runtime is in an unsafe state (engine running, active charging/session, plan armed, failsafe active, or proxy disconnected); UI now shows guard-by-guard status and blocking reasons from backend `409` responses, and an explicit `force=true` override is required to bypass guards
+- **OTA updater robustness**: before branch checkout, OTA now auto-stashes local changes (including untracked files) to avoid `checkout` aborts; during OTA the backend uses live-safe `npm install` (non-destructive while service is running) with `npm ci` fallback, while frontend keeps clean `npm ci` with fallback to `npm install --no-package-lock`
 - **Single targetSoc and scheduleLead removal**: unified to one persisted targetSoc (removed `targetSocOff`/`targetSocOn` distinction); removed `scheduleLeadTimeSec` and pre-wake logic entirely
 - **Dashboard SoC slider sync fix**: the Target SoC slider was resetting every second during active drag because the WS engine object reference changes on every 1s broadcast; fixed by tracking only the primitive `targetSoc` value in the effect dependency array
 - **Garage unlatch always available**: the Unlatch button in Garage mode is no longer gated on `vehicle.pluggedIn`; it can now open the charge-port door even when the car is idle or sleeping in the garage
@@ -256,6 +281,7 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Engine live log rendered newest-first (latest line on top)
 - Climate control commands and scheduling
 - Charging schedules: `start_at`, `finish_by`, `start_end`, `weekly`
+- **Plan name**: each scheduled charge (and climate) can have an optional human-readable name (max 50 chars); shown as 📌 badge in the Dashboard "Next Charge" widget, in the Schedule recap list, and in Statistics session list/detail; stored as `locationName` on the charging session for grouping/filtering; included as `{{planName}}` placeholder in all plan Telegram notification events (`plan_start`, `plan_completed`, `plan_skipped`, `plan_wake`); falls back to `#id` when no name is set
 - **Plan pre-wake**: configurable `charging.planWakeBeforeMinutes` sends a `wake_up` command to the vehicle X minutes before a planned charge session starts; exposed in Settings → Charging → Plan Mode; emits a `plan_wake` Telegram notification event
 - **Robust charge start grace window**: configurable `charging.chargeStartGraceSec` (default 120s) — during this window after engine start, temporary vehicle block states (not connected to proxy, BLE wake delay, `chargingState=Disconnected`) are tolerated and `charge_start` retries continue; only after the grace window expires without charging does the engine declare `chargeStartBlocked` and send the Telegram notification
 - Notification templates with emojis: all example templates updated with meaningful Italian messages and emoji; new `{{timestamp_time}}` (HH:MM 24h) and `{{timestamp_date}}` (full date/time) placeholders available alongside `{{timestamp}}`
@@ -265,7 +291,9 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Demo/simulator mode for development without a real Tesla
 - **Verbose production logging**: every critical engine operation (`charge_start`, `charge_stop`, `set_charging_amps`, engine start/stop, HA throttle, failsafe, plan mode) emits a structured log entry with emoji-prefixed tag, context values (vehicleId, sessionId, before/after amps, reasons, costs) for post-mortem analysis of overnight sessions
 - **Log download from Settings**: authenticated Settings panel lets operators download backend `combined.log` / `error.log` and frontend browser logs directly from the UI
-- **Timezone & system clock settings**: new System panel in Settings to configure IANA timezone (applied immediately to backend process for log timestamps) and to set the OS clock via `POST /api/settings/system-time`
+- **Timezone & system clock settings**: new System panel in Settings to configure IANA timezone via dropdown (covering ~60 common IANA zones) applied immediately to backend process for log timestamps, and to set the OS clock via `POST /api/settings/system-time`
+- **Secure Telegram error logging**: bot token is redacted (`***REDACTED***`) from all Telegram error log entries — the full request URI is no longer written to log files
+- **Multi-line notification templates**: all 24 default notification templates redesigned with `\n` line breaks and dedicated lines for each relevant placeholder (`{{timestamp_date}}`, event-specific fields), making Telegram messages clearly readable at a glance
 - **Garage unlatch fix**: corrected command from `charge_port_open` → `charge_port_door_open` (matching the proxy allowlist); sync execution via `?wait=true` confirmed
 
 ## Prerequisites

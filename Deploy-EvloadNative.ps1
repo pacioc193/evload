@@ -85,6 +85,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/evload/backend
 Environment=NODE_ENV=production
+Environment=DATABASE_URL=file:/opt/evload/backend/data/evload.db
 ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
 RestartSec=10

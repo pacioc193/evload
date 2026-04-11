@@ -11,33 +11,26 @@ let schedulerTimer: NodeJS.Timeout | null = null
 /** IDs of scheduled charges for which we have already sent the pre-wake command. */
 const preWakeArmedIds = new Set<number>()
 
-async function startEngineWithWake(scheduleId: number, vehicleId: string, targetSoc: number, targetAmps?: number): Promise<void> {
-  logger.debug('Scheduler: startEngineWithWake', { scheduleId, vehicleId, targetSoc, targetAmps })
+async function startEngineWithWake(scheduleId: number, vehicleId: string, targetSoc: number, targetAmps?: number, planName?: string): Promise<void> {
+  logger.debug('Scheduler: startEngineWithWake', { scheduleId, vehicleId, targetSoc, targetAmps, planName })
   // External charge takeover (stopChargeOnManualStart logic) is handled inside startEngine()
   // fromPlan=true: plan sessions keep planArmed=true so mode stays 'plan' after charge completes
-  await startEngine(targetSoc, targetAmps, true)
-}
-
-export async function getScheduleNextStartMs(now: Date = new Date()): Promise<number | null> {
-  const next = await resolveNextPlannedCharge(now)
-  if (!next) return null
-  return next.computedStartAt.getTime() - now.getTime()
+  await startEngine(targetSoc, targetAmps, true, planName)
 }
 
 async function runSchedulerTick(): Promise<void> {
   const now = new Date()
   const cfg = getConfig()
-  const chargeSchedulesEnabled = getEngineStatus().mode !== 'off'
 
   // ── Pre-wake: send wake_up command X minutes before a scheduled charge ───
   const planWakeBeforeMs = (cfg.charging.planWakeBeforeMinutes ?? 0) * 60 * 1000
-  if (planWakeBeforeMs > 0 && chargeSchedulesEnabled) {
+  if (planWakeBeforeMs > 0) {
     const wakeWindowStart = now
     const wakeWindowEnd = new Date(now.getTime() + planWakeBeforeMs)
     const soonCharges = await prisma.scheduledCharge.findMany({
       where: {
         enabled: true,
-        scheduleType: { in: ['start_at', 'weekly', 'start_end'] },
+        scheduleType: { in: ['start_at', 'weekly', 'start_end', 'start_end_weekly'] },
         startedAt: null,
         scheduledAt: { gt: wakeWindowStart, lte: wakeWindowEnd },
       },
@@ -46,9 +39,10 @@ async function runSchedulerTick(): Promise<void> {
       if (preWakeArmedIds.has(sc.id)) continue
       preWakeArmedIds.add(sc.id)
       const minutesUntilStart = Math.round((sc.scheduledAt!.getTime() - now.getTime()) / 60000)
+      const planName = sc.name ?? `#${sc.id}`
       logger.info(`⏰ [PLAN_WAKE] Sending pre-wake for scheduled charge id=${sc.id} (starts in ${minutesUntilStart} min)`)
       requestWakeMode(true).catch((err) => logger.error('Pre-wake requestWakeMode failed', { err, chargeId: sc.id }))
-      dispatchTelegramNotificationEvent('plan_wake', { planId: sc.id, wakeBeforeMinutes: minutesUntilStart }).catch(() => {})
+      dispatchTelegramNotificationEvent('plan_wake', { planId: String(sc.id), planName, wakeBeforeMinutes: minutesUntilStart }).catch(() => {})
     }
   }
 
@@ -58,18 +52,18 @@ async function runSchedulerTick(): Promise<void> {
   })
 
   for (const sc of pendingStartAt) {
-    if (!chargeSchedulesEnabled) continue
     await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
     logger.info(`Executing start_at charge id=${sc.id} targetSoc=${sc.targetSoc}`)
+    const planName = sc.name ?? `#${sc.id}`
     if (!isFailsafeActive() && !getEngineStatus().running) {
       try {
-        dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
-        await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, sc.targetAmps ?? undefined)
+        dispatchTelegramNotificationEvent('plan_start', { planId: String(sc.id), planName, targetSoc: sc.targetSoc }).catch(() => {})
+        await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, sc.targetAmps ?? undefined, planName)
       } catch (err) {
         logger.error(`Scheduled charge id=${sc.id} failed to start engine`, { err })
       }
     } else {
-      dispatchTelegramNotificationEvent('plan_skipped', { planId: sc.id, reason: 'failsafe_active_or_running' }).catch(() => {})
+      dispatchTelegramNotificationEvent('plan_skipped', { planId: String(sc.id), planName, reason: 'failsafe_active_or_running' }).catch(() => {})
       logger.warn(`Scheduled charge id=${sc.id} skipped (failsafe or engine already running)`)
     }
   }
@@ -79,52 +73,52 @@ async function runSchedulerTick(): Promise<void> {
   })
 
   for (const sc of pendingWeekly) {
-    if (!chargeSchedulesEnabled) continue
     const currentScheduledAt = sc.scheduledAt ?? now
     const nextWeeklyOccurrence = new Date(currentScheduledAt.getTime() + (7 * 24 * 60 * 60 * 1000))
     await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { scheduledAt: nextWeeklyOccurrence } })
     preWakeArmedIds.delete(sc.id) // allow pre-wake on the next weekly occurrence
 
     logger.info(`Executing weekly charge id=${sc.id} targetSoc=${sc.targetSoc}`)
+    const planName = sc.name ?? `#${sc.id}`
     if (!isFailsafeActive() && !getEngineStatus().running) {
       try {
-        dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
-        await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, sc.targetAmps ?? undefined)
+        dispatchTelegramNotificationEvent('plan_start', { planId: String(sc.id), planName, targetSoc: sc.targetSoc }).catch(() => {})
+        await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, sc.targetAmps ?? undefined, planName)
       } catch (err) {
         logger.error(`Weekly charge id=${sc.id} failed to start engine`, { err })
       }
     } else {
-      dispatchTelegramNotificationEvent('plan_skipped', { planId: sc.id, reason: 'failsafe_active_or_running' }).catch(() => {})
+      dispatchTelegramNotificationEvent('plan_skipped', { planId: String(sc.id), planName, reason: 'failsafe_active_or_running' }).catch(() => {})
       logger.warn(`Weekly charge id=${sc.id} skipped (failsafe or engine already running)`)
     }
   }
 
   const pendingStartEndStart = await prisma.scheduledCharge.findMany({
-    where: { enabled: true, scheduleType: 'start_end', startedAt: null, scheduledAt: { lte: now } },
+    where: { enabled: true, scheduleType: { in: ['start_end', 'start_end_weekly'] }, startedAt: null, scheduledAt: { lte: now } },
   })
 
   for (const sc of pendingStartEndStart) {
-    if (!chargeSchedulesEnabled) continue
     logger.info(`Executing start_end charge start id=${sc.id} targetSoc=${sc.targetSoc}`)
+    const planName = sc.name ?? `#${sc.id}`
     if (!isFailsafeActive() && !getEngineStatus().running) {
       try {
         const started = new Date()
         await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { startedAt: started } })
-        dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
-        await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, sc.targetAmps ?? undefined)
+        dispatchTelegramNotificationEvent('plan_start', { planId: String(sc.id), planName, targetSoc: sc.targetSoc }).catch(() => {})
+        await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, sc.targetAmps ?? undefined, planName)
       } catch (err) {
         logger.error(`Scheduled start_end charge id=${sc.id} failed to start engine`, { err })
       }
     } else {
       await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
-      dispatchTelegramNotificationEvent('plan_skipped', { planId: sc.id, reason: 'failsafe_active_or_running' }).catch(() => {})
+      dispatchTelegramNotificationEvent('plan_skipped', { planId: String(sc.id), planName, reason: 'failsafe_active_or_running' }).catch(() => {})
       logger.warn(`Scheduled start_end charge id=${sc.id} skipped (failsafe or engine already running)`)
     }
   }
 
   // ── Finish-by scheduled charges ───────────────────────────────────────────
   const pendingFinishBy = await prisma.scheduledCharge.findMany({
-    where: { enabled: true, scheduleType: 'finish_by', finishBy: { gte: now } },
+    where: { enabled: true, scheduleType: { in: ['finish_by', 'finish_by_weekly'] }, finishBy: { gte: now } },
   })
 
   const vState = getVehicleState()
@@ -133,7 +127,6 @@ async function runSchedulerTick(): Promise<void> {
   const chargerVoltage = vState.chargerVoltage ?? 230
 
   for (const sc of pendingFinishBy) {
-    if (!chargeSchedulesEnabled) continue
     if (!sc.finishBy) continue
     const amps = sc.targetAmps ?? cfg.charging.defaultAmps
     const powerKw = (amps * chargerVoltage) / 1000
@@ -146,33 +139,47 @@ async function runSchedulerTick(): Promise<void> {
     const requiredMs = (requiredKwh / powerKw) * 3600 * 1000
     const startMs = sc.finishBy.getTime() - requiredMs
     if (Date.now() >= startMs) {
-      await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
+      if (sc.scheduleType === 'finish_by_weekly') {
+        const nextFinishBy = new Date(sc.finishBy.getTime() + 7 * 24 * 60 * 60 * 1000)
+        await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { finishBy: nextFinishBy } })
+      } else {
+        await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
+      }
       logger.info(`Executing finish_by charge id=${sc.id} targetSoc=${sc.targetSoc} (must finish by ${sc.finishBy.toISOString()})`)
+      const planName = sc.name ?? `#${sc.id}`
       if (!isFailsafeActive() && !getEngineStatus().running) {
         try {
-          dispatchTelegramNotificationEvent('plan_start', { planId: sc.id, targetSoc: sc.targetSoc }).catch(() => {})
-          await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, amps)
+          dispatchTelegramNotificationEvent('plan_start', { planId: String(sc.id), planName, targetSoc: sc.targetSoc }).catch(() => {})
+          await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, amps, planName)
         } catch (err) {
           logger.error(`Finish-by charge id=${sc.id} failed to start engine`, { err })
         }
       } else {
-        dispatchTelegramNotificationEvent('plan_skipped', { planId: sc.id, reason: 'failsafe_active_or_running' }).catch(() => {})
+        dispatchTelegramNotificationEvent('plan_skipped', { planId: String(sc.id), planName, reason: 'failsafe_active_or_running' }).catch(() => {})
         logger.warn(`Finish-by charge id=${sc.id} skipped (failsafe or engine already running)`)
       }
     }
   }
 
   const pendingStartEndStop = await prisma.scheduledCharge.findMany({
-    where: { enabled: true, scheduleType: 'start_end', startedAt: { not: null }, finishBy: { lte: now } },
+    where: { enabled: true, scheduleType: { in: ['start_end', 'start_end_weekly'] }, startedAt: { not: null }, finishBy: { lte: now } },
   })
 
   for (const sc of pendingStartEndStop) {
-    await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
+    if (sc.scheduleType === 'start_end_weekly' && sc.scheduledAt && sc.finishBy) {
+      const nextStart = new Date(sc.scheduledAt.getTime() + 7 * 24 * 60 * 60 * 1000)
+      const nextFinish = new Date(sc.finishBy.getTime() + 7 * 24 * 60 * 60 * 1000)
+      await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { startedAt: null, scheduledAt: nextStart, finishBy: nextFinish } })
+      preWakeArmedIds.delete(sc.id)
+    } else {
+      await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
+    }
     logger.info(`Executing start_end charge stop id=${sc.id} finishBy=${sc.finishBy?.toISOString()}`)
+    const planName = sc.name ?? `#${sc.id}`
     if (!isFailsafeActive()) {
       try {
         await sendProxyCommand(sc.vehicleId || cfg.proxy.vehicleId, 'charge_stop', {})
-        dispatchTelegramNotificationEvent('plan_completed', { planId: sc.id, reason: 'finish_by_window_reached' }).catch(() => {})
+        dispatchTelegramNotificationEvent('plan_completed', { planId: String(sc.id), planName, reason: 'finish_by_window_reached' }).catch(() => {})
       } catch (err) {
         logger.error(`Scheduled start_end charge id=${sc.id} failed to stop charging`, { err })
       }
@@ -303,6 +310,7 @@ async function runSchedulerTick(): Promise<void> {
 
 export interface NextPlannedCharge {
   id: number
+  name: string | null
   scheduleType: string
   targetSoc: number
   targetAmps: number | null
@@ -324,6 +332,7 @@ export async function resolveNextPlannedCharge(now: Date = new Date()): Promise<
   if (futureStartAt?.scheduledAt) {
     return {
       id: futureStartAt.id,
+      name: futureStartAt.name,
       scheduleType: futureStartAt.scheduleType,
       targetSoc: futureStartAt.targetSoc,
       targetAmps: futureStartAt.targetAmps,
@@ -333,12 +342,13 @@ export async function resolveNextPlannedCharge(now: Date = new Date()): Promise<
   }
 
   const futureStartEnd = await prisma.scheduledCharge.findFirst({
-    where: { enabled: true, scheduleType: 'start_end', startedAt: null, scheduledAt: { gt: now } },
+    where: { enabled: true, scheduleType: { in: ['start_end', 'start_end_weekly'] }, startedAt: null, scheduledAt: { gt: now } },
     orderBy: { scheduledAt: 'asc' },
   })
   if (futureStartEnd?.scheduledAt) {
     return {
       id: futureStartEnd.id,
+      name: futureStartEnd.name,
       scheduleType: 'start_end',
       targetSoc: futureStartEnd.targetSoc,
       targetAmps: futureStartEnd.targetAmps,
@@ -348,7 +358,7 @@ export async function resolveNextPlannedCharge(now: Date = new Date()): Promise<
   }
 
   const pendingFinishBy = await prisma.scheduledCharge.findMany({
-    where: { enabled: true, scheduleType: 'finish_by', finishBy: { gt: now } },
+    where: { enabled: true, scheduleType: { in: ['finish_by', 'finish_by_weekly'] }, finishBy: { gt: now } },
     orderBy: { finishBy: 'asc' },
   })
   const vState = getVehicleState()
@@ -367,6 +377,7 @@ export async function resolveNextPlannedCharge(now: Date = new Date()): Promise<
     if (computedStartAt > now) {
       return {
         id: sc.id,
+        name: sc.name,
         scheduleType: 'finish_by',
         targetSoc: sc.targetSoc,
         targetAmps: sc.targetAmps,

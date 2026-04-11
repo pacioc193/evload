@@ -274,11 +274,6 @@ export async function triggerHaHealthCheckNow(): Promise<HaState> {
   return haState
 }
 
-async function getHaToken(): Promise<string | null> {
-  const rec = await prisma.appConfig.findUnique({ where: { key: 'ha_token' } })
-  return rec?.value ?? null
-}
-
 function getAppUrl(): string {
   const raw = process.env.APP_URL?.trim() ?? ''
   return raw.replace(/\/+$/, '')
@@ -345,29 +340,11 @@ export async function getHaTokenValidity(): Promise<{
   }
 }
 
-export async function saveHaToken(token: string): Promise<void> {
-  await prisma.appConfig.upsert({
-    where: { id: 1 },
-    update: { ha_token: token },
-    create: { id: 1, ha_token: token },
-  })
-  logger.info('HA token saved')
-}
-
 export async function getHaTokenObj(): Promise<HaTokenObj | null> {
   const rec = await prisma.appConfig.findUnique({ where: { id: 1 } })
   if (!rec?.ha_token_obj) return null
   try {
-    const parsed = JSON.parse(rec.ha_token_obj) as HaTokenObj
-    if (!parsed.issued_at_ms) {
-      parsed.issued_at_ms = Date.now()
-      await prisma.appConfig.update({
-        where: { id: 1 },
-        data: { ha_token_obj: JSON.stringify(parsed) },
-      })
-      logger.info('HA token object migrated: issued_at_ms persisted')
-    }
-    return parsed
+    return JSON.parse(rec.ha_token_obj) as HaTokenObj
   } catch {
     return null
   }
@@ -383,7 +360,6 @@ export async function saveHaTokenObj(obj: HaTokenObj): Promise<void> {
     update: { ha_token_obj: JSON.stringify(normalized) },
     create: { id: 1, ha_token_obj: JSON.stringify(normalized) },
   })
-  await saveHaToken(normalized.access_token)
   logger.info('HA token object saved')
 }
 
@@ -392,12 +368,10 @@ async function clearHaTokenState(reason: string): Promise<void> {
     await prisma.appConfig.upsert({
       where: { id: 1 },
       update: {
-        ha_token: null,
         ha_token_obj: null,
       },
       create: {
         id: 1,
-        ha_token: null,
         ha_token_obj: null,
       },
     })
@@ -459,7 +433,7 @@ async function refreshHaAccessToken(tokenObj: HaTokenObj): Promise<string | null
 export async function getValidHaAccessToken(forceRefresh = false): Promise<string | null> {
   const tokenObj = await getHaTokenObj()
   if (!tokenObj) {
-    return getHaToken()
+    return null
   }
 
   if (forceRefresh || isHaTokenExpired(tokenObj)) {
@@ -467,7 +441,7 @@ export async function getValidHaAccessToken(forceRefresh = false): Promise<strin
     if (refreshed) return refreshed
   }
 
-  return tokenObj.access_token || (await getHaToken())
+  return tokenObj.access_token || null
 }
 
 async function pollHaOnce(): Promise<void> {

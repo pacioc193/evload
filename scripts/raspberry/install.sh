@@ -139,6 +139,7 @@ Type=simple
 User=pi
 WorkingDirectory=${INSTALL_DIR}/backend
 EnvironmentFile=${INSTALL_DIR}/backend/.env
+Environment=DATABASE_URL=file:${INSTALL_DIR}/backend/data/evload.db
 ExecStart=/usr/bin/node dist/index.js
 Restart=always
 RestartSec=5

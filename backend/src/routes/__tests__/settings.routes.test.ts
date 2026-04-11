@@ -55,6 +55,11 @@ jest.mock('../../services/notification-rules.service', () => ({
     presets: { engine_started: { sessionId: 1 } },
     schemas: { engine_started: { required: ['sessionId'], fields: { sessionId: 'number' } } },
   })),
+  buildTimestampPayload: jest.fn(() => ({
+    timestamp: '2026-04-11T10:00:00.000Z',
+    timestamp_time: '10:00',
+    timestamp_date: '11/04/2026 10:00',
+  })),
   sendTelegramNotificationTest: jest.fn(async () => ({ rendered: 'ok', delivered: false })),
   validateNotificationPayload: jest.fn(() => ({ valid: true, missingRequired: [], invalidTypes: [], unknownFields: [] })),
   extractMissingTemplatePlaceholders: jest.fn(() => []),
@@ -285,6 +290,7 @@ describe('/telegram/test endpoint', () => {
       getNotificationEventOptions: jest.Mock
       sendTelegramNotificationTest: jest.Mock
       extractMissingTemplatePlaceholders: jest.Mock
+      buildTimestampPayload: jest.Mock
     }
     const telMocks = jest.requireMock('../../services/telegram.service') as {
       getTelegramPrerequisiteStatus: jest.Mock
@@ -402,5 +408,26 @@ describe('/telegram/test endpoint', () => {
       .send({ event: 'engine_started', template: 'hi {{targetSoc}}', payload: { sessionId: 1 } })
     expect(res.status).toBe(200)
     expect(res.body.missingPlaceholders).toEqual(['targetSoc'])
+  })
+
+  test('timestamp_time and timestamp_date are NOT reported as missing placeholders — regression for false-positive bug', async () => {
+    // The route must pass timestamp_time and timestamp_date (via buildTimestampPayload) to
+    // extractMissingTemplatePlaceholders so that templates using {{timestamp_time}} or
+    // {{timestamp_date}} are never falsely flagged as missing.
+    // Real extractMissingTemplatePlaceholders is used here to exercise the actual logic.
+    const { extractMissingTemplatePlaceholders: realExtract } = jest.requireActual<typeof import('../../services/notification-rules.service')>('../../services/notification-rules.service')
+    mockExtract.mockImplementationOnce(realExtract)
+
+    const res = await request(app)
+      .post('/telegram/test')
+      .send({
+        event: 'engine_started',
+        template: '🔌 ora {{timestamp_time}} — data {{timestamp_date}} — sessione {{sessionId}}',
+        payload: { sessionId: 1 },
+      })
+    expect(res.status).toBe(200)
+    expect(res.body.missingPlaceholders).not.toContain('timestamp_time')
+    expect(res.body.missingPlaceholders).not.toContain('timestamp_date')
+    expect(res.body.missingPlaceholders).not.toContain('timestamp')
   })
 })

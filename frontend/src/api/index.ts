@@ -252,20 +252,19 @@ export async function getTelegramPlaceholders() {
 // ─── Logs ─────────────────────────────────────────────────────────────────────
 
 /**
- * Download the backend combined or error log as a file.
+ * Download the backend log file as a file.
  * Triggers a browser file download.
  */
-export async function downloadBackendLog(type: 'combined' | 'error' = 'combined', since?: string): Promise<void> {
+export async function downloadBackendLog(since?: string): Promise<void> {
   const res = await api.get(`/settings/logs/backend`, {
-    params: { type, format: 'pretty', ...(since ? { since } : {}) },
+    params: { format: 'pretty', ...(since ? { since } : {}) },
     responseType: 'blob',
   })
   const blob = new Blob([res.data as BlobPart], { type: 'text/plain;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  const filename = type === 'error' ? 'evload-backend-error.log' : 'evload-backend-combined.log'
-  a.download = filename
+  a.download = 'evload-backend.log'
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -302,6 +301,7 @@ export async function uploadFrontendLogs(logs: string): Promise<{ success: boole
 export interface ScheduledCharge {
   id: number
   vehicleId: string
+  name: string | null
   scheduleType: string
   scheduledAt: string | null
   finishBy: string | null
@@ -315,6 +315,7 @@ export interface ScheduledCharge {
 export interface ScheduledClimate {
   id: number
   vehicleId: string
+  name: string | null
   scheduleType: string
   scheduledAt: string | null
   finishBy: string | null
@@ -326,6 +327,7 @@ export interface ScheduledClimate {
 
 export interface NextPlannedCharge {
   id: number
+  name: string | null
   scheduleType: string
   targetSoc: number
   targetAmps: number | null
@@ -345,10 +347,12 @@ export async function getScheduledCharges() {
 
 export async function createScheduledCharge(
   options:
-    | { scheduleType: 'start_at'; scheduledAt: string; targetSoc: number; targetAmps?: number }
-    | { scheduleType: 'finish_by'; finishBy: string; targetSoc: number; targetAmps?: number }
-    | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetSoc: number; targetAmps?: number }
-    | { scheduleType: 'weekly'; scheduledAt: string; targetSoc: number; targetAmps?: number }
+    | { scheduleType: 'start_at'; scheduledAt: string; targetSoc: number; targetAmps?: number; name?: string }
+    | { scheduleType: 'finish_by'; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
+    | { scheduleType: 'finish_by_weekly'; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
+    | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
+    | { scheduleType: 'start_end_weekly'; scheduledAt: string; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
+    | { scheduleType: 'weekly'; scheduledAt: string; targetSoc: number; targetAmps?: number; name?: string }
 ) {
   const res = await api.post('/schedule/charges', options)
   return res.data as ScheduledCharge
@@ -366,9 +370,9 @@ export async function getScheduledClimates() {
 
 export async function createScheduledClimate(
   options:
-    | { scheduleType: 'start_at'; scheduledAt: string; targetTempC: number }
-    | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetTempC: number }
-    | { scheduleType: 'weekly'; scheduledAt: string; targetTempC: number }
+    | { scheduleType: 'start_at'; scheduledAt: string; targetTempC: number; name?: string }
+    | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetTempC: number; name?: string }
+    | { scheduleType: 'weekly'; scheduledAt: string; targetTempC: number; name?: string }
 ) {
   const res = await api.post('/schedule/climate', options)
   return res.data as ScheduledClimate
@@ -471,6 +475,19 @@ export interface CommitInfo {
   date: string
 }
 
+export interface OtaGuards {
+  blocked: boolean
+  reasons: string[]
+  engineRunning: boolean
+  engineMode: 'off' | 'plan' | 'on'
+  sessionActive: boolean
+  vehicleCharging: boolean
+  chargingState: string | null
+  proxyConnected: boolean
+  failsafeActive: boolean
+  failsafeReason: string | null
+}
+
 export interface UpdateStatusResponse {
   state: 'idle' | 'running' | 'success' | 'error'
   branch: string | null
@@ -483,6 +500,7 @@ export interface UpdateStatusResponse {
   localCommit: CommitInfo | null
   remoteCommit: CommitInfo | null
   behindCount: number
+  otaGuards: OtaGuards
 }
 
 export async function getUpdateStatus(branch?: string) {
@@ -495,9 +513,9 @@ export async function triggerFetch(branch?: string) {
   return res.data as { success: boolean; localCommit: CommitInfo | null; remoteCommit: CommitInfo | null; behindCount: number }
 }
 
-export async function startOtaUpdate(branch: string) {
-  const res = await api.post('/update/start', { branch })
-  return res.data as { success: boolean; branch: string }
+export async function startOtaUpdate(branch: string, force = false) {
+  const res = await api.post('/update/start', { branch, force })
+  return res.data as { success: boolean; branch: string; forced?: boolean }
 }
 
 export async function getOtaLogs(from = 0) {

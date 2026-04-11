@@ -38,11 +38,21 @@ fi
 
 echo "[*] Forcing clean reinstall of root dependencies..."
 rm -rf node_modules
-npm ci --no-audit --no-fund
+if npm ci --no-audit --no-fund; then
+  echo "[*] Root dependencies installed with npm ci"
+else
+  echo "[!] Root npm ci failed (lockfile mismatch), falling back to npm install..."
+  npm install --no-audit --no-fund
+fi
 
 echo "[*] Forcing clean reinstall of backend dependencies..."
 rm -rf backend/node_modules
-npm --prefix backend ci --include=dev --no-audit --no-fund
+if npm --prefix backend ci --include=dev --no-audit --no-fund; then
+  echo "[*] Backend dependencies installed with npm ci"
+else
+  echo "[!] Backend npm ci failed (lockfile mismatch), falling back to npm install..."
+  npm --prefix backend install --include=dev --no-audit --no-fund
+fi
 
 echo "[*] Ensuring backend .env exists"
 BACKEND_ENV=backend/.env
@@ -61,7 +71,12 @@ fi
 
 echo "[*] Forcing clean reinstall of frontend dependencies..."
 rm -rf frontend/node_modules
-npm --prefix frontend ci --no-audit --no-fund
+if npm --prefix frontend ci --no-audit --no-fund; then
+  echo "[*] Frontend dependencies installed with npm ci"
+else
+  echo "[!] Frontend npm ci failed (lockfile mismatch), falling back to npm install..."
+  npm --prefix frontend install --no-audit --no-fund
+fi
 
 echo "[*] Running Prisma generate in backend (if applicable)..."
 if command -v npx >/dev/null 2>&1; then

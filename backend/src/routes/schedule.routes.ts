@@ -32,27 +32,28 @@ router.get('/charges', limiter, requireAuth, async (_req, res) => {
 })
 
 router.post('/charges', limiter, requireAuth, async (req, res) => {
-  const { scheduledAt, finishBy, scheduleType, targetSoc, targetAmps } = req.body as {
+  const { scheduledAt, finishBy, scheduleType, targetSoc, targetAmps, name } = req.body as {
     scheduledAt?: string
     finishBy?: string
     scheduleType?: string
     targetSoc?: number
     targetAmps?: number
+    name?: string
   }
   const type = scheduleType ?? 'start_at'
-  if (type !== 'start_at' && type !== 'finish_by' && type !== 'start_end' && type !== 'weekly') {
-    res.status(400).json({ error: 'scheduleType must be start_at, finish_by, start_end or weekly' })
+  if (type !== 'start_at' && type !== 'finish_by' && type !== 'start_end' && type !== 'weekly' && type !== 'finish_by_weekly' && type !== 'start_end_weekly') {
+    res.status(400).json({ error: 'scheduleType must be start_at, finish_by, start_end, weekly, finish_by_weekly or start_end_weekly' })
     return
   }
   if ((type === 'start_at' || type === 'weekly') && !scheduledAt) {
     res.status(400).json({ error: 'scheduledAt is required for start_at/weekly schedules' })
     return
   }
-  if (type === 'finish_by' && !finishBy) {
+  if ((type === 'finish_by' || type === 'finish_by_weekly') && !finishBy) {
     res.status(400).json({ error: 'finishBy is required for finish_by schedules' })
     return
   }
-  if (type === 'start_end' && (!scheduledAt || !finishBy)) {
+  if ((type === 'start_end' || type === 'start_end_weekly') && (!scheduledAt || !finishBy)) {
     res.status(400).json({ error: 'scheduledAt and finishBy are required for start_end schedules' })
     return
   }
@@ -65,6 +66,10 @@ router.post('/charges', limiter, requireAuth, async (req, res) => {
     res.status(400).json({ error: 'targetSoc must be 1-100' })
     return
   }
+  if (name != null && (typeof name !== 'string' || name.trim().length === 0 || name.length > 50)) {
+    res.status(400).json({ error: 'name must be a non-empty string of max 50 characters' })
+    return
+  }
   const scheduledAtDate = scheduledAt ? new Date(scheduledAt) : undefined
   if (scheduledAtDate && isNaN(scheduledAtDate.getTime())) {
     res.status(400).json({ error: 'Invalid scheduledAt date' })
@@ -75,7 +80,7 @@ router.post('/charges', limiter, requireAuth, async (req, res) => {
     res.status(400).json({ error: 'Invalid finishBy date' })
     return
   }
-  if (type === 'start_end' && scheduledAtDate && finishByDate && finishByDate.getTime() <= scheduledAtDate.getTime()) {
+  if ((type === 'start_end' || type === 'start_end_weekly') && scheduledAtDate && finishByDate && finishByDate.getTime() <= scheduledAtDate.getTime()) {
     res.status(400).json({ error: 'finishBy must be after scheduledAt for start_end schedules' })
     return
   }
@@ -84,6 +89,7 @@ router.post('/charges', limiter, requireAuth, async (req, res) => {
     const item = await prisma.scheduledCharge.create({
       data: {
         vehicleId: cfg.proxy.vehicleId,
+        name: name?.trim() ?? null,
         scheduleType: type,
         scheduledAt: scheduledAtDate ?? null,
         finishBy: finishByDate ?? null,
@@ -126,11 +132,12 @@ router.get('/climate', limiter, requireAuth, async (_req, res) => {
 })
 
 router.post('/climate', limiter, requireAuth, async (req, res) => {
-  const { scheduleType, scheduledAt, finishBy, targetTempC } = req.body as {
+  const { scheduleType, scheduledAt, finishBy, targetTempC, name } = req.body as {
     scheduleType?: string
     scheduledAt?: string
     finishBy?: string
     targetTempC?: number
+    name?: string
   }
   const type = scheduleType ?? 'start_at'
   if (type !== 'start_at' && type !== 'start_end' && type !== 'weekly') {
@@ -148,6 +155,10 @@ router.post('/climate', limiter, requireAuth, async (req, res) => {
   const temp = Number(targetTempC)
   if (temp < 15 || temp > 30) {
     res.status(400).json({ error: 'targetTempC must be 15-30' })
+    return
+  }
+  if (name != null && (typeof name !== 'string' || name.trim().length === 0 || name.length > 50)) {
+    res.status(400).json({ error: 'name must be a non-empty string of max 50 characters' })
     return
   }
   const date = new Date(scheduledAt)
@@ -169,6 +180,7 @@ router.post('/climate', limiter, requireAuth, async (req, res) => {
     const item = await prisma.scheduledClimate.create({
       data: {
         vehicleId: cfg.proxy.vehicleId,
+        name: name?.trim() ?? null,
         scheduleType: type,
         scheduledAt: date,
         finishBy: finishByDate ?? null,

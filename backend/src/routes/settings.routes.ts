@@ -10,6 +10,7 @@ import { getConfig, reloadConfig } from '../config'
 import { logger, setLoggerLevel } from '../logger'
 import { setPassword, verifyPassword } from '../auth'
 import {
+  buildTimestampPayload,
   extractMissingTemplatePlaceholders,
   getNotificationEventOptions,
   getNotificationPlaceholderCatalog,
@@ -407,8 +408,8 @@ router.post('/telegram/test', limiter, requireAuth, async (req, res) => {
   }
 
   const missingPlaceholders = extractMissingTemplatePlaceholders(template, {
+    ...buildTimestampPayload(new Date()),
     event,
-    timestamp: new Date().toISOString(),
     ...payload,
   })
 
@@ -479,9 +480,8 @@ function formatLogLinePretty(line: string): string {
 }
 
 router.get('/logs/backend', logDownloadLimiter, requireAuth, (req, res) => {
-  const type = (req.query.type as string) === 'error' ? 'error' : 'combined'
   const format = (req.query.format as string) === 'pretty' ? 'pretty' : 'json'
-  const filename = type === 'error' ? 'error.log' : 'combined.log'
+  const filename = 'log'
   const logPath = path.join(LOG_DIR, filename)
   const since = req.query.since as string | undefined
   const duration = parseSinceDuration(since)
@@ -493,14 +493,13 @@ router.get('/logs/backend', logDownloadLimiter, requireAuth, (req, res) => {
 
   const stat = fs.statSync(logPath)
   logger.info('📥 [LOGS] Backend log download requested', {
-    type,
     filename,
     sizeBytes: stat.size,
     since: since ?? 'all',
     remoteIp: req.ip,
   })
 
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}.txt"`)
   res.setHeader('Content-Type', 'text/plain; charset=utf-8')
 
   const maybeFormat = (content: string): string => {

@@ -13,6 +13,7 @@ interface Session {
   id: number
   startedAt: string
   endedAt: string | null
+  locationName?: string | null
   totalEnergyKwh: number
   meterEnergyKwh?: number
   vehicleEnergyKwh?: number
@@ -34,6 +35,7 @@ interface SessionDetail {
   id: number
   startedAt: string
   endedAt: string | null
+  locationName?: string | null
   totalEnergyKwh: number
   meterEnergyKwh?: number
   vehicleEnergyKwh?: number
@@ -196,6 +198,7 @@ export default function StatisticsPage() {
       ['session_id', selectedSession.id],
       ['started_at', selectedSession.startedAt],
       ['ended_at', selectedSession.endedAt ?? ''],
+      ['plan_name', selectedSession.locationName ?? ''],
       ['total_energy_kwh', selectedSession.totalEnergyKwh],
       ['meter_energy_kwh', selectedSession.meterEnergyKwh ?? selectedSession.totalEnergyKwh],
       ['vehicle_energy_kwh', selectedSession.vehicleEnergyKwh ?? ''],
@@ -326,7 +329,14 @@ export default function StatisticsPage() {
                   <div key={s.id} className="rounded-lg border border-evload-border p-3 transition-colors hover:border-evload-accent">
                     <div className="flex items-start justify-between gap-3">
                       <button onClick={() => loadSession(s.id)} className="flex-1 text-left">
-                        <div className="text-sm font-medium">{new Date(s.startedAt).toLocaleString()}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-medium">{new Date(s.startedAt).toLocaleString()}</div>
+                          {s.locationName && (
+                            <span className="inline-flex items-center rounded-full border border-evload-border bg-evload-bg px-2 py-0.5 text-[10px] font-medium text-evload-muted max-w-[100px] truncate" title={s.locationName}>
+                              📌 {s.locationName}
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-evload-muted mt-1 flex flex-wrap gap-3">
                           <span>{s.totalEnergyKwh.toFixed(2)} kWh</span>
                           <span>{(s.totalCostEur ?? 0).toFixed(2)} EUR</span>
@@ -370,6 +380,12 @@ export default function StatisticsPage() {
           {selectedSession && !sessionLoading && telemetryData.length > 0 && (
             <>
               <div className="bg-evload-surface border border-evload-border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                {selectedSession.locationName && (
+                  <div className="sm:col-span-3">
+                    <div className="text-evload-muted uppercase tracking-wide text-xs">Piano di ricarica</div>
+                    <div className="text-base font-semibold truncate" title={selectedSession.locationName}>📌 {selectedSession.locationName}</div>
+                  </div>
+                )}
                 <div>
                   <div className="text-evload-muted uppercase tracking-wide text-xs">Meter Energy</div>
                   <div className="text-xl font-semibold">{(selectedSession.meterEnergyKwh ?? selectedSession.totalEnergyKwh).toFixed(2)} kWh</div>

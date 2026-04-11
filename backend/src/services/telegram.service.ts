@@ -5,6 +5,10 @@ import { prisma } from '../prisma'
 
 let bot: TelegramBot | null = null
 
+// Token that the currently running bot was initialized with.
+// Kept separate from cachedBotToken so we can detect token changes.
+let activeBotToken: string | undefined = undefined
+
 // In-memory cache for the bot token, populated from DB at startup
 let cachedBotToken: string | undefined = undefined
 
@@ -22,8 +26,6 @@ export function registerTelegramCommand(command: string, handler: CommandHandler
 
 /**
  * Load the bot token from the database into the in-memory cache.
- * Falls back to TELEGRAM_BOT_TOKEN env var for backward compatibility.
- * If a token is found in env but not in DB, it is migrated to the DB.
  */
 export async function loadBotTokenFromDB(): Promise<void> {
   try {
@@ -35,22 +37,6 @@ export async function loadBotTokenFromDB(): Promise<void> {
     }
   } catch (err) {
     logger.error('Failed to load Telegram bot token from database', { err })
-  }
-
-  // Backward-compat: migrate token from env var to DB
-  const envToken = process.env.TELEGRAM_BOT_TOKEN
-  if (envToken) {
-    cachedBotToken = envToken
-    try {
-      await prisma.appConfig.upsert({
-        where: { id: 1 },
-        update: { telegram_bot_token: envToken },
-        create: { id: 1, telegram_bot_token: envToken },
-      })
-      logger.info('Telegram bot token migrated from TELEGRAM_BOT_TOKEN env to database')
-    } catch (err) {
-      logger.error('Failed to persist migrated Telegram token to database', { err })
-    }
   }
 }
 
@@ -90,14 +76,16 @@ export function initTelegram(): void {
     return
   }
 
-  if (bot && (bot as any).token !== token) {
+  if (bot && activeBotToken !== token) {
     logger.info('Telegram bot token changed, re-initializing...')
     bot.stopPolling().catch(() => {})
     bot = null
+    activeBotToken = undefined
   }
 
   if (!bot) {
     bot = new TelegramBot(token, { polling: true })
+    activeBotToken = token
     logger.info('Telegram bot started')
 
     bot.on('message', (msg) => {
@@ -115,11 +103,11 @@ export function initTelegram(): void {
     })
 
     bot.on('error', (err) => {
-      logger.error('Telegram bot error', { err })
+      logger.error('Telegram bot error', { err: sanitizeTelegramError(err) })
     })
 
     bot.on('polling_error', (err) => {
-      logger.error('Telegram polling error', { err })
+      logger.error('Telegram polling error', { err: sanitizeTelegramError(err) })
     })
   }
 }
@@ -154,6 +142,35 @@ async function handleCommand(chatId: string, text: string): Promise<void> {
   }
 }
 
+/**
+ * Sanitize a Telegram error before logging to prevent the bot token
+ * (which appears in request URIs) from leaking into log files.
+ * Extracts only safe fields and redacts any occurrence of the token,
+ * including its URL-encoded variant.
+ */
+function sanitizeTelegramError(err: unknown): unknown {
+  const token = getBotToken()
+  if (!err || typeof err !== 'object') return err
+  const redact = (s: string): string => {
+    if (!token) return s
+    let result = s.split(token).join('***REDACTED***')
+    const encodedToken = encodeURIComponent(token)
+    if (encodedToken !== token) {
+      result = result.split(encodedToken).join('***REDACTED***')
+    }
+    return result
+  }
+  const e = err as Record<string, unknown>
+  const resp = e.response as Record<string, unknown> | undefined
+  return {
+    code: e.code,
+    name: e.name,
+    message: typeof e.message === 'string' ? redact(e.message) : e.message,
+    statusCode: resp?.statusCode,
+    description: (resp?.body as Record<string, unknown> | undefined)?.description,
+  }
+}
+
 export async function sendTelegramNotification(message: string): Promise<boolean> {
   const token = getBotToken()
   const cfg = getConfig()
@@ -176,7 +193,7 @@ export async function sendTelegramNotification(message: string): Promise<boolean
     logger.info(`Telegram notification sent: ${message}`)
     return delivered > 0
   } catch (err) {
-    logger.error('Failed to send Telegram notification', { err })
+    logger.error('Failed to send Telegram notification', { err: sanitizeTelegramError(err) })
     return false
   }
 }
@@ -201,6 +218,7 @@ export function stopTelegram(): void {
   if (bot) {
     bot.stopPolling().catch(() => {})
     bot = null
+    activeBotToken = undefined
     logger.info('Telegram bot stopped')
   }
 }

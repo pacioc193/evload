@@ -119,7 +119,7 @@ describe('F-18: Plan vs On vs Off distinct engine modes', () => {
     expect(status.mode).toBe('off')
   })
 
-  test('switching from "plan" starts engine while keeping plan mode armed', async () => {
+  test('manual start from "plan" starts engine in "on" mode', async () => {
     const { setPlanMode, startEngine, getEngineStatus } = await import('../charging.engine')
 
     setPlanMode(80)
@@ -128,7 +128,7 @@ describe('F-18: Plan vs On vs Off distinct engine modes', () => {
 
     await startEngine(80)
     expect(getEngineStatus().running).toBe(true)
-    expect(getEngineStatus().mode).toBe('plan')
+    expect(getEngineStatus().mode).toBe('on')
   })
 
   test('restart restores only persisted plan mode', async () => {
@@ -146,5 +146,24 @@ describe('F-18: Plan vs On vs Off distinct engine modes', () => {
     expect(status.running).toBe(false)
     expect(status.mode).toBe('plan')
     expect(status.targetSoc).toBe(87)
+  })
+
+  test('restart keeps targetSoc preference even when plan target is different', async () => {
+    const firstModule = await import('../charging.engine')
+
+    await firstModule.setTargetSocPreference(100)
+    firstModule.setPlanMode(80)
+    await new Promise((resolve) => setImmediate(resolve))
+
+    jest.resetModules()
+
+    const secondModule = await import('../charging.engine')
+    await secondModule.initializeEngineState()
+
+    const prefs = secondModule.getTargetSocPreferences()
+    const status = secondModule.getEngineStatus()
+    expect(status.mode).toBe('plan')
+    expect(status.targetSoc).toBe(80)
+    expect(prefs.value).toBe(100)
   })
 })

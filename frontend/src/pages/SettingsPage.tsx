@@ -7,6 +7,7 @@ import {
   getHaEntities,
   getHaTokenStatus,
   getVersionInfo,
+  wakeVehicle,
   type VersionInfoResponse,
   getSettings,
   patchSettings,
@@ -32,6 +33,7 @@ import {
   getOtaLogs,
   type UpdateStatusResponse,
   type CommitInfo,
+  type OtaGuards,
 } from '../api/index'
 import { changePassword } from '../api/auth'
 import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch, UploadCloud, RefreshCw, Trash2, FolderOpen, GitCommit, ArrowDown, RotateCcw, Terminal, CheckCircle, XCircle, Loader2, Download, Clock } from 'lucide-react'
@@ -176,6 +178,51 @@ function Field({
   )
 }
 
+const IANA_TIMEZONES = [
+  'UTC',
+  'Europe/Rome', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Madrid',
+  'Europe/Amsterdam', 'Europe/Brussels', 'Europe/Vienna', 'Europe/Zurich', 'Europe/Stockholm',
+  'Europe/Oslo', 'Europe/Copenhagen', 'Europe/Helsinki', 'Europe/Warsaw', 'Europe/Prague',
+  'Europe/Budapest', 'Europe/Bucharest', 'Europe/Athens', 'Europe/Istanbul', 'Europe/Moscow',
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+  'America/Phoenix', 'America/Anchorage', 'America/Honolulu',
+  'America/Toronto', 'America/Vancouver', 'America/Mexico_City', 'America/Sao_Paulo',
+  'America/Argentina/Buenos_Aires', 'America/Bogota', 'America/Lima', 'America/Santiago',
+  'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Hong_Kong', 'Asia/Singapore', 'Asia/Seoul',
+  'Asia/Kolkata', 'Asia/Dubai', 'Asia/Bangkok', 'Asia/Jakarta', 'Asia/Karachi',
+  'Asia/Riyadh', 'Asia/Tehran', 'Asia/Jerusalem', 'Asia/Beirut',
+  'Australia/Sydney', 'Australia/Melbourne', 'Australia/Brisbane', 'Australia/Perth',
+  'Pacific/Auckland', 'Pacific/Honolulu', 'Pacific/Fiji',
+  'Africa/Cairo', 'Africa/Johannesburg', 'Africa/Lagos', 'Africa/Nairobi',
+]
+
+function SelectField({
+  label, value, onChange, options, description,
+}: {
+  label: string; value: string; onChange: (v: string) => void; options: string[]; description?: string
+}) {
+  return (
+    <div>
+      <label className="flex items-center gap-1 text-sm text-evload-muted mb-1">
+        <span>{label}</span>
+        {description && <Tooltip text={description} />}
+      </label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
+      >
+        {!options.includes(value) && (
+          <option value={value}>{value} (custom)</option>
+        )}
+        {options.map((tz) => (
+          <option key={tz} value={tz}>{tz}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 function logLevelColor(level: string): string {
   if (level === 'error') return 'text-evload-error'
   if (level === 'warn') return 'text-yellow-400'
@@ -257,6 +304,9 @@ export default function SettingsPage() {
   const [versionInfo, setVersionInfo] = useState<VersionInfoResponse | null>(null)
   const [settingsMsg, setSettingsMsg] = useState('')
   const [settingsMsgPanel, setSettingsMsgPanel] = useState('')
+  const [proxyWakeBusy, setProxyWakeBusy] = useState(false)
+  const [visibleHistoryCount, setVisibleHistoryCount] = useState(5)
+  const [expandedHistoryEntries, setExpandedHistoryEntries] = useState<Record<string, boolean>>({})
   const [expandedPanels, setExpandedPanels] = useState<Record<PanelKey, boolean>>(() => readExpandedPanels())
 
   // OTA Update
@@ -265,6 +315,12 @@ export default function SettingsPage() {
   const [otaLogs, setOtaLogs] = useState<string>('')
   const [otaLogOffset, setOtaLogOffset] = useState<number>(0)
   const [otaFetching, setOtaFetching] = useState(false)
+  const [otaStartError, setOtaStartError] = useState('')
+  const [otaGuardReasons, setOtaGuardReasons] = useState<string[]>([])
+  const [otaForceStart, setOtaForceStart] = useState(false)
+  const [otaStartTime, setOtaStartTime] = useState<number | null>(null)
+  const [otaNoOutputWarning, setOtaNoOutputWarning] = useState(false)
+  const [otaLogPanelPinned, setOtaLogPanelPinned] = useState(false)
   const logBoxRef = useRef<HTMLPreElement>(null)
   
   // Security / Password Change
@@ -284,6 +340,30 @@ export default function SettingsPage() {
   const [systemTimeInput, setSystemTimeInput] = useState('')
   const [systemTimeMsg, setSystemTimeMsg] = useState('')
   const [systemTimeBusy, setSystemTimeBusy] = useState(false)
+
+  // Get current time formatted in selected timezone
+  const getCurrentTimeInTimezone = (tz: string): string => {
+    try {
+      const now = new Date()
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      })
+      const parts = formatter.formatToParts(now)
+      const partMap = Object.fromEntries(parts.map((p) => [p.type, p.value]))
+      const dateStr = `${partMap.year}-${partMap.month}-${partMap.day}`
+      const timeStr = `${partMap.hour}:${partMap.minute}:${partMap.second}`
+      return `${dateStr} ${timeStr} (${tz})`
+    } catch {
+      return 'Invalid timezone'
+    }
+  }
 
   // Backup panel
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
@@ -436,6 +516,10 @@ export default function SettingsPage() {
     try {
       const s = await getUpdateStatus(otaBranch || undefined)
       setOtaStatus(s)
+      if (s.state === 'running') {
+        // Keep panel visible while backend reports running, even across transient UI state changes.
+        setOtaLogPanelPinned(true)
+      }
       if (!otaBranch) setOtaBranch(s.currentBranch)
     } catch { /* ignore */ }
   }, [otaBranch])
@@ -447,9 +531,9 @@ export default function SettingsPage() {
     return () => clearInterval(id)
   }, [refreshOtaStatus])
 
-  // When an update is running, poll log tail every second
+  // Poll OTA logs while running or while the panel is pinned after a user-triggered start.
   useEffect(() => {
-    if (otaStatus?.state !== 'running') return
+    if (otaStatus?.state !== 'running' && !otaLogPanelPinned) return
     const id = setInterval(async () => {
       try {
         const { content, totalBytes } = await getOtaLogs(otaLogOffset)
@@ -460,7 +544,7 @@ export default function SettingsPage() {
       } catch { /* ignore */ }
     }, 1_000)
     return () => clearInterval(id)
-  }, [otaStatus?.state, otaLogOffset])
+  }, [otaStatus?.state, otaLogOffset, otaLogPanelPinned])
 
   // Auto-scroll log box to bottom when new lines arrive
   useEffect(() => {
@@ -468,6 +552,19 @@ export default function SettingsPage() {
       logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight
     }
   }, [otaLogs])
+
+  // Monitor for timeout: if OTA running for 30+ seconds with no output, warn user
+  useEffect(() => {
+    if (otaStatus?.state !== 'running' || !otaStartTime) {
+      setOtaNoOutputWarning(false)
+      return
+    }
+    const elapsed = Date.now() - otaStartTime
+    if (elapsed > 30_000 && otaLogs.length === 0) {
+      setOtaNoOutputWarning(true)
+      flog.warn('OTA', 'Timeout: no output received after 30 seconds')
+    }
+  }, [otaStatus?.state, otaStartTime, otaLogs.length])
 
   const handleSave = async () => {
     setSaving(true)
@@ -529,6 +626,24 @@ export default function SettingsPage() {
     }
   }
 
+  const handleProxyWakeWindow = async () => {
+    setProxyWakeBusy(true)
+    setSettingsMsgPanel('proxy')
+    setSettingsMsg('')
+    try {
+      flog.info('PROXY', 'Manual wake/data-window requested from Settings')
+      await wakeVehicle()
+      setSettingsMsg('Wake sent — data window started')
+      flog.info('PROXY', 'Manual wake/data-window completed')
+    } catch (err) {
+      setSettingsMsg('Wake failed')
+      flog.error('PROXY', 'Manual wake/data-window failed', { error: String(err) })
+    } finally {
+      setProxyWakeBusy(false)
+      setTimeout(() => { setSettingsMsg(''); setSettingsMsgPanel('') }, 4000)
+    }
+  }
+
   const numberFields = new Set<keyof AppSettings>([
     'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'planWakeBeforeMinutes', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs', 'chargeStartGraceSec',
     'chargingPollIntervalMs', 'windowPollIntervalMs', 'bodyPollIntervalMs', 'vehicleDataWindowMs',
@@ -547,6 +662,13 @@ export default function SettingsPage() {
     setExpandedPanels((prev) => ({ ...prev, [key]: !prev[key] }))
   }
 
+  const toggleHistoryEntry = (entryKey: string) => {
+    setExpandedHistoryEntries((prev) => ({
+      ...prev,
+      [entryKey]: !prev[entryKey],
+    }))
+  }
+
   const handleOtaFetch = async () => {
     setOtaFetching(true)
     try {
@@ -559,13 +681,63 @@ export default function SettingsPage() {
 
   const handleOtaStart = async () => {
     if (!otaBranch) return
+    setOtaStartError('')
+    setOtaGuardReasons([])
     setOtaLogs('')
     setOtaLogOffset(0)
+    setOtaLogPanelPinned(true)
+    setOtaStartTime(Date.now())
+    setOtaNoOutputWarning(false)
     try {
-      await startOtaUpdate(otaBranch)
+      flog.info('OTA', 'Starting OTA update', { branch: otaBranch, forced: otaForceStart })
+      await startOtaUpdate(otaBranch, otaForceStart)
       await refreshOtaStatus()
     } catch (err) {
-      flog.error('OTA', 'Failed to start update', { error: String(err) })
+      setOtaStartTime(null)
+      if (axios.isAxiosError(err)) {
+        const status = err.response?.status
+        const payload = err.response?.data as {
+          error?: string
+          reasons?: string[]
+          otaGuards?: OtaGuards
+          hint?: string
+        } | undefined
+        if (status === 409) {
+          // Distinguish between guard-blocked and other 409 errors
+          if (payload?.otaGuards) {
+            // Guard-blocked OTA
+            setOtaStartError(payload?.error ?? 'OTA blocked by safety guards')
+            setOtaGuardReasons(Array.isArray(payload?.reasons) ? payload.reasons : [])
+            if (payload?.otaGuards) {
+              setOtaStatus((prev) => prev ? { ...prev, otaGuards: payload.otaGuards as OtaGuards } : prev)
+            }
+            flog.warn('OTA', 'Start blocked by safety guards', {
+              branch: otaBranch,
+              reasons: payload?.reasons ?? [],
+              forced: otaForceStart,
+            })
+            return
+          } else {
+            // Other 409 errors (already running, file locked, etc)
+            setOtaStartError(payload?.error ?? 'OTA update cannot start')
+            if (payload?.hint) {
+              setOtaStartError((prev) => `${prev}\n${payload.hint}`)
+            }
+            flog.warn('OTA', 'Update failed to start', { error: payload?.error, hint: payload?.hint })
+            return
+          }
+        }
+        // Other HTTP errors (500, 401, etc)
+        setOtaStartError(`Error: ${status} - ${payload?.error || err.message}`)
+        flog.error('OTA', 'HTTP error on start', { status, error: payload?.error || err.message })
+      } else {
+        // Network or other errors
+        const msg = err instanceof Error ? err.message : String(err)
+        setOtaStartError(`Connection failed: ${msg}`)
+        flog.error('OTA', 'Failed to start update', { error: msg })
+      }
+    } finally {
+      await refreshOtaStatus()
     }
   }
 
@@ -683,7 +855,7 @@ export default function SettingsPage() {
   const vehicleInGarage = vehicle?.connected ?? false
   const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
   const vehicleStatusLabel = vehicleInGarage ? 'In garage' : isVehicleSleeping ? 'Sleeping' : 'Not in garage / unreachable'
-  const runtimeReason = vehicle?.reason ?? proxy?.error ?? vehicle?.error ?? 'No reason available yet'
+  const runtimeReason = vehicle?.error ?? proxy?.error ?? vehicle?.reason ?? null
   const proxyLastEndpoint = proxy?.lastEndpoint ?? null
   const proxyLastSuccessAt = proxy?.lastSuccessAt
     ? new Date(proxy.lastSuccessAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -695,25 +867,27 @@ export default function SettingsPage() {
   const dataWindowRemainSec = dataWindowExpiresAt != null
     ? Math.max(0, Math.round((dataWindowExpiresAt - Date.now()) / 1000))
     : null
+  const otaGuards = otaStatus?.otaGuards
+  const otaBlockedByGuards = otaGuards?.blocked ?? false
 
   const tokenRemainingText = haTokenStatus?.secondsRemaining == null
     ? 'Unknown'
     : `${Math.floor(haTokenStatus.secondsRemaining / 60)}m ${haTokenStatus.secondsRemaining % 60}s`
 
-  const handleDownloadBackendLog = async (type: 'combined' | 'error', since?: string) => {
+  const handleDownloadBackendLog = async (since?: string) => {
     setLogBusy(true)
     setLogMsg('')
     setLogError(false)
     try {
-      flog.info('LOGS', `Backend ${type} log download requested`)
-      await downloadBackendLog(type, since || undefined)
-      flog.info('LOGS', `Backend ${type} log downloaded`)
-      setLogMsg(`Backend ${type} log downloaded (pretty format)`)
+      flog.info('LOGS', 'Backend log download requested', { since })
+      await downloadBackendLog(since || undefined)
+      flog.info('LOGS', 'Backend log downloaded')
+      setLogMsg('Backend log downloaded (pretty format)')
     } catch (err) {
       const msg = `Download failed: ${err instanceof Error ? err.message : 'unknown error'}`
       setLogMsg(msg)
       setLogError(true)
-      flog.error('LOGS', `Backend ${type} log download failed`, { error: String(err) })
+      flog.error('LOGS', 'Backend log download failed', { error: String(err) })
     } finally {
       setLogBusy(false)
       setTimeout(() => setLogMsg(''), 5000)
@@ -923,7 +1097,9 @@ export default function SettingsPage() {
                       ? <span className="text-evload-success font-medium">Awake ☀️</span>
                       : <span className="text-evload-muted">Unknown</span>}
                 </div>
-                <div className="mt-1 text-xs text-evload-muted">Reason: {runtimeReason}</div>
+                {runtimeReason && (
+                  <div className="mt-1 text-xs text-evload-muted">Reason: {runtimeReason}</div>
+                )}
                 <div className="mt-1 text-xs text-evload-muted">
                   Last successful proxy call: {proxyLastEndpoint ?? 'unknown'}{proxyLastSuccessAt ? ` at ${proxyLastSuccessAt}` : ''}.
                 </div>
@@ -936,6 +1112,20 @@ export default function SettingsPage() {
                     : (vehicle?.charging || engine?.running)
                       ? <span className="text-evload-success font-medium">inactive — vehicle_data polled (charging active)</span>
                       : <span className="text-evload-muted">inactive — body_controller_state only</span>}
+                </div>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={handleProxyWakeWindow}
+                    disabled={proxyWakeBusy}
+                    className="inline-flex items-center gap-2 rounded-md border border-evload-border bg-evload-bg px-3 py-1.5 text-xs font-semibold text-evload-text transition-colors hover:bg-evload-border/60 disabled:opacity-60"
+                  >
+                    <RefreshCw size={13} className={proxyWakeBusy ? 'animate-spin' : ''} />
+                    {proxyWakeBusy ? 'Sending wake...' : 'Wake / Start Data Window'}
+                  </button>
+                  <div className="mt-1 text-[11px] text-evload-muted">
+                    Manual command: wakes vehicle (if needed) and opens proxy Window Duration immediately.
+                  </div>
                 </div>
               </div>
 
@@ -1174,14 +1364,16 @@ export default function SettingsPage() {
           >
             <div className="pt-5 space-y-4">
               <SectionCard title="Timezone">
-                <Field
+                <SelectField
                   label="Timezone"
                   value={settings.timezone ?? 'UTC'}
                   onChange={upd('timezone')}
-                  placeholder="e.g. Europe/Rome"
+                  options={IANA_TIMEZONES}
                   description="IANA timezone name used for all log timestamps and date display. Changes take effect immediately without restart."
                 />
-                <p className="text-xs text-evload-muted mt-1">Current server time (UTC): {new Date().toUTCString()}</p>
+                <p className="text-xs text-evload-muted mt-1">
+                  Current server time: <span className="font-mono">{getCurrentTimeInTimezone(settings.timezone ?? 'UTC')}</span>
+                </p>
               </SectionCard>
               <SectionCard title="Set System Clock">
                 <p className="text-xs text-evload-muted mb-2">Set the OS system clock directly. Requires the backend process to have CAP_SYS_TIME or sudo privileges.</p>
@@ -1243,22 +1435,72 @@ export default function SettingsPage() {
           </div>
 
           <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4">
-            <div className="text-xs uppercase tracking-wider text-evload-muted font-semibold mb-3">Version History</div>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Version History</div>
+              <div className="text-[11px] text-evload-muted">
+                {(versionInfo?.history?.length ?? 0)} releases
+              </div>
+            </div>
             {(versionInfo?.history?.length ?? 0) === 0 ? (
               <div className="text-sm text-evload-muted">No tracked releases yet.</div>
             ) : (
               <div className="space-y-2">
-                {versionInfo?.history.map((entry) => (
-                  <div key={`${entry.version}-${entry.releasedAt}`} className="rounded-md border border-evload-border bg-evload-surface px-3 py-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-semibold text-evload-text">{entry.version}</span>
-                      <span className="text-xs text-evload-muted">{new Date(entry.releasedAt).toLocaleDateString()}</span>
+                {versionInfo?.history.slice(0, visibleHistoryCount).map((entry) => {
+                  const entryKey = `${entry.version}-${entry.releasedAt}`
+                  const expanded = expandedHistoryEntries[entryKey] === true
+                  const summaryPreview = entry.summary.length > 180
+                    ? `${entry.summary.slice(0, 180)}...`
+                    : entry.summary
+
+                  return (
+                    <div key={entryKey} className="rounded-md border border-evload-border bg-evload-surface px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-semibold text-evload-text">{entry.version}</span>
+                        <span className="text-xs text-evload-muted">{new Date(entry.releasedAt).toLocaleDateString()}</span>
+                      </div>
+                      <div className="text-xs text-evload-muted mt-1">{expanded ? entry.summary : summaryPreview}</div>
+                      {entry.summary.length > 180 && (
+                        <button
+                          type="button"
+                          onClick={() => toggleHistoryEntry(entryKey)}
+                          className="mt-2 text-[11px] font-semibold text-evload-accent hover:text-red-400 transition-colors"
+                        >
+                          {expanded ? 'Show less' : 'Read more'}
+                        </button>
+                      )}
                     </div>
-                    <div className="text-xs text-evload-muted mt-1">{entry.summary}</div>
-                  </div>
-                ))}
+                  )
+                })}
+
+                {(versionInfo?.history.length ?? 0) > visibleHistoryCount && (
+                  <button
+                    type="button"
+                    onClick={() => setVisibleHistoryCount((prev) => prev + 5)}
+                    className="w-full rounded-md border border-evload-border bg-evload-bg px-3 py-2 text-xs font-semibold text-evload-text hover:bg-evload-border/40 transition-colors"
+                  >
+                    Show 5 more releases
+                  </button>
+                )}
+
+                {visibleHistoryCount > 5 && (
+                  <button
+                    type="button"
+                    onClick={() => setVisibleHistoryCount(5)}
+                    className="w-full text-[11px] font-semibold text-evload-muted hover:text-evload-text transition-colors"
+                  >
+                    Collapse history
+                  </button>
+                )}
               </div>
             )}
+          </div>
+
+          <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4">
+            <div className="text-xs uppercase tracking-wider text-evload-muted font-semibold mb-2">Versioning Tips</div>
+            <div className="text-xs text-evload-muted space-y-1">
+              <p>Use Current vs Latest for quick health checks.</p>
+              <p>Open release notes only when investigating a behavior change.</p>
+            </div>
           </div>
 
           {/* ── OTA Update ────────────────────────────────────────────────── */}
@@ -1332,6 +1574,15 @@ export default function SettingsPage() {
                   : <><UploadCloud size={14} /> Start Update</>
                 }
               </button>
+              <label className="flex items-center gap-2 rounded-lg border border-evload-border bg-evload-surface px-3 py-2 text-xs text-evload-muted">
+                <input
+                  type="checkbox"
+                  checked={otaForceStart}
+                  onChange={(e) => setOtaForceStart(e.target.checked)}
+                  disabled={otaStatus?.state === 'running'}
+                />
+                Force start (bypass guards)
+              </label>
             </div>
 
             {/* Engine-running warning */}
@@ -1339,6 +1590,50 @@ export default function SettingsPage() {
               <div className="flex items-center gap-2 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400">
                 <span>⚠️</span>
                 <span>A charging session is active. The update will interrupt it when the service restarts.</span>
+              </div>
+            )}
+
+            {/* Guard details */}
+            {otaGuards && (
+              <div className={clsx(
+                'rounded-lg border px-3 py-3 text-xs space-y-2',
+                otaBlockedByGuards
+                  ? 'border-red-500/40 bg-red-500/10'
+                  : 'border-green-500/40 bg-green-500/10'
+              )}>
+                <div className={clsx('font-semibold', otaBlockedByGuards ? 'text-red-300' : 'text-green-300')}>
+                  Runtime safety guards: {otaBlockedByGuards ? 'BLOCKING OTA' : 'OK'}
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-1 text-evload-muted">
+                  <div>Engine running: {otaGuards.engineRunning ? 'yes' : 'no'}</div>
+                  <div>Engine mode: {otaGuards.engineMode}</div>
+                  <div>Session active: {otaGuards.sessionActive ? 'yes' : 'no'}</div>
+                  <div>Vehicle charging: {otaGuards.vehicleCharging ? 'yes' : 'no'}</div>
+                  <div>Charging state: {otaGuards.chargingState ?? 'unknown'}</div>
+                  <div>Proxy connected: {otaGuards.proxyConnected ? 'yes' : 'no'}</div>
+                  <div>Failsafe active: {otaGuards.failsafeActive ? 'yes' : 'no'}</div>
+                  <div>Failsafe reason: {otaGuards.failsafeReason ?? 'none'}</div>
+                </div>
+                {otaGuards.reasons.length > 0 && (
+                  <div className="rounded-md border border-red-500/30 bg-black/20 px-2 py-2 text-red-200">
+                    <div className="font-semibold mb-1">Blocking reasons:</div>
+                    <ul className="list-disc list-inside space-y-0.5">
+                      {otaGuards.reasons.map((r) => <li key={r}>{r}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {otaStartError && (
+              <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                <div className="font-semibold">Start update failed</div>
+                <div>{otaStartError}</div>
+                {otaGuardReasons.length > 0 && (
+                  <ul className="mt-1 list-disc list-inside space-y-0.5">
+                    {otaGuardReasons.map((r) => <li key={r}>{r}</li>)}
+                  </ul>
+                )}
               </div>
             )}
 
@@ -1362,18 +1657,42 @@ export default function SettingsPage() {
             )}
 
             {/* Live log viewer */}
-            {otaLogs && (
-              <div className="space-y-1">
-                <div className="flex items-center gap-1.5 text-xs text-evload-muted">
-                  <Terminal size={12} />
-                  Log di build
+            {(otaLogs || otaStatus?.state === 'running' || otaLogPanelPinned) && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5 text-xs text-evload-muted">
+                    <Terminal size={12} />
+                    Log di build
+                  </div>
+                  {otaStatus?.state === 'running' && otaLogs.length === 0 && (
+                    <div className="text-xs text-yellow-400">
+                      ⏳ Process starting... (waiting for output)
+                    </div>
+                  )}
+                  {otaStatus?.state === 'running' && otaLogs.length > 0 && (
+                    <div className="text-xs text-green-400 flex items-center gap-1">
+                      <span className="inline-block w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                      Live
+                    </div>
+                  )}
                 </div>
-                <pre
-                  ref={logBoxRef}
-                  className="max-h-72 overflow-y-auto rounded-lg border border-evload-border bg-black/60 p-3 text-[11px] leading-relaxed text-green-300 font-mono whitespace-pre-wrap"
-                >
-                  {otaLogs}
-                </pre>
+                {otaNoOutputWarning && (
+                  <div className="rounded-lg border border-orange-500/40 bg-orange-500/10 p-2 text-xs text-orange-300">
+                    ⚠️ No output received for 30+ seconds. This may indicate a system issue. Check backend logs for details.
+                  </div>
+                )}
+                {otaLogs ? (
+                  <pre
+                    ref={logBoxRef}
+                    className="max-h-72 overflow-y-auto rounded-lg border border-evload-border bg-black/60 p-3 text-[11px] leading-relaxed text-green-300 font-mono whitespace-pre-wrap"
+                  >
+                    {otaLogs}
+                  </pre>
+                ) : (
+                  <div className="max-h-72 rounded-lg border border-evload-border bg-black/60 p-3 text-[11px] text-green-300/50 flex items-center justify-center min-h-40">
+                    {otaStatus?.state === 'running' ? 'Loading output from server...' : 'No logs'}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1786,18 +2105,11 @@ export default function SettingsPage() {
                   </select>
                 </div>
                 <button
-                  onClick={() => handleDownloadBackendLog('combined', logSince)}
+                  onClick={() => handleDownloadBackendLog(logSince)}
                   disabled={logBusy}
                   className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
                 >
-                  <FileDown size={14} />Download combined.log
-                </button>
-                <button
-                  onClick={() => handleDownloadBackendLog('error', logSince)}
-                  disabled={logBusy}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
-                >
-                  <FileDown size={14} />Download error.log
+                  <FileDown size={14} />Download log
                 </button>
               </div>
             </div>

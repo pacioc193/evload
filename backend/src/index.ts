@@ -23,17 +23,16 @@ import versionRoutes from './routes/version.routes'
 import garageRoutes from './routes/garage.routes'
 import backupRoutes from './routes/backup.routes'
 import updateRoutes from './routes/update.routes'
-import { startHaPoll } from './services/ha.service'
+import { startHaPoll, stopHaPoll } from './services/ha.service'
 import { startProxyPoll, getVehicleState, getProxyHealthState } from './services/proxy.service'
 import { startFleetSimulator, stopFleetSimulator } from './services/fleet-simulator.service'
-import { initTelegram, loadBotTokenFromDB, registerTelegramCommand } from './services/telegram.service'
+import { initTelegram, loadBotTokenFromDB, registerTelegramCommand, stopTelegram } from './services/telegram.service'
 import { initFailsafe } from './services/failsafe.service'
-import { startScheduler } from './services/scheduler.service'
+import { startScheduler, stopScheduler } from './services/scheduler.service'
 import { startAutoFetch } from './services/updater.service'
 import { initWebSocketServer, stopWebSocketServer } from './ws/broadcaster'
 import { startEngine, stopEngine, getEngineStatus, initializeEngineState, initExternalChargeGuard } from './engine/charging.engine'
 import { isFailsafeActive } from './services/failsafe.service'
-import { notificationEvents, dispatchTelegramNotificationEvent } from './services/notification-rules.service'
 import { runScheduledBackupCheck } from './services/backup.service'
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10)
@@ -324,14 +323,6 @@ initWebSocketServer(server)
 initFailsafe()
 initTelegram()
 
-notificationEvents.on('emit', async (event: string, payload: Record<string, unknown>) => {
-  try {
-    await dispatchTelegramNotificationEvent(event, payload)
-  } catch (err) {
-    logger.error('Failed to dispatch external event for notifications', { err, event })
-  }
-})
-
 registerTelegramCommand('start', async (_chatId, args) => {
   const cfg = getConfig()
   const soc = args[0] ? parseInt(args[0], 10) : cfg.charging.defaultTargetSoc
@@ -390,6 +381,9 @@ process.on('SIGTERM', () => {
 
   stopEngine({ forceOff: false }).catch(() => {})
   stopFleetSimulator()
+  stopHaPoll()
+  stopScheduler()
+  stopTelegram()
   stopWebSocketServer()
   server.close(() => {
     logger.info('HTTP server closed, exiting')

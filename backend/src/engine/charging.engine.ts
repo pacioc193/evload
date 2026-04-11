@@ -5,7 +5,7 @@ import { prisma } from '../prisma'
 import { getVehicleState, sendProxyCommand, requestWakeMode, vehicleEvents, proxyEvents } from '../services/proxy.service'
 import { getHaState } from '../services/ha.service'
 import { isFailsafeActive, getFailsafeType } from '../services/failsafe.service'
-import { notificationEvents, dispatchTelegramNotificationEvent } from '../services/notification-rules.service'
+import { dispatchTelegramNotificationEvent } from '../services/notification-rules.service'
 import { computeBalancingAction, shouldAdjustAmps, clampAmps } from './balancing'
 
 export const engineEvents = new EventEmitter()
@@ -92,6 +92,7 @@ let suspendedState: SuspendedChargeState | null = null
 
 interface PersistedEngineRestoreState {
   restorePlan: boolean
+  preferredTargetSoc?: number
   targetSoc?: number
   targetAmps?: number
 }
@@ -109,11 +110,13 @@ async function persistEngineRestoreState(): Promise<void> {
   const payload: PersistedEngineRestoreState = planArmed
     ? {
         restorePlan: true,
+        preferredTargetSoc: persistedTargetSoc,
         targetSoc: status.targetSoc,
         targetAmps: status.targetAmps,
       }
     : {
         restorePlan: false,
+        preferredTargetSoc: persistedTargetSoc,
         targetSoc: persistedTargetSoc,
       }
 
@@ -138,7 +141,8 @@ export async function initializeEngineState(): Promise<void> {
 
   try {
     const parsed = JSON.parse(persisted.engine_restore_state) as PersistedEngineRestoreState
-    persistedTargetSoc = clampTargetSoc(Number(parsed.targetSoc ?? DEFAULT_TARGET_SOC))
+    const rawPreferredTargetSoc = parsed.preferredTargetSoc ?? parsed.targetSoc ?? DEFAULT_TARGET_SOC
+    persistedTargetSoc = clampTargetSoc(Number(rawPreferredTargetSoc))
 
     if (!parsed.restorePlan) {
       planArmed = false
@@ -400,7 +404,7 @@ export async function setTargetSocPreference(
   engineEvents.emit('target_soc_updated', status)
 }
 
-export async function startEngine(targetSoc: number, targetAmps?: number, fromPlan = false): Promise<void> {
+export async function startEngine(targetSoc: number, targetAmps?: number, fromPlan = false, planName?: string): Promise<void> {
   const cfg = getConfig()
   if (status.running) {
     logger.warn('⚠️  [START_ENGINE] Engine already running — ignoring start request', {
@@ -501,6 +505,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number, fromPl
       targetSoc: safeTargetSoc,
       targetAmps: requestedAmps,
       energyPriceEurPerKwh: cfg.charging.energyPriceEurPerKwh,
+      locationName: planName?.trim() || null,
     },
   })
   status.sessionId = session.id

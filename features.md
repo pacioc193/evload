@@ -3,7 +3,128 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Aggiornamenti Recenti (2026-04-11) — v1.6.5
+
+- **Release metadata 1.6.5 + first tag prep**:
+	- Aggiornata versione sorgente in `backend/src/version.ts` (`VERSION = 1.6.5`) con nuovo entry in `VERSION_HISTORY`.
+	- Versione sincronizzata in `package.json` root, `backend/package.json`, `frontend/package.json` (e relativi lockfile).
+	- Pronto il primo tag Git (`v1.6.5`) per bootstrap del flusso release/versioning.
+	- `getVersionInfo()` ora usa fallback su GitHub Tags API quando `releases/latest` non esiste, così il pannello Versioning può rilevare update anche in workflow tag-only.
+
+- **VIN anonimizzazione nei log**:
+	- Tutti i log backend ora anonimizzano VIN e vehicleId, mostrando solo le ultime 4 cifre (es. `***5ABC` instead di `7G1FB1E3XF1234567`).
+	- Implementato tramite funzione `anonimizeVin()` che agisce su tutti i campi `vin` e `vehicleId` nella struttura di logging.
+	- Sensibili: authorization, token, password, api_key, cookie.
+
+- **Timestamp con timezone corretto**:
+	- Frontend Settings → System → Timezone: il display cambia da hardcoded "Current server time (UTC)" a formato dinamico con timezone selezionato.
+	- Usa `Intl.DateTimeFormat()` con la timezone IANA selezionata per mostrare l'ora effettiva nel fuso orario della macchina/server.
+	- Formato: `YYYY-MM-DD HH:MM:SS (Europe/Rome)` instead di sempre UTC.
+
+- **Pre-push local compilation enforcement**:
+	- Nuovo script `scripts/pre-push-checks.ps1` che verifica la compilazione prima permettere il push.
+	- Controlla:
+		1. Backend TypeScript compiles (`npm run build`)
+		2. Frontend build succeeds (Vite + TypeScript)
+	- Exit code 0 = safe to push, 1 = build failed (stop push).
+	- Può essere integrato come git hook pre-push per automazione.
+
+- **OTA come deployment method ufficiale**:
+	- Documentazione in `docs/DEPLOYMENT.md`: "Always use OTA unless OTA is broken."
+	- OTA Update UI in Settings mostra lo status live e i guard-blocking reasons.
+	- Script `Update-EvloadNative.ps1` supporta OTA come fallback quando il push locale non è possibile.
+	- Preserva database, config, log files su update.
+	- Supporta rollback a versioni precedenti.
+
+- **Unified logging system — single log file**:
+	- Rimossi dual transports (`error.log` + `combined.log`) dal logger.
+	- Backend ora scrive unicamente su file `logs/log` (maxsize 50MB, maxFiles 5, formato JSON).
+	- Semantica semplificata: non esiste più distinzione tra error e combined.
+	- API `/api/settings/logs/backend` semplificata: rimuove il parametro `type` (era "error"/"combined"), serve direttamente il file `log`.
+	- Frontend: `downloadBackendLog()` non richiede più il tipo, scarica un unico file `evload-backend.log`.
+
+- **Schedule panel — complete mobile-first redesign**:
+	- Riscrittura completa del builder scheduler (approccio da zero, non refactor incrementale).
+	- Nuovo ordine campi conforme al flusso richiesto: **Nome piano → Oggi/Domani → Start/Finish/Range → Ripetizione → SOC/A**.
+	- Layout migliorato per mobile e desktop con card step-by-step a due colonne responsive.
+	- Nuovi controlli slider moderni (thumb custom, track gradient, interazione più fluida).
+	- Slider SOC in verde con visualizzazione combinata **percentuale + km stimati**.
+	- Slider Amps in rosso con limiti dinamici da impostazioni engine (`minAmps` / `maxAmps`) invece di range hardcoded.
+	- Pulsanti rapidi Oggi/Domani per riposizionare date mantenendo l'orario scelto.
+	- Ripetizione disponibile con selezione giorni per start, finish e range.
+	- Liste piani Charger/Climate mantenute e rese più pulite visivamente.
+
+- **Vehicle defrost command — fixed to proxy API spec**:
+	- Bottone defrost ora chiama `sendVehicleCommand('auto_conditioning_start', { wait: true })` verso proxy.
+	- Precedente: `sendVehicleCommand('defrost_max', { on: true })` (incompatibile con spec Tesla proxy).
+	- Allineamento con altri vehicle command per coerenza API.
+
+- **OTA error visibility — detailed error messages and timeout diagnostics**:
+	- Backend (`updater.service.ts`): 
+		- Enhanced error messages con context: "Update already in progress on branch X", "Failed to write update script to PATH: ERROR", ecc.
+		- Added spawn error handling con try-catch, file descriptor cleanup, e logging di PID/script path.
+		- Detailed fallback error reason quando spawn fallisce.
+	- Frontend OTA handler (`SettingsPage.tsx` `handleOtaStart`):
+		- Improved error classification: distingue guard-blocked (409 con `otaGuards`) vs altri 409 errors (already running, file errors) vs network errors.
+		- Enhanced logging con `flog.info('OTA', 'Starting...', { branch, forced })` e detailed error logs.
+		- Error messages include status code e reason dal backend.
+	- Frontend OTA UI:
+		- Log viewer status indicator: "⏳ Process starting... (waiting for output)" quando update è running ma no logs ricevuti.
+		- Live indicator con pulse ("🟢 Live") quando logs stream in tempo reale.
+		- Timeout warning dopo 30 secondi di no output: "⚠️ No output received for 30+ seconds. Check backend logs for details".
+		- Empty state message: "Loading output from server..." vs "No logs".
+	- State tracking: `otaStartTime`, `otaNoOutputWarning` per monitorare timeout di output.
+
+- **Fix OTA 429 su start update**:
+	- Route `POST /api/update/start` aveva limiter troppo stretto (`max: 3` in 5 minuti) e poteva bloccare l'avvio con `429` dopo pochi retry.
+	- Nuova policy limiter: `max: 30` in 5 minuti, con `skipFailedRequests: true`.
+	- Effetto: i tentativi falliti (4xx/5xx) non consumano quota e non causano lockout durante troubleshooting/guard retries.
+	- Mantenuta protezione anti-spam con headers standard di rate-limit.
+
+- **Fix pannello log OTA che scompariva subito**:
+	- In `SettingsPage`, il viewer log OTA ora resta visibile dopo `Start Update` (stato pinned).
+	- Il polling log continua non solo in stato `running`, ma anche quando il pannello è pinned, evitando buchi durante transizioni stato/backend restart.
+	- Risultato: se OTA continua in background, l'utente continua a vedere il pannello e il tail log senza sparizioni improvvise.
+
 ## Aggiornamenti Recenti (2026-04-10) — v1.5.5
+
+- **Docker — fix persistenza DB su update/rebuild**:
+	- Aggiunto in `docker-compose.yml` il default `DATABASE_URL=${DATABASE_URL:-file:/app/backend/data/db.sqlite}`.
+	- Se il file `.env` manca o non contiene `DATABASE_URL`, il backend non ricade piu su `file:./dev.db` (path volatile nel container), evitando reset di `AppConfig` e del target SoC a 80 dopo aggiornamenti.
+
+- **Native/Raspberry — fix persistenza DB senza dipendenza da `.env`**:
+	- Aggiornato backend runtime (`backend/src/prisma.ts`) e Prisma CLI (`backend/prisma.config.ts`) per usare di default `file:./data/evload.db` in produzione quando `DATABASE_URL` non e impostato.
+	- Aggiornati i service systemd nei deploy script (`scripts/raspberry/install.sh`, `Deploy-EvloadNative.ps1`) con `Environment=DATABASE_URL=file:/opt/evload/backend/data/evload.db`.
+	- Effetto: i dati applicativi persistenti (`AppConfig`, inclusi target SoC e segreti) restano nel DB su disco anche se `.env` non contiene `DATABASE_URL`.
+
+- **Fix bug target SoC persistito sovrascritto dal plan**:
+	- In `engine_restore_state` il `targetSoc` del piano armato veniva riusato anche come preferenza persistita, quindi un plan/schedule a 80 poteva sovrascrivere la preferenza utente (es. 100) dopo riavvio/update.
+	- Introdotto campo `preferredTargetSoc` separato in `PersistedEngineRestoreState` (`backend/src/engine/charging.engine.ts`).
+	- `initializeEngineState()` ora ricarica la preferenza da `preferredTargetSoc` (con fallback retrocompatibile a `targetSoc` per record vecchi).
+	- Aggiunto test di regressione: `engine.modes.test.ts` verifica che con plan=80 e preferenza=100, dopo restart il piano resti 80 ma la preferenza resti 100.
+
+- **Proxy reason reset e visibilita condizionale in UI**:
+	- Backend (`backend/src/services/proxy.service.ts`): quando la comunicazione proxy/veicolo e ripristinata, `vehicleState.reason` viene azzerato (`null`) e non viene piu popolato con messaggi di successo.
+	- Dashboard (`frontend/src/pages/DashboardPage.tsx`) e Settings (`frontend/src/pages/SettingsPage.tsx`): il campo `Reason` e mostrato solo se esiste un errore reale (`vehicle.error` o `proxy.error` o `vehicle.reason`).
+	- Risultato: niente reason stale quando tutto e tornato online, e reason visibile solo in caso di problema.
+
+- **Comando manuale Window Duration nel pannello Proxy (Settings)**:
+	- Aggiunto pulsante sempre disponibile `Wake / Start Data Window` in `frontend/src/pages/SettingsPage.tsx`.
+	- Il pulsante richiama `POST /api/engine/wake` (API `wakeVehicle`) e forza l'apertura immediata della finestra `vehicle_data` lato backend (`requestWakeMode(true)`).
+	- Utile per attivare manualmente il polling completo del proxy senza attendere trigger automatici.
+
+- **Settings Versioning — UX più efficace su molte release**:
+	- Storico versioni ora mostrato in forma compatta: default alle release più recenti (5 voci).
+	- Aggiunta espansione progressiva con pulsante `Show 5 more releases` e `Collapse history`.
+	- Ogni release lunga ha toggle `Read more / Show less` per evitare blocchi di testo troppo estesi.
+	- Risultato: pagina Settings più leggibile, meno scroll e accesso completo ai dettagli solo quando servono.
+
+- **OTA updater — fix checkout bloccato da modifiche locali**:
+	- In `backend/src/services/updater.service.ts`, lo script OTA ora esegue auto-stash (`git stash push --include-untracked`) quando il working tree non e pulito, prima di `git checkout -B`.
+	- Evita l'errore: `Your local changes ... would be overwritten by checkout` (tipicamente su lockfile).
+	- Step dipendenze OTA: backend in modalita live-safe con `npm install --include=dev` (evita la rimozione distruttiva di `node_modules` mentre il servizio e attivo), con fallback a `npm ci`; frontend mantiene `npm ci` con fallback a `npm install --no-package-lock`.
+	- Aggiunte guardie runtime in `backend/src/routes/update.routes.ts`: update bloccato di default quando `engine.running`, sessione attiva, `vehicle.charging`/`chargingState=Charging`, `mode=plan`, failsafe attivo o proxy disconnesso. Override disponibile solo con `force=true`.
+	- UI OTA in `frontend/src/pages/SettingsPage.tsx`: gestione esplicita del `409` con visualizzazione motivi bloccanti (`reasons`) e stato dettagliato di ogni guardia; aggiunto toggle `Force start (bypass guards)`.
 
 - **Rimozione targetSocOff e scheduleLead**:
 	- Eliminato il concetto di `targetSocOff` (target SoC separato per quando il motore è spento): esiste ora un solo `targetSoc` persisted che si applica in tutti i modi (idle, on, plan).
@@ -1244,3 +1365,54 @@ Accettazione:
 - C6: `chargeStartGraceSec` esposto in GET/PATCH `/api/settings`.
 - C7: `AppSettings` (frontend) e `SettingsPage` aggiornati con campo "Charge Start Grace" (secondi) nel pannello Charging → Current Limits.
 - C8: `config.example.yaml`, `features.md`, `README.md` aggiornati.
+
+## F-68 Fix Missing timestamp_time/timestamp_date in Notification Test Placeholder Check
+
+Requisito: "Missing placeholders in payload: timestamp_time — il test mostra timestamp_time come mancante anche se il messaggio viene renderizzato correttamente."
+Accettazione:
+- C1: `notification-rules.service.ts`: `buildTimestampPayload()` è ora esportata (era privata).
+- C2: `settings.routes.ts`: `POST /telegram/test` usa `buildTimestampPayload(new Date())` per costruire il payload di controllo in `extractMissingTemplatePlaceholders`; i campi `timestamp`, `timestamp_time` e `timestamp_date` non vengono più segnalati come mancanti nei template che li usano.
+
+## F-69 Redact Telegram Bot Token from Error Logs
+
+Requisito: "Il token del bot Telegram appare in chiaro nei log di errore perché è parte dell'URL della richiesta HTTP verso api.telegram.org."
+Accettazione:
+- C1: `telegram.service.ts`: aggiunta helper `sanitizeTelegramError()` che estrae solo i campi sicuri dell'errore (`code`, `name`, `message`, `statusCode`, `description`) e sostituisce il token nel campo `message` con `***REDACTED***`.
+- C2: `sanitizeTelegramError` applicata a tutti i `logger.error` del servizio: `sendTelegramNotification`, `bot.on('error')`, `bot.on('polling_error')`.
+- C3: Nessun dato sensibile (token, URL completa) viene scritto nei log combinati o di errore.
+
+## F-70 Timezone Field: da testo libero a dropdown IANA
+
+Requisito: "Rendi il campo timezone una dropdown per evitare errori di battitura che causano fallback silenzioso a UTC."
+Accettazione:
+- C1: `SettingsPage.tsx`: aggiunta costante `IANA_TIMEZONES` con ~60 timezone comuni suddivise per continente.
+- C2: Aggiunto componente `SelectField` che renderizza un `<select>` stilizzato coerente con gli altri field della pagina.
+- C3: Il pannello System → Timezone ora mostra una dropdown al posto del campo di testo libero.
+- C4: Se il valore salvato non è presente nella lista (es. timezone configurata manualmente in yaml), viene mostrato come prima opzione nel select così non va perso.
+
+## F-71 Template di Notifica Multi-Riga con Tutti i Placeholder
+
+Requisito: "Rivedi tutti i template default per avere testi per andare a capo nelle informazioni, così da avere un bel testo chiaro e formattato con tutte le informazioni necessarie già nei template."
+Accettazione:
+- C1: `NotificationsPage.tsx`: tutti i 24 template in `EVENT_EXAMPLE_TEMPLATES` riformattati con `\n` per andare a capo; ogni template include header con emoji + titolo, riga `📅 {{timestamp_date}}` e righe dedicate per ogni campo rilevante dell'evento.
+- C2: Le 7 regole di esempio in `loadExamples()` aggiornate con lo stesso formato multiriga; in particolare `charge_start_blocked` ora include `{{chargingState}}` e `{{soc}}%`; `soc_increased` include la riga data.
+- C3: Tutti i template usano `{{timestamp_date}}` (data+ora completa) invece di `{{timestamp_time}}` inline nel testo, garantendo leggibilità anche su notifiche ricevute a distanza di ore.
+
+## F-72 Piano di Ricarica: Campo Nome e Uso Costruttivo
+
+Requisito: "Aggiungi un campo nome per ogni piano di ricarica così da avere un rapido sguardo a quale piano è partito. Il nome deve comparire nella dashboard, nelle notifiche Telegram e nelle statistiche per raggruppare le ricariche."
+Accettazione:
+- C1: `prisma/schema.prisma`: aggiunto campo `name String?` a `ScheduledCharge` e `ScheduledClimate`.
+- C2: Migrazione `20260411100000_add_schedule_name`: `ALTER TABLE "ScheduledCharge" ADD COLUMN "name" TEXT; ALTER TABLE "ScheduledClimate" ADD COLUMN "name" TEXT;` — campo nullable, backward compatible, zero-downtime.
+- C3: `schedule.routes.ts`: le POST `/schedule/charges` e `/schedule/climate` accettano il campo `name` (opzionale, stringa non vuota, max 50 caratteri); validation 400 se fuori range.
+- C4: `scheduler.service.ts`: `startEngineWithWake` accetta `planName?: string` e lo passa a `startEngine`; tutte le chiamate a `dispatchTelegramNotificationEvent` per eventi plan_* ora includono `planId: String(sc.id)` e `planName: sc.name ?? \`#${sc.id}\``.
+- C5: `charging.engine.ts`: `startEngine` accetta `planName?: string` (4° parametro); il nome viene salvato come `locationName` sulla sessione di ricarica creata, rendendo le sessioni plan-aware nelle statistiche.
+- C6: `scheduler.service.ts`: `NextPlannedCharge` interface e `resolveNextPlannedCharge()` includono il campo `name: string | null`.
+- C7: `notification-rules.service.ts`: aggiunto `planName` al catalogo placeholder, alle presets, agli schemi e alle descrizioni per tutti gli eventi plan_*; presets aggiornate a `planId: '1', planName: 'Ricarica Notturna'`; descrizione `planId` aggiornata a "ID numerico del piano programmato".
+- C8: `NotificationsPage.tsx`: tutti i template plan_* aggiornati per usare `{{planName}}` invece di `{{planId}}`; le 2 regole di esempio nel panel aggiornate di conseguenza.
+- C9: `api/index.ts` (frontend): `ScheduledCharge`, `ScheduledClimate`, `NextPlannedCharge` ora includono `name: string | null`; `createScheduledCharge` e `createScheduledClimate` accettano `name?: string` in tutte le varianti.
+- C10: `SchedulePage.tsx`: aggiunto campo input "Nome piano (opzionale, max 50 car.)" al form charger e climate; la lista recap mostra il nome in grassetto con truncate + tooltip per nomi lunghi; type badge e orario spostati in seconda riga per leggibilità.
+- C11: `DashboardPage.tsx`: il widget "Next Charge" mostra un badge 📌 con il nome del piano (se presente) tra l'orario e il badge "Polling Active".
+- C12: `StatisticsPage.tsx`: interfacce `Session` e `SessionDetail` includono `locationName?: string | null`; nella lista sessioni compare un badge 📌 inline con il nome piano (se non null); nel pannello dettaglio viene mostrata una riga dedicata "Piano di ricarica" se presente; il CSV esportato include la colonna `plan_name`.
+- C13: `version.ts`: versione bumped a 1.6.2; history entry aggiunta.
+- C14: `backend/package.json`, `frontend/package.json`, `package.json`: versione aggiornata a 1.6.2.

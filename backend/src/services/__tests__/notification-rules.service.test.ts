@@ -171,11 +171,11 @@ describe('notification-rules.service', () => {
     expect(invalidEngineStopped.valid).toBe(false)
     expect(invalidEngineStopped.invalidTypes).toContain('sessionId:number')
 
-    const invalidPlanStart = validateNotificationPayload('plan_start', { planId: 'plan-1' })
+    const invalidPlanStart = validateNotificationPayload('plan_start', { planId: '1' })
     expect(invalidPlanStart.valid).toBe(false)
-    expect(invalidPlanStart.missingRequired).toContain('targetSoc')
+    expect(invalidPlanStart.missingRequired).toContain('planName')
 
-    const valid = validateNotificationPayload('plan_start', { planId: 'plan-1', targetSoc: 80 })
+    const valid = validateNotificationPayload('plan_start', { planId: '1', planName: 'Ricarica Notturna', targetSoc: 80 })
     expect(valid.valid).toBe(true)
   })
 
@@ -185,6 +185,30 @@ describe('notification-rules.service', () => {
       { sessionId: 22, reason: 'manual' }
     )
     expect(missing).toEqual(['targetSoc'])
+  })
+
+  test('timestamp_time and timestamp_date are not flagged as missing when included in payload — regression for false-positive bug', () => {
+    // Simulates the payload built by buildTimestampPayload + event fields, as used by the /telegram/test route.
+    // Before the fix, timestamp_time and timestamp_date were missing from the check payload,
+    // causing them to always appear in missingPlaceholders even though they rendered correctly.
+    const fullPayload = {
+      event: 'engine_started',
+      timestamp: '2026-04-11T08:31:00.000Z',
+      timestamp_time: '08:31',
+      timestamp_date: '11/04/2026 08:31',
+      sessionId: 1,
+      targetSoc: 80,
+      targetAmps: 16,
+      vehicleId: 'VIN123456',
+    }
+    const missing = extractMissingTemplatePlaceholders(
+      '🔌 Ricarica avviata\n📅 {{timestamp_date}}\n⏰ {{timestamp_time}}\n🎯 {{targetSoc}}%\n⚡ {{targetAmps}}A\n🚗 {{vehicleId}}',
+      fullPayload
+    )
+    expect(missing).toEqual([])
+    expect(missing).not.toContain('timestamp_time')
+    expect(missing).not.toContain('timestamp_date')
+    expect(missing).not.toContain('timestamp')
   })
 
   test('emitNotificationEvent (bus) triggers rule evaluation via notificationEvents', async () => {

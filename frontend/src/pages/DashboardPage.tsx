@@ -554,7 +554,7 @@ export default function DashboardPage() {
   const vehicleInGarage = vehicle?.connected ?? false
   const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
   const carStatusLabel = isVehicleSleeping ? 'Sleeping' : vehicleInGarage ? 'In garage' : 'Not in garage / unreachable'
-  const statusReason = vehicle?.reason ?? proxy?.error ?? vehicle?.error ?? 'No reason available yet'
+  const statusReason = vehicle?.error ?? proxy?.error ?? vehicle?.reason ?? null
   const controlsDisabled = loading || !!failsafe?.active
 
   const persistTargetSocPreference = async (targetSoc: number): Promise<void> => {
@@ -727,6 +727,13 @@ export default function DashboardPage() {
                 <span className="text-sm text-evload-muted font-normal lowercase italic">— no schedule —</span>
               )}
             </div>
+            {nextCharge?.name && (
+              <div className="mt-1 flex items-center justify-center">
+                <span className="inline-flex items-center gap-1 rounded-full border border-evload-border bg-evload-bg px-2 py-0.5 text-[10px] font-medium text-evload-muted max-w-[120px] truncate" title={nextCharge.name}>
+                  📌 {nextCharge.name}
+                </span>
+              </div>
+            )}
             <div className="mt-2 flex items-center justify-center">
               <span className="inline-flex items-center rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-300">
                 Polling Active
@@ -763,7 +770,9 @@ export default function DashboardPage() {
                   👤 User present
                 </span>
               )}
-              <p className="text-xs text-evload-muted mt-1">Reason: {statusReason}</p>
+              {statusReason && (
+                <p className="text-xs text-evload-muted mt-1">Reason: {statusReason}</p>
+              )}
               {canWakeVehicle && (
                 <button
                   onClick={handleWakeVehicle}

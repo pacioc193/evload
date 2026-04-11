@@ -33,8 +33,19 @@ git pull
 
 echo "📦 [2/4] Aggiornamento dipendenze e database..."
 rm -rf backend/node_modules frontend/node_modules
-npm --prefix backend ci --include=dev
-npm --prefix frontend ci --include=dev
+if npm --prefix backend ci --include=dev; then
+    echo "✅ Backend dependencies installed with npm ci"
+else
+    echo "⚠️ Backend npm ci failed (lockfile mismatch), falling back to npm install..."
+    npm --prefix backend install --include=dev --no-audit --no-fund
+fi
+
+if npm --prefix frontend ci --include=dev; then
+    echo "✅ Frontend dependencies installed with npm ci"
+else
+    echo "⚠️ Frontend npm ci failed (lockfile mismatch), falling back to npm install..."
+    npm --prefix frontend install --include=dev --no-audit --no-fund
+fi
 cd backend
 npx prisma generate
 if npx prisma migrate deploy; then

@@ -1,6 +1,6 @@
 {
   "name": "evload-frontend",
-  "version": "1.6.1",
+  "version": "1.6.5",
   "private": true,
   "scripts": {
     "dev": "vite",

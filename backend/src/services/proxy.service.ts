@@ -135,6 +135,14 @@ let bodyPollTimer: NodeJS.Timeout | null = null
 let vehicleDataPollTimer: NodeJS.Timeout | null = null
 
 /**
+ * Tracks whether the vehicle was reachable via BLE in the last body_controller_state poll.
+ * null  = unknown (no successful/failed BLE poll yet)
+ * true  = in range (proxy returned valid response)
+ * false = out of range (proxy returned "not in range" / "failed to scan for" BLE error)
+ */
+let lastBleReachable: boolean | null = null
+
+/**
  * Timestamp (ms) when the vehicle_data polling window was last started.
  * null = no active window (only body_controller_state will be polled unless charging).
  * The window is started on wake-up, connect, or explicit requestWakeMode() call.
@@ -316,6 +324,7 @@ async function proxyGet<T>(url: string, options?: { timeoutMs?: number }): Promi
       // Don't retry and don't mark the proxy offline. The body poll loop will try again on
       // the next scheduled tick and will resume communication automatically when recovered.
       if (axios.isAxiosError(err) && err.response != null) {
+        markProxySuccess(url) // proxy responded → mark it online
         logger.warn('PROXY_GET_HTTP_ERROR', {
           url,
           statusCode: err.response.status,
@@ -525,8 +534,12 @@ interface BodyControllerStateEnvelope {
  * Fetch the body controller state from the proxy.
  * This endpoint does NOT wake up the vehicle.
  * Returns the parsed sleep status, or 'VEHICLE_SLEEP_STATUS_UNKNOWN' on any error.
+ * Also returns `bleReachable`:
+ *   true  = vehicle answered via BLE (in range)
+ *   false = proxy returned "not in range" / "failed to scan for" (vehicle out of BLE range)
+ *   null  = network/other error (proxy itself unreachable, cannot determine range)
  */
-async function fetchBodyControllerStatus(vid: string): Promise<{ sleepStatus: VehicleSleepStatus; userPresence: UserPresence }> {
+async function fetchBodyControllerStatus(vid: string): Promise<{ sleepStatus: VehicleSleepStatus; userPresence: UserPresence; bleReachable: boolean | null }> {
   const url = `${proxyUrl()}/api/1/vehicles/${vid}/body_controller_state`
   try {
     const res = await proxyGet<BodyControllerStateEnvelope>(url, { timeoutMs: 30_000 })
@@ -548,10 +561,24 @@ async function fetchBodyControllerStatus(vid: string): Promise<{ sleepStatus: Ve
           ? 'VEHICLE_USER_PRESENCE_NOT_PRESENT'
           : 'VEHICLE_USER_PRESENCE_UNKNOWN'
 
-    return { sleepStatus, userPresence }
+    return { sleepStatus, userPresence, bleReachable: true }
   } catch (err) {
+    // If the proxy returned an HTTP response (e.g. 503), check whether the reason indicates
+    // the vehicle is outside BLE range. This is a definitive "not in garage" signal.
+    if (axios.isAxiosError(err) && err.response?.data) {
+      const body = err.response.data as Record<string, unknown>
+      const innerResponse = body?.response as Record<string, unknown> | undefined
+      const reason = String(innerResponse?.reason ?? body?.reason ?? '')
+      const isBleNotInRange =
+        reason.toLowerCase().includes('not in range') ||
+        reason.toLowerCase().includes('failed to scan for')
+      if (isBleNotInRange) {
+        logger.info('📡[BLE_NOT_IN_RANGE] Vehicle outside BLE range', { vehicleId: vid, reason })
+        return { sleepStatus: 'VEHICLE_SLEEP_STATUS_UNKNOWN', userPresence: 'VEHICLE_USER_PRESENCE_UNKNOWN', bleReachable: false }
+      }
+    }
     logger.warn('😴[SLEEP_CHECK] body_controller_state fetch failed, assuming unknown', { err })
-    return { sleepStatus: 'VEHICLE_SLEEP_STATUS_UNKNOWN', userPresence: 'VEHICLE_USER_PRESENCE_UNKNOWN' }
+    return { sleepStatus: 'VEHICLE_SLEEP_STATUS_UNKNOWN', userPresence: 'VEHICLE_USER_PRESENCE_UNKNOWN', bleReachable: null }
   }
 }
 
@@ -564,16 +591,32 @@ async function pollBodyController(): Promise<void> {
   try {
     const vid = vehicleId()
     if (!vid) {
-      vehicleState = { ...vehicleState, connected: false, error: 'No vehicle ID configured' }
+      vehicleState = { ...vehicleState, connected: false, reason: 'No vehicle ID configured', error: 'No vehicle ID configured' }
       vehicleEvents.emit('state', vehicleState)
       return
     }
 
     logger.debug('🔄[POLL_BODY] body_controller_state poll tick', { vehicleId: vid })
     const cfg = getConfig()
-    const { sleepStatus, userPresence } = await fetchBodyControllerStatus(vid)
-    logger.verbose('🔄[POLL_BODY] body_controller_state response', { vehicleId: vid, sleepStatus, userPresence })
+    const { sleepStatus, userPresence, bleReachable } = await fetchBodyControllerStatus(vid)
+    logger.verbose('🔄[POLL_BODY] body_controller_state response', { vehicleId: vid, sleepStatus, userPresence, bleReachable })
     const prevSleepStatus = vehicleState.vehicleSleepStatus
+
+    // ── BLE garage detection ─────────────────────────────────────────────────
+    // bleReachable === false  → definitive "not in range" response from proxy
+    // bleReachable === true   → vehicle answered via BLE (in range)
+    // bleReachable === null   → network error (cannot determine range, no state change)
+    if (bleReachable === false && lastBleReachable !== false) {
+      logger.info('🏠[GARAGE_OUT] Vehicle left BLE range – emitting vehicle_not_in_garage', { vehicleId: vid })
+      dispatchTelegramNotificationEvent('vehicle_not_in_garage', { vehicleId: vid, reason: 'ble_not_in_range' }).catch(() => {})
+      lastBleReachable = false
+    } else if (bleReachable === true && lastBleReachable === false) {
+      logger.info('🏠[GARAGE_IN] Vehicle back in BLE range – emitting vehicle_in_garage', { vehicleId: vid })
+      dispatchTelegramNotificationEvent('vehicle_in_garage', { vehicleId: vid, reason: 'ble_in_range' }).catch(() => {})
+      lastBleReachable = true
+    } else if (bleReachable !== null) {
+      lastBleReachable = bleReachable
+    }
 
     if (sleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP') {
       // If the vehicle just went to sleep, close the vehicle_data window and stop the vehicle data timer.
@@ -588,6 +631,8 @@ async function pollBodyController(): Promise<void> {
         chargingState: 'Sleeping',
         charging: false,
         connected: true,
+        reason: null,
+        error: undefined,
       }
       if (prevSleepStatus !== 'VEHICLE_SLEEP_STATUS_ASLEEP') {
         logger.info('😴[SLEEP_DETECTED] Vehicle is asleep – vehicle_data polling suspended', { vehicleId: vid })
@@ -604,6 +649,8 @@ async function pollBodyController(): Promise<void> {
         vehicleSleepStatus: sleepStatus,
         userPresence,
         connected: true,
+        reason: null,
+        error: undefined,
       }
     }
 
@@ -752,7 +799,9 @@ async function pollVehicleData(): Promise<void> {
       displayName: cfg.proxy.vehicleName || vehicleState.displayName || 'Vehicle',
       vehicleSleepStatus: sleepStatus,
       userPresence: 'VEHICLE_USER_PRESENCE_UNKNOWN',
-      reason: String(fullResponse?.reason ?? (vehicleReachable ? 'The request was successfully processed.' : 'Vehicle unreachable')),
+      reason: fullResponse?.result === false
+        ? String(fullResponse.reason ?? 'Vehicle unreachable')
+        : null,
       error: fullResponse?.result === false ? String(fullResponse.reason ?? 'Vehicle unavailable') : undefined,
     }
 
@@ -825,6 +874,7 @@ export function stopProxyPoll(): void {
     clearTimeout(vehicleDataPollTimer)
     vehicleDataPollTimer = null
   }
+  lastBleReachable = null
   logger.info('Proxy polling stopped')
 }
 
@@ -910,10 +960,6 @@ export function getProxyHealthState(): ProxyHealthState {
     ...proxyHealthState,
     vehicleDataWindowExpiresAt: expiry !== null && expiry > now ? expiry : null,
   }
-}
-
-export function onUserPresenceChange(callback: (presence: UserPresence) => void): void {
-  void callback
 }
 
 export async function requestWakeMode(sendWakeCommand = false): Promise<void> {

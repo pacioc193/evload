@@ -86,10 +86,10 @@ const EVENT_PLACEHOLDER_CATALOG: Record<string, string[]> = {
   soc_increased: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'soc', 'deltaSoc', 'reason'],
   start_charging: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'reason'],
   stop_charging: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'reason'],
-  plan_start: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'planId', 'targetSoc', 'reason'],
-  plan_completed: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'planId', 'reason'],
-  plan_skipped: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'planId', 'reason'],
-  plan_wake: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'planId', 'wakeBeforeMinutes'],
+  plan_start: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'planId', 'planName', 'targetSoc', 'reason'],
+  plan_completed: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'planId', 'planName', 'reason'],
+  plan_skipped: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'planId', 'planName', 'reason'],
+  plan_wake: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'planId', 'planName', 'wakeBeforeMinutes'],
   target_soc_reached: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'soc', 'targetSoc', 'reason'],
   ha_paused: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'homePowerW', 'maxHomePowerW', 'retrySec'],
   charging_paused: ['event', 'timestamp', 'timestamp_time', 'timestamp_date', 'reason'],
@@ -120,10 +120,10 @@ const EVENT_PAYLOAD_PRESETS: Record<string, Record<string, unknown>> = {
   soc_increased: { soc: 55, deltaSoc: 1, reason: 'charging' },
   start_charging: { reason: 'scheduler' },
   stop_charging: { reason: 'user' },
-  plan_start: { planId: 'plan-001', targetSoc: 90, reason: 'scheduled_time' },
-  plan_completed: { planId: 'plan-001', reason: 'target_reached' },
-  plan_skipped: { planId: 'plan-001', reason: 'low_priority' },
-  plan_wake: { planId: 'plan-001', wakeBeforeMinutes: 5 },
+  plan_start: { planId: '1', planName: 'Ricarica Notturna', targetSoc: 90, reason: 'scheduled_time' },
+  plan_completed: { planId: '1', planName: 'Ricarica Notturna', reason: 'target_reached' },
+  plan_skipped: { planId: '1', planName: 'Ricarica Notturna', reason: 'low_priority' },
+  plan_wake: { planId: '1', planName: 'Ricarica Notturna', wakeBeforeMinutes: 5 },
   target_soc_reached: { soc: 80, targetSoc: 80, reason: 'limit_reached' },
   ha_paused: { homePowerW: 5000, maxHomePowerW: 4000, retrySec: 60 },
   charging_paused: { reason: 'ha_power' },
@@ -179,20 +179,20 @@ const EVENT_PAYLOAD_SCHEMAS: Record<string, NotificationEventSchema> = {
     fields: { reason: 'string' },
   },
   plan_start: {
-    required: ['planId', 'targetSoc'],
-    fields: { planId: 'string', targetSoc: 'number', reason: 'string' },
+    required: ['planId', 'planName', 'targetSoc'],
+    fields: { planId: 'string', planName: 'string', targetSoc: 'number', reason: 'string' },
   },
   plan_completed: {
-    required: ['planId'],
-    fields: { planId: 'string', reason: 'string' },
+    required: ['planId', 'planName'],
+    fields: { planId: 'string', planName: 'string', reason: 'string' },
   },
   plan_skipped: {
-    required: ['planId', 'reason'],
-    fields: { planId: 'string', reason: 'string' },
+    required: ['planId', 'planName', 'reason'],
+    fields: { planId: 'string', planName: 'string', reason: 'string' },
   },
   plan_wake: {
-    required: ['planId', 'wakeBeforeMinutes'],
-    fields: { planId: 'string', wakeBeforeMinutes: 'number' },
+    required: ['planId', 'planName', 'wakeBeforeMinutes'],
+    fields: { planId: 'string', planName: 'string', wakeBeforeMinutes: 'number' },
   },
   target_soc_reached: {
     required: ['soc'],
@@ -263,7 +263,8 @@ const PLACEHOLDER_DESCRIPTIONS: Record<string, string> = {
   throttledAmps: 'Corrente limitata (A)',
   soc: 'Livello carica attuale (%)',
   deltaSoc: 'Incremento SoC (%)',
-  planId: 'ID del piano programmato',
+  planId: 'ID numerico del piano programmato',
+  planName: 'Nome del piano programmato',
   wakeBeforeMinutes: 'Minuti di anticipo sveglia rispetto all\'avvio del piano',
   vehicleId: 'Identificativo del veicolo',
   vehicleInGarage: 'Veicolo in garage?',
@@ -452,8 +453,44 @@ function getRules(): NotificationRule[] {
   return rules.filter((rule) => rule.enabled)
 }
 
-function buildTimestampPayload(now: Date): { timestamp: string; timestamp_time: string; timestamp_date: string } {
-  const tz = getConfig().timezone
+/**
+ * Convert a timezone string from config to one accepted by the Intl API.
+ * Config may store user-friendly labels like "UTC+2" or "UTC-5" which are
+ * NOT valid IANA identifiers.  The Intl API accepts numeric offset strings
+ * like "+02:00" / "-05:00" (since Node 16).  Anything that still fails is
+ * silently replaced with "UTC" so notification rendering never throws.
+ */
+function resolveTimezone(tz: string): string {
+  // First try as-is (handles "UTC", "Europe/Rome", etc.)
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz })
+    return tz
+  } catch {
+    // fall through
+  }
+
+  // Convert "UTC+N" / "UTC-N" (and "UTC+N.5" etc.) → "+HH:MM" / "-HH:MM"
+  const match = /^UTC([+-])(\d+(?:\.\d+)?)$/.exec(tz)
+  if (match) {
+    const sign = match[1]
+    const totalHours = parseFloat(match[2])
+    const hours = Math.floor(totalHours)
+    const minutes = Math.round((totalHours - hours) * 60)
+    const candidate = `${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: candidate })
+      return candidate
+    } catch {
+      // fall through
+    }
+  }
+
+  logger.warn('Unrecognised timezone in config, falling back to UTC', { timezone: tz })
+  return 'UTC'
+}
+
+export function buildTimestampPayload(now: Date): { timestamp: string; timestamp_time: string; timestamp_date: string } {
+  const tz = resolveTimezone(getConfig().timezone)
   return {
     timestamp: now.toISOString(),
     timestamp_time: now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz }),
