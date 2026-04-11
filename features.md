@@ -39,7 +39,8 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 - **OTA updater — fix checkout bloccato da modifiche locali**:
 	- In `backend/src/services/updater.service.ts`, lo script OTA ora esegue auto-stash (`git stash push --include-untracked`) quando il working tree non e pulito, prima di `git checkout -B`.
 	- Evita l'errore: `Your local changes ... would be overwritten by checkout` (tipicamente su lockfile).
-	- Step dipendenze OTA: `npm ci` con fallback a `npm install --no-package-lock` per non sporcare i lockfile locali e prevenire regressioni nei successivi update.
+	- Step dipendenze OTA: backend in modalita live-safe con `npm install --include=dev` (evita la rimozione distruttiva di `node_modules` mentre il servizio e attivo), con fallback a `npm ci`; frontend mantiene `npm ci` con fallback a `npm install --no-package-lock`.
+	- Aggiunte guardie runtime in `backend/src/routes/update.routes.ts`: update bloccato di default quando `engine.running`, sessione attiva, `vehicle.charging`/`chargingState=Charging`, `mode=plan`, failsafe attivo o proxy disconnesso. Override disponibile solo con `force=true`.
 
 - **Rimozione targetSocOff e scheduleLead**:
 	- Eliminato il concetto di `targetSocOff` (target SoC separato per quando il motore è spento): esiste ora un solo `targetSoc` persisted che si applica in tutti i modi (idle, on, plan).

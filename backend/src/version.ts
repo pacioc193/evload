@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.6.3'
+export const VERSION = '1.6.4'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.6.4',
+    releasedAt: '2026-04-11',
+    summary: 'OTA hardening release: backend dependency step is now live-safe (uses npm install first while service is running, with npm ci fallback), and new OTA safety guards block updates during active/unsafe runtime conditions (engine running, active charging session, charging state, plan armed, failsafe active, or proxy disconnected) unless explicitly forced.',
+  },
   {
     version: '1.6.3',
     releasedAt: '2026-04-11',

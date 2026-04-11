@@ -307,13 +307,15 @@ echo "✅ Source updated to origin/${branch}"
 echo ""
 
 echo "📦 [2/5] Installing dependencies (may take a few minutes)..."
-if npm --prefix "$REPO/backend" ci --include=dev; then
-  echo "✅ Backend dependencies installed with npm ci"
+echo "  → Backend: live-safe install (non-destructive while service is still running)"
+if npm --prefix "$REPO/backend" install --include=dev --no-audit --no-fund; then
+  echo "✅ Backend dependencies installed with npm install"
 else
-  echo "⚠️  Backend npm ci failed (lock mismatch), falling back to npm install --no-package-lock"
-  npm --prefix "$REPO/backend" install --include=dev --no-audit --no-fund --no-package-lock
+  echo "⚠️  Backend npm install failed, trying npm ci as fallback"
+  npm --prefix "$REPO/backend" ci --include=dev
 fi
 
+echo "  → Frontend: clean install"
 if npm --prefix "$REPO/frontend" ci --include=dev; then
   echo "✅ Frontend dependencies installed with npm ci"
 else
