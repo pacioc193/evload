@@ -176,6 +176,51 @@ function Field({
   )
 }
 
+const IANA_TIMEZONES = [
+  'UTC',
+  'Europe/Rome', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Madrid',
+  'Europe/Amsterdam', 'Europe/Brussels', 'Europe/Vienna', 'Europe/Zurich', 'Europe/Stockholm',
+  'Europe/Oslo', 'Europe/Copenhagen', 'Europe/Helsinki', 'Europe/Warsaw', 'Europe/Prague',
+  'Europe/Budapest', 'Europe/Bucharest', 'Europe/Athens', 'Europe/Istanbul', 'Europe/Moscow',
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+  'America/Phoenix', 'America/Anchorage', 'America/Honolulu',
+  'America/Toronto', 'America/Vancouver', 'America/Mexico_City', 'America/Sao_Paulo',
+  'America/Argentina/Buenos_Aires', 'America/Bogota', 'America/Lima', 'America/Santiago',
+  'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Hong_Kong', 'Asia/Singapore', 'Asia/Seoul',
+  'Asia/Kolkata', 'Asia/Dubai', 'Asia/Bangkok', 'Asia/Jakarta', 'Asia/Karachi',
+  'Asia/Riyadh', 'Asia/Tehran', 'Asia/Jerusalem', 'Asia/Beirut',
+  'Australia/Sydney', 'Australia/Melbourne', 'Australia/Brisbane', 'Australia/Perth',
+  'Pacific/Auckland', 'Pacific/Honolulu', 'Pacific/Fiji',
+  'Africa/Cairo', 'Africa/Johannesburg', 'Africa/Lagos', 'Africa/Nairobi',
+]
+
+function SelectField({
+  label, value, onChange, options, description,
+}: {
+  label: string; value: string; onChange: (v: string) => void; options: string[]; description?: string
+}) {
+  return (
+    <div>
+      <label className="flex items-center gap-1 text-sm text-evload-muted mb-1">
+        <span>{label}</span>
+        {description && <Tooltip text={description} />}
+      </label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
+      >
+        {!options.includes(value) && (
+          <option value={value}>{value}</option>
+        )}
+        {options.map((tz) => (
+          <option key={tz} value={tz}>{tz}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 function logLevelColor(level: string): string {
   if (level === 'error') return 'text-evload-error'
   if (level === 'warn') return 'text-yellow-400'
@@ -1174,11 +1219,11 @@ export default function SettingsPage() {
           >
             <div className="pt-5 space-y-4">
               <SectionCard title="Timezone">
-                <Field
+                <SelectField
                   label="Timezone"
                   value={settings.timezone ?? 'UTC'}
                   onChange={upd('timezone')}
-                  placeholder="e.g. Europe/Rome"
+                  options={IANA_TIMEZONES}
                   description="IANA timezone name used for all log timestamps and date display. Changes take effect immediately without restart."
                 />
                 <p className="text-xs text-evload-muted mt-1">Current server time (UTC): {new Date().toUTCString()}</p>

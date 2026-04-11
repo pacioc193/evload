@@ -10,6 +10,7 @@ import { getConfig, reloadConfig } from '../config'
 import { logger, setLoggerLevel } from '../logger'
 import { setPassword, verifyPassword } from '../auth'
 import {
+  buildTimestampPayload,
   extractMissingTemplatePlaceholders,
   getNotificationEventOptions,
   getNotificationPlaceholderCatalog,
@@ -407,8 +408,8 @@ router.post('/telegram/test', limiter, requireAuth, async (req, res) => {
   }
 
   const missingPlaceholders = extractMissingTemplatePlaceholders(template, {
+    ...buildTimestampPayload(new Date()),
     event,
-    timestamp: new Date().toISOString(),
     ...payload,
   })
 

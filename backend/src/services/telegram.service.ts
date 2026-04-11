@@ -103,11 +103,11 @@ export function initTelegram(): void {
     })
 
     bot.on('error', (err) => {
-      logger.error('Telegram bot error', { err })
+      logger.error('Telegram bot error', { err: sanitizeTelegramError(err) })
     })
 
     bot.on('polling_error', (err) => {
-      logger.error('Telegram polling error', { err })
+      logger.error('Telegram polling error', { err: sanitizeTelegramError(err) })
     })
   }
 }
@@ -142,6 +142,27 @@ async function handleCommand(chatId: string, text: string): Promise<void> {
   }
 }
 
+/**
+ * Sanitize a Telegram error before logging to prevent the bot token
+ * (which appears in request URIs) from leaking into log files.
+ */
+function sanitizeTelegramError(err: unknown): unknown {
+  if (!err || typeof err !== 'object') return err
+  const token = getBotToken()
+  if (!token) return err
+  try {
+    const sanitized = JSON.parse(JSON.stringify(err, (_key, value) => {
+      if (typeof value === 'string' && value.includes(token)) {
+        return value.replaceAll(token, '***REDACTED***')
+      }
+      return value
+    }))
+    return sanitized
+  } catch {
+    return err
+  }
+}
+
 export async function sendTelegramNotification(message: string): Promise<boolean> {
   const token = getBotToken()
   const cfg = getConfig()
@@ -164,7 +185,7 @@ export async function sendTelegramNotification(message: string): Promise<boolean
     logger.info(`Telegram notification sent: ${message}`)
     return delivered > 0
   } catch (err) {
-    logger.error('Failed to send Telegram notification', { err })
+    logger.error('Failed to send Telegram notification', { err: sanitizeTelegramError(err) })
     return false
   }
 }
