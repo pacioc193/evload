@@ -9,6 +9,7 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 	- Aggiornata versione sorgente in `backend/src/version.ts` (`VERSION = 1.6.5`) con nuovo entry in `VERSION_HISTORY`.
 	- Versione sincronizzata in `package.json` root, `backend/package.json`, `frontend/package.json` (e relativi lockfile).
 	- Pronto il primo tag Git (`v1.6.5`) per bootstrap del flusso release/versioning.
+	- `getVersionInfo()` ora usa fallback su GitHub Tags API quando `releases/latest` non esiste, così il pannello Versioning può rilevare update anche in workflow tag-only.
 
 - **VIN anonimizzazione nei log**:
 	- Tutti i log backend ora anonimizzano VIN e vehicleId, mostrando solo le ultime 4 cifre (es. `***5ABC` instead di `7G1FB1E3XF1234567`).

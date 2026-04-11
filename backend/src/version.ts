@@ -132,7 +132,9 @@ export async function getVersionInfo(): Promise<VersionInfo> {
   
   if (!latestVersionCache || now - lastCheckMs > CHECK_INTERVAL_MS) {
     try {
-      // Use GitHub Releases API for latest release tag.
+      // Prefer GitHub Releases API for latest release tag.
+      // If no release exists yet, fallback to latest tag so Versioning still works
+      // in tag-only workflows.
       // If GITHUB_TOKEN is set it will work for private repos too.
       const headers: Record<string, string> = {
         'Accept': 'application/vnd.github+json',
@@ -141,13 +143,28 @@ export async function getVersionInfo(): Promise<VersionInfo> {
       const token = process.env.GITHUB_TOKEN
       if (token) headers['Authorization'] = `Bearer ${token}`
 
-      const res = await axios.get('https://api.github.com/repos/pacioc193/evload/releases/latest', {
-        timeout: 5000,
-        headers,
-      })
-      const tag: string = res.data?.tag_name ?? ''
-      // Strip leading 'v' if present (e.g. 'v1.3.0' → '1.3.0')
-      const version = tag.replace(/^v/, '')
+      let version = ''
+
+      try {
+        const releaseRes = await axios.get('https://api.github.com/repos/pacioc193/evload/releases/latest', {
+          timeout: 5000,
+          headers,
+        })
+        const releaseTag: string = releaseRes.data?.tag_name ?? ''
+        version = releaseTag.replace(/^v/, '')
+      } catch {
+        // Ignore and fallback to tags API below.
+      }
+
+      if (!version) {
+        const tagsRes = await axios.get('https://api.github.com/repos/pacioc193/evload/tags?per_page=1', {
+          timeout: 5000,
+          headers,
+        })
+        const latestTag: string = Array.isArray(tagsRes.data) ? String(tagsRes.data[0]?.name ?? '') : ''
+        version = latestTag.replace(/^v/, '')
+      }
+
       if (version) {
         latestVersionCache = version
         lastCheckMs = now
