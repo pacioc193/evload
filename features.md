@@ -5,6 +5,11 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 ## Aggiornamenti Recenti (2026-04-11) — v1.6.5
 
+- **Release metadata 1.6.5 + first tag prep**:
+	- Aggiornata versione sorgente in `backend/src/version.ts` (`VERSION = 1.6.5`) con nuovo entry in `VERSION_HISTORY`.
+	- Versione sincronizzata in `package.json` root, `backend/package.json`, `frontend/package.json` (e relativi lockfile).
+	- Pronto il primo tag Git (`v1.6.5`) per bootstrap del flusso release/versioning.
+
 - **VIN anonimizzazione nei log**:
 	- Tutti i log backend ora anonimizzano VIN e vehicleId, mostrando solo le ultime 4 cifre (es. `***5ABC` instead di `7G1FB1E3XF1234567`).
 	- Implementato tramite funzione `anonimizeVin()` che agisce su tutti i campi `vin` e `vehicleId` nella struttura di logging.

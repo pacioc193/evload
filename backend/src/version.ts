@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.6.4'
+export const VERSION = '1.6.5'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.6.5',
+    releasedAt: '2026-04-11',
+    summary: 'Scheduler UX refresh and OTA reliability: planner rewritten with ordered step flow, modern target sliders (SOC now shown as % + estimated km, amps bounded by engine min/max), OTA start limiter tuned to prevent false 429 lockouts, and OTA log panel kept visible/pinned during background update transitions.',
+  },
   {
     version: '1.6.4',
     releasedAt: '2026-04-11',

@@ -19,6 +19,7 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Version bump 1.6.5**: release metadata aligned across backend source-of-truth (`backend/src/version.ts`) and all package manifests, prepared for first Git tag/release flow
 - **VIN anonimizzazione nei log**: TuVIN dell'auto nei log backend viene anonimizzato, mostrando solo le ultime 4 cifre per privacy
 - **Timezone corretto nel frontend**: Ora il display "Current server time" mostra l'ora nel timezone selezionato (non solo UTC hardcoded)
 - **Pre-push compilation check**: Nuovo script `scripts/pre-push-checks.ps1` valida la compilazione locale prima di permettere il push
