@@ -452,8 +452,44 @@ function getRules(): NotificationRule[] {
   return rules.filter((rule) => rule.enabled)
 }
 
+/**
+ * Convert a timezone string from config to one accepted by the Intl API.
+ * Config may store user-friendly labels like "UTC+2" or "UTC-5" which are
+ * NOT valid IANA identifiers.  The Intl API accepts numeric offset strings
+ * like "+02:00" / "-05:00" (since Node 16).  Anything that still fails is
+ * silently replaced with "UTC" so notification rendering never throws.
+ */
+function resolveTimezone(tz: string): string {
+  // First try as-is (handles "UTC", "Europe/Rome", etc.)
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz })
+    return tz
+  } catch {
+    // fall through
+  }
+
+  // Convert "UTC+N" / "UTC-N" (and "UTC+N.5" etc.) → "+HH:MM" / "-HH:MM"
+  const match = /^UTC([+-])(\d+(?:\.\d+)?)$/.exec(tz)
+  if (match) {
+    const sign = match[1]
+    const totalHours = parseFloat(match[2])
+    const hours = Math.floor(totalHours)
+    const minutes = Math.round((totalHours - hours) * 60)
+    const candidate = `${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: candidate })
+      return candidate
+    } catch {
+      // fall through
+    }
+  }
+
+  logger.warn('Unrecognised timezone in config, falling back to UTC', { timezone: tz })
+  return 'UTC'
+}
+
 function buildTimestampPayload(now: Date): { timestamp: string; timestamp_time: string; timestamp_date: string } {
-  const tz = getConfig().timezone
+  const tz = resolveTimezone(getConfig().timezone)
   return {
     timestamp: now.toISOString(),
     timestamp_time: now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz }),
