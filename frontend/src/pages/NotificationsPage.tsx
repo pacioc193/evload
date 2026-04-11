@@ -141,10 +141,30 @@ interface TestPayloadPreset {
 }
 
 const EVENT_EXAMPLE_TEMPLATES: Record<string, string> = {
-  engine_started: 'Charging session {{sessionId}} started. Target: {{targetSoc}}%. Ref: {{reason}}',
-  home_power_limit_exceeded: 'Power limit exceeded: {{homePowerW}}W (Max: {{limitW}}W). Charging throttled.',
-  soc_increased: 'EV Charge: {{soc}}% (+{{deltaSoc}}%)',
-  charge_start_blocked: '⚠️ Charge start blocked: {{reason}}. State={{chargingState}}, pluggedIn={{pluggedIn}}, connected={{vehicleConnected}}, SoC={{soc}}%',
+  engine_started: '🔌 Ricarica avviata alle {{timestamp_time}} — Obiettivo: {{targetSoc}}% — {{targetAmps}}A — {{vehicleId}}',
+  engine_stopped: '🏁 Sessione ricarica terminata alle {{timestamp_time}} — ID: {{sessionId}} — {{reason}}',
+  charge_start_blocked: '⚠️ Avvio ricarica bloccato alle {{timestamp_time}}: {{reason}} (Cavo: {{pluggedIn}}, SoC: {{soc}}%)',
+  ha_throttled: '⚡ Potenza ridotta alle {{timestamp_time}} — Casa: {{homePowerW}}W / Max: {{maxHomePowerW}}W — Corrente: {{throttledAmps}}A',
+  failsafe_activated: '🚨 Failsafe attivato alle {{timestamp_time}} — {{reason}}',
+  failsafe_cleared: '✅ Failsafe disattivato alle {{timestamp_time}} — {{reason}}',
+  soc_increased: '🔋 Carica: {{soc}}% (+{{deltaSoc}}%)',
+  start_charging: '⚡ Ricarica avviata alle {{timestamp_time}} — {{reason}}',
+  stop_charging: '🛑 Ricarica fermata alle {{timestamp_time}} — {{reason}}',
+  plan_start: '🗓️ Piano avviato alle {{timestamp_time}} — Piano: {{planId}} — Obiettivo: {{targetSoc}}%',
+  plan_completed: '✅ Piano completato alle {{timestamp_time}} — Piano: {{planId}}',
+  plan_skipped: '⏭️ Piano saltato alle {{timestamp_time}} — Piano: {{planId}} — {{reason}}',
+  plan_wake: '⏰ Sveglia pre-ricarica alle {{timestamp_time}} — Piano: {{planId}} — Avvio tra {{wakeBeforeMinutes}} min',
+  target_soc_reached: '🏆 SoC obiettivo raggiunto alle {{timestamp_time}} — {{soc}}% / {{targetSoc}}%',
+  ha_paused: '⏸️ Ricarica in pausa alle {{timestamp_time}} — Casa: {{homePowerW}}W / Max: {{maxHomePowerW}}W — Riprova tra {{retrySec}}s',
+  charging_paused: '⏸️ Ricarica in pausa alle {{timestamp_time}} — {{reason}}',
+  charging_resumed: '▶️ Ricarica ripresa alle {{timestamp_time}} — {{reason}}',
+  home_power_limit_exceeded: '🔴 Potenza casa superata alle {{timestamp_time}} — {{homePowerW}}W / Limite: {{limitW}}W',
+  home_power_limit_restored: '🟢 Potenza casa rientrata alle {{timestamp_time}} — {{homePowerW}}W / Limite: {{limitW}}W',
+  vehicle_connected: '🚗 Veicolo connesso alle {{timestamp_time}} — {{vehicleId}}',
+  vehicle_disconnected: '🔌 Veicolo disconnesso alle {{timestamp_time}} — {{vehicleId}}',
+  vehicle_in_garage: '🏠 Veicolo in garage alle {{timestamp_time}} — {{vehicleId}}',
+  vehicle_not_in_garage: '🚙 Veicolo non in garage alle {{timestamp_time}} — {{vehicleId}}',
+  proxy_error: '❌ Errore proxy alle {{timestamp_time}} — Veicolo: {{vehicleId}} — {{reason}}',
 }
 
 function CollapsibleHeader({
@@ -318,24 +338,24 @@ export default function NotificationsPage() {
     const examples: TelegramNotificationRule[] = [
       {
         id: `example-1`,
-        name: 'Engine Started Alert',
+        name: 'Ricarica avviata',
         enabled: true,
         event: 'engine_started',
-        template: 'Charging session {{sessionId}} started. Target: {{targetSoc}}%. Ref: {{reason}}',
+        template: '🔌 Ricarica avviata alle {{timestamp_time}} — Obiettivo: {{targetSoc}}% — {{targetAmps}}A — {{vehicleId}}',
       },
       {
         id: `example-2`,
-        name: 'Home Power Limit Warning',
+        name: 'Potenza casa superata',
         enabled: true,
         event: 'home_power_limit_exceeded',
-        template: '⚠️ Power limit exceeded: {{homePowerW}}W (Max: {{limitW}}W). Charging throttled.',
+        template: '🔴 Potenza casa superata alle {{timestamp_time}} — {{homePowerW}}W / Limite: {{limitW}}W',
       },
       {
         id: `example-3`,
-        name: 'SoC Step (Every 10%)',
+        name: 'Avanzamento ricarica (ogni 10%)',
         enabled: true,
         event: 'soc_increased',
-        template: 'EV Charge: {{soc}}% (+{{deltaSoc}}%)',
+        template: '🔋 Carica: {{soc}}% (+{{deltaSoc}}%)',
         condition: {
           field: 'soc',
           operator: 'mod_step',
@@ -344,26 +364,35 @@ export default function NotificationsPage() {
       },
       {
         id: `example-4`,
-        name: 'Major SoC Increase (Delta)',
+        name: 'SoC obiettivo raggiunto',
         enabled: true,
-        event: 'soc_increased',
-        template: '🚀 Significant charge boost! Now at {{soc}}% (+{{deltaSoc}}% in one step)',
-        condition: {
-          field: 'soc',
-          operator: 'increased_by',
-          value: 2,
-        },
+        event: 'target_soc_reached',
+        template: '🏆 SoC obiettivo raggiunto alle {{timestamp_time}} — {{soc}}% / {{targetSoc}}%',
       },
       {
         id: `example-5`,
-        name: 'Charge Start Blocked',
+        name: 'Avvio ricarica bloccato',
         enabled: true,
         event: 'charge_start_blocked',
-        template: '⚠️ Charge start blocked: {{reason}}. State={{chargingState}}, pluggedIn={{pluggedIn}}, connected={{vehicleConnected}}, SoC={{soc}}%',
-      }
+        template: '⚠️ Avvio ricarica bloccato alle {{timestamp_time}}: {{reason}} (Cavo: {{pluggedIn}}, SoC: {{soc}}%)',
+      },
+      {
+        id: `example-6`,
+        name: 'Piano avviato',
+        enabled: true,
+        event: 'plan_start',
+        template: '🗓️ Piano avviato alle {{timestamp_time}} — Piano: {{planId}} — Obiettivo: {{targetSoc}}%',
+      },
+      {
+        id: `example-7`,
+        name: 'Sveglia pre-piano',
+        enabled: true,
+        event: 'plan_wake',
+        template: '⏰ Sveglia pre-ricarica alle {{timestamp_time}} — Piano: {{planId}} — Avvio tra {{wakeBeforeMinutes}} min',
+      },
     ]
     setSettings((prev) => prev ? { ...prev, telegramRules: examples } : prev)
-    setTestResult('Loaded 5 example rules (Advanced conditions included)')
+    setTestResult('Loaded 7 example rules (Advanced conditions included)')
   }
 
   const generateFromScratch = () => {
@@ -518,6 +547,11 @@ export default function NotificationsPage() {
           setTestResult(`Schema validation failed:\n- ${details.join('\n- ')}`)
           return
         }
+        // Fallback: show the raw backend error message if present
+        if (data?.error) {
+          setTestResult(`Test failed: ${data.error}`)
+          return
+        }
       }
       setTestResult('Test failed: invalid payload JSON or backend error')
     }
@@ -582,6 +616,10 @@ export default function NotificationsPage() {
           setTestResult(`Schema validation failed:\n- ${details.join('\n- ')}`)
           return
         }
+        if (data?.error) {
+          setTestResult(`Trigger failed: ${data.error}`)
+          return
+        }
       }
       setTestResult('Trigger failed: invalid payload JSON or backend error')
     }
@@ -600,24 +638,24 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
         <h1 className="text-2xl font-bold flex items-center gap-2"><Bell size={22} />Notifications Panel</h1>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
             onClick={() => {
               setPhModalContext(undefined);
               setIsPhModalOpen(true);
             }}
-            className="flex items-center gap-2 px-4 py-2 bg-evload-bg/50 border border-evload-border hover:bg-evload-border rounded-lg text-sm font-medium transition-colors"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-evload-bg/50 border border-evload-border hover:bg-evload-border rounded-lg text-sm font-medium transition-colors"
           >
-            <HelpCircle size={15} /> All Placeholders
+            <HelpCircle size={15} /> Placeholders
           </button>
           <button
             onClick={saveNotifications}
             disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
           >
-            <Save size={15} />{saving ? 'Saving...' : 'Save Notifications'}
+            <Save size={15} />{saving ? 'Saving...' : 'Save'}
           </button>
         </div>
       </div>
@@ -684,35 +722,38 @@ export default function NotificationsPage() {
         </div>
         {openSections.eventWidget && (
           <div className="space-y-4">
-            <div className="flex items-center gap-2">
+          <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={loadExampleRules}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-sm transition-colors"
+                className="flex items-center justify-center gap-1.5 px-2 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-xs transition-colors"
                 title="Populate rules with predefined templates"
               >
-                <FolderOpen size={16} /> Load Examples
+                <FolderOpen size={14} /> Examples
               </button>
               <button
                 onClick={generateFromScratch}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-sm transition-colors"
+                className="flex items-center justify-center gap-1.5 px-2 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-xs transition-colors"
                 title="Clear all current rules"
               >
-                <Trash2 size={16} /> Delete All
+                <Trash2 size={14} /> Delete All
               </button>
               <button
-                onClick={generateFromScratch}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-sm transition-colors"
+                onClick={() => {
+                  setSettings((prev) => prev ? { ...prev, telegramRules: [] } : prev)
+                  setTestResult('Rule set cleared. Remember to save.')
+                }}
+                className="flex items-center justify-center gap-1.5 px-2 py-2 bg-evload-bg border border-evload-border hover:bg-evload-border rounded-lg text-xs transition-colors"
                 title="Create an empty rule set"
               >
-                <Plus size={16} /> Generate From Scratch
+                <Plus size={14} /> New Rules
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <select
                 value={newEvent}
                 onChange={(e) => setNewEvent(e.target.value)}
-                className="w-full bg-evload-bg border border-evload-border rounded px-2 py-2 text-sm"
+                className="flex-1 bg-evload-bg border border-evload-border rounded px-2 py-2 text-sm"
               >
                 {eventOptions.map((event) => <option key={event} value={event}>{event}</option>)}
               </select>
@@ -722,7 +763,7 @@ export default function NotificationsPage() {
                   setPendingAddEvent(newEvent)
                 }}
                 disabled={!newEvent}
-                className="px-3 py-2 bg-evload-border hover:bg-evload-bg rounded text-sm disabled:opacity-50"
+                className="sm:whitespace-nowrap px-3 py-2 bg-evload-border hover:bg-evload-bg rounded text-sm disabled:opacity-50"
               >
                 Add Event Message
               </button>
@@ -766,25 +807,22 @@ export default function NotificationsPage() {
               const eventPlaceholders = getPlaceholdersForEvent(eventName)
               return (
                 <div key={rule.id} className="border border-evload-border rounded-lg p-2">
-                  <button
-                    onClick={() => setOpenEvents((prev) => ({ ...prev, [eventName]: !prev[eventName] }))}
-                    className="w-full flex items-center justify-between gap-2 text-left"
-                  >
-                    <div className="text-sm font-medium">{eventName}</div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          upsertPrimaryRuleForEvent(eventName, (prev) => ({ ...prev, enabled: !prev.enabled }))
-                        }}
-                        className="text-evload-accent hover:text-red-400 transition-colors"
-                        title="Enable/disable event message"
-                      >
-                        {(rule?.enabled ?? true) ? <ToggleRight size={24} /> : <ToggleLeft size={24} className="text-evload-muted" />}
-                      </button>
-                      {eventOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </div>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => upsertPrimaryRuleForEvent(eventName, (prev) => ({ ...prev, enabled: !prev.enabled }))}
+                      className="shrink-0 text-evload-accent hover:text-red-400 transition-colors p-1"
+                      title="Enable/disable event message"
+                    >
+                      {(rule?.enabled ?? true) ? <ToggleRight size={22} /> : <ToggleLeft size={22} className="text-evload-muted" />}
+                    </button>
+                    <button
+                      onClick={() => setOpenEvents((prev) => ({ ...prev, [eventName]: !prev[eventName] }))}
+                      className="flex-1 flex items-center justify-between gap-2 text-left min-w-0"
+                    >
+                      <div className="text-sm font-medium truncate">{eventName}</div>
+                      {eventOpen ? <ChevronUp size={16} className="shrink-0" /> : <ChevronDown size={16} className="shrink-0" />}
+                    </button>
+                  </div>
 
                   {eventOpen && (
                     <div className="mt-2 space-y-2">
@@ -881,13 +919,13 @@ export default function NotificationsPage() {
                   <input
                     value={rule.name}
                     onChange={(e) => updateRule(rule.id, (prev) => ({ ...prev, name: e.target.value }))}
-                    className="flex-1 bg-evload-bg border border-evload-border rounded px-2 py-2 text-sm"
+                    className="flex-1 min-w-0 bg-evload-bg border border-evload-border rounded px-2 py-2 text-sm"
                     placeholder="Rule name"
                   />
-                  <button onClick={() => updateRule(rule.id, (prev) => ({ ...prev, enabled: !prev.enabled }))} className="text-evload-accent">
-                    {rule.enabled ? <ToggleRight size={24} /> : <ToggleLeft size={24} className="text-evload-muted" />}
+                  <button onClick={() => updateRule(rule.id, (prev) => ({ ...prev, enabled: !prev.enabled }))} className="shrink-0 text-evload-accent p-1">
+                    {rule.enabled ? <ToggleRight size={22} /> : <ToggleLeft size={22} className="text-evload-muted" />}
                   </button>
-                  <button onClick={() => deleteRule(rule.id)} className="px-2 py-2 border border-evload-border rounded text-evload-muted hover:text-evload-error">
+                  <button onClick={() => deleteRule(rule.id)} className="shrink-0 p-2 border border-evload-border rounded text-evload-muted hover:text-evload-error">
                     <Trash2 size={14} />
                   </button>
                 </div>

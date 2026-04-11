@@ -26,7 +26,7 @@ import updateRoutes from './routes/update.routes'
 import { startHaPoll } from './services/ha.service'
 import { startProxyPoll, getVehicleState, getProxyHealthState } from './services/proxy.service'
 import { startFleetSimulator, stopFleetSimulator } from './services/fleet-simulator.service'
-import { initTelegram, registerTelegramCommand } from './services/telegram.service'
+import { initTelegram, loadBotTokenFromDB, registerTelegramCommand } from './services/telegram.service'
 import { initFailsafe } from './services/failsafe.service'
 import { startScheduler } from './services/scheduler.service'
 import { startAutoFetch } from './services/updater.service'
@@ -145,6 +145,9 @@ async function initializeSecrets(): Promise<void> {
   } catch (err) {
     logger.error('Failed to initialize secrets in database', { err })
   }
+
+  // Load Telegram token from DB (migrates from env if needed)
+  await loadBotTokenFromDB()
 }
 
 const app = express()

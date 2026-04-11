@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.5.5'
+export const VERSION = '1.6.1'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,36 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.6.1',
+    releasedAt: '2026-04-11',
+    summary: 'Auto-stop charging session when target reached: for targetSoc<100 stops when SoC>=targetSoc (unchanged). For targetSoc=100 stops as soon as the vehicle is no longer actively charging (chargingState!=="Charging"), covering Complete, Sleeping (most common: the car goes to sleep after finishing, skipping the brief Complete window), and Stopped states. Previously, the session stayed open indefinitely at 100% unless the user toggled to OFF. Also: stopEngine no longer sends charge_stop to the proxy if the vehicle is not actively charging — avoids waking a sleeping car when the user moves the toggle to OFF or when an engine auto-stop fires on a sleeping vehicle.',
+  },
+  {
+    version: '1.6.0',
+    releasedAt: '2026-04-10',
+    summary: 'Telegram bot token now stored in database (AppConfig.telegram_bot_token) instead of .env file — token survives container updates/restarts. On first boot, any TELEGRAM_BOT_TOKEN env var is automatically migrated to the DB. Settings PATCH /api/settings now calls setBotToken() (DB write + in-memory cache); GET /api/settings reads hasBotToken() from cache. Removed .env write logic for telegram token. Added loadBotTokenFromDB() called during initializeSecrets() at startup.',
+  },
+  {
+    version: '1.5.9',
+    releasedAt: '2026-04-10',
+    summary: 'Fix notification test regression: settings.routes.test.ts now mocks ../../auth and ../../prisma so jest.resetModules() does not break the Prisma client import chain. Added 6 new regression tests for the /telegram/test endpoint (400 on bad event/payload/prereq, 200 on success, 500 on throw). Added 6 new unit tests in notification-rules.service.test.ts: every event has a preset, every event has a schema, every preset passes validateNotificationPayload (the key guard against "Test failed: invalid payload JSON or backend error"), template rendering, sendTelegramNotificationTest renders and injects timestamps. Fixed frontend catch block in NotificationsPage to show the actual backend error message for unhandled Axios errors instead of the generic fallback.',
+  },
+  {
+    version: '1.5.8',
+    releasedAt: '2026-04-10',
+    summary: 'Robust charge start: new chargeStartGraceSec parameter (default 120s). During the grace window after engine start, temporary vehicle block states (not connected, BLE wake delay, chargingState=Disconnected) are tolerated and charge_start retries continue. Only after the grace window expires with no charging does the engine declare chargeStartBlocked and send the Telegram notification. Exposed in Settings → Charging → Current Limits.',
+  },
+  {
+    version: '1.5.7',
+    releasedAt: '2026-04-10',
+    summary: 'Plan pre-wake: new planWakeBeforeMinutes config parameter wakes the vehicle X minutes before a scheduled charge in Plan mode (exposed in Settings → Charging → Plan Mode). New {{timestamp_time}} (HH:MM) and {{timestamp_date}} (full date) placeholders for notification templates; default templates updated to use {{timestamp_time}}. New plan_wake notification event. Fixed engine_started template (removed stale {{reason}} placeholder). All example notification templates updated with emojis and meaningful Italian messages.',
+  },
+  {
+    version: '1.5.6',
+    releasedAt: '2026-04-10',
+    summary: 'Mobile UX improvements for Notifications panel: responsive header with stacked buttons, compact 3-column action grid, separated enable/disable toggle from expand/collapse (fixes invalid nested button), consistent toggle sizes across Event Widget and Rules Builder. Bug fixes: ha_paused event and targetSoc field added to notification catalogs.',
+  },
   {
     version: '1.5.5',
     releasedAt: '2026-04-09',

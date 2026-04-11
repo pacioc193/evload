@@ -361,7 +361,7 @@ export default function GaragePage() {
             <div className="flex flex-col gap-1">
               <button
                 onClick={handleUnplug}
-                disabled={busy || !vehicle?.pluggedIn}
+                disabled={busy}
                 className={clsx(
                   'flex flex-col items-center justify-center gap-2 rounded-2xl p-5 min-h-[88px]',
                   'bg-evload-surface border border-evload-border hover:bg-evload-border',
@@ -371,7 +371,7 @@ export default function GaragePage() {
                 <Plug size={28} />
                 Unlatch
               </button>
-              <p className="text-[10px] text-evload-muted text-center">Open the charge-port door for cable removal</p>
+              <p className="text-[10px] text-evload-muted text-center">Open the charge-port door</p>
             </div>
 
             <div className="flex flex-col gap-1">

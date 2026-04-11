@@ -6,9 +6,11 @@ import {
   evaluateCondition,
   extractMissingTemplatePlaceholders,
   getFieldValue,
+  getNotificationEventOptions,
   getNotificationPlaceholderCatalog,
   notificationEvents,
   renderNotificationTemplate,
+  sendTelegramNotificationTest,
   type NotificationRule,
   validateNotificationPayload,
 } from '../notification-rules.service'
@@ -227,5 +229,116 @@ describe('notification-rules.service', () => {
     await new Promise((r) => setImmediate(r))
 
     expect(mockedSendTelegramNotification).not.toHaveBeenCalled()
+  })
+
+  // ─── Regression tests: preset/schema consistency ────────────────────────────
+  // These tests prevent the "Test failed: invalid payload JSON or backend error"
+  // regression where a mismatch between preset payloads and event schemas causes
+  // validateNotificationPayload to reject the test payload sent from the UI.
+
+  test('every event returned by getNotificationEventOptions has a preset payload', () => {
+    const catalog = getNotificationPlaceholderCatalog()
+    const events = getNotificationEventOptions()
+    for (const event of events) {
+      expect(catalog.presets[event]).toBeDefined()
+    }
+  })
+
+  test('every event returned by getNotificationEventOptions has a schema', () => {
+    const catalog = getNotificationPlaceholderCatalog()
+    const events = getNotificationEventOptions()
+    for (const event of events) {
+      expect(catalog.schemas[event]).toBeDefined()
+    }
+  })
+
+  test('every preset payload passes validateNotificationPayload for its own event — prevents UI test regression', () => {
+    // This test is the key regression guard: the UI test panel uses EVENT_PAYLOAD_PRESETS
+    // as the default test payload. If any preset fails validation for its own event,
+    // the backend returns 400 → the frontend shows "Test failed: invalid payload JSON or backend error".
+    const catalog = getNotificationPlaceholderCatalog()
+    const events = getNotificationEventOptions()
+
+    for (const event of events) {
+      const preset = catalog.presets[event]
+      if (!preset) continue // covered by the test above
+
+      const result = validateNotificationPayload(event, preset)
+      expect(result.valid).toBe(true)
+
+      // Surface individual failure details
+      if (!result.valid) {
+        throw new Error(
+          `Preset for event '${event}' failed validation:\n` +
+            `  missingRequired: ${result.missingRequired.join(', ')}\n` +
+            `  invalidTypes: ${result.invalidTypes.join(', ')}\n` +
+            `  unknownFields: ${result.unknownFields.join(', ')}`
+        )
+      }
+    }
+  })
+
+  test('every example template in catalog renders without errors using its preset', () => {
+    // Ensures that the example template for each event can be rendered with the preset payload.
+    const catalog = getNotificationPlaceholderCatalog()
+    const events = getNotificationEventOptions()
+
+    for (const event of events) {
+      const preset = catalog.presets[event]
+      if (!preset) continue
+
+      const basePayload: Record<string, unknown> = {
+        event,
+        timestamp: new Date().toISOString(),
+        timestamp_time: '10:30',
+        timestamp_date: '10/04/2026 10:30',
+        ...preset,
+      }
+
+      const eventPlaceholders = catalog.byEvent[event] ?? []
+      // Build a template that uses ALL declared placeholders for this event
+      const template = eventPlaceholders.map((p) => `{{${p}}}`).join(' ')
+
+      // renderNotificationTemplate should not throw
+      let rendered = ''
+      expect(() => {
+        rendered = renderNotificationTemplate(template, basePayload)
+      }).not.toThrow()
+
+      // Every placeholder that is in the preset or in basePayload should be rendered (not left as {{…}})
+      for (const key of Object.keys(basePayload)) {
+        const placeholder = `{{${key}}}`
+        expect(rendered).not.toContain(placeholder)
+      }
+    }
+  })
+
+  test('sendTelegramNotificationTest renders template and returns rendered+delivered', async () => {
+    mockedGetConfig.mockReturnValue({ telegram: { notifications: { rules: [] } }, timezone: 'UTC' } as never)
+    mockedSendTelegramNotification.mockResolvedValueOnce(true)
+
+    const result = await sendTelegramNotificationTest(
+      'engine_started',
+      { sessionId: 1, targetSoc: 80, targetAmps: 16, vehicleId: 'VIN_TEST' },
+      '🔌 Sessione {{sessionId}} avviata — obiettivo {{targetSoc}}% — {{targetAmps}}A'
+    )
+
+    expect(result.rendered).toBe('🔌 Sessione 1 avviata — obiettivo 80% — 16A')
+    expect(result.delivered).toBe(true)
+  })
+
+  test('sendTelegramNotificationTest injects timestamp placeholders automatically', async () => {
+    mockedGetConfig.mockReturnValue({ telegram: { notifications: { rules: [] } }, timezone: 'UTC' } as never)
+    mockedSendTelegramNotification.mockResolvedValueOnce(false)
+
+    const result = await sendTelegramNotificationTest(
+      'engine_started',
+      { sessionId: 1, targetSoc: 80, targetAmps: 16, vehicleId: 'VIN_TEST' },
+      'ora {{timestamp_time}} data {{timestamp_date}}'
+    )
+
+    // timestamp_time should be HH:MM format, timestamp_date should contain /
+    expect(result.rendered).toMatch(/ora \d{2}:\d{2} data \d{2}\/\d{2}\/\d{4}/)
+    expect(result.delivered).toBe(false)
   })
 })

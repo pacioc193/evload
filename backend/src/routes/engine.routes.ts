@@ -110,14 +110,9 @@ router.get('/targets', engineActionLimiter, requireAuth, (_req, res) => {
 })
 
 router.patch('/targets', engineActionLimiter, requireAuth, async (req, res) => {
-  const { mode, targetSoc, applyToRunningOnSession } = req.body as {
-    mode?: 'on' | 'off'
+  const { targetSoc, applyToRunningSession } = req.body as {
     targetSoc?: number
-    applyToRunningOnSession?: boolean
-  }
-  if (mode !== 'on' && mode !== 'off') {
-    res.status(400).json({ error: 'mode must be "on" or "off"' })
-    return
+    applyToRunningSession?: boolean
   }
   if (typeof targetSoc !== 'number' || targetSoc < 1 || targetSoc > 100) {
     res.status(400).json({ error: 'targetSoc must be 1-100' })
@@ -125,8 +120,8 @@ router.patch('/targets', engineActionLimiter, requireAuth, async (req, res) => {
   }
 
   try {
-    await setTargetSocPreference(mode, targetSoc, {
-      applyToRunningOnSession: Boolean(applyToRunningOnSession),
+    await setTargetSocPreference(targetSoc, {
+      applyToRunningSession: Boolean(applyToRunningSession),
     })
     res.json({
       success: true,
@@ -134,7 +129,7 @@ router.patch('/targets', engineActionLimiter, requireAuth, async (req, res) => {
       status: getEngineStatus(),
     })
   } catch (err) {
-    logger.error('Engine target preference update error', { err, mode, targetSoc })
+    logger.error('Engine target preference update error', { err, targetSoc })
     res.status(500).json({ error: 'Failed to update engine targets' })
   }
 })

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  AreaChart, Area, BarChart, Bar
+  AreaChart, Area, BarChart, Bar, ReferenceArea
 } from 'recharts'
 import { deleteSession, getSessions, getSession } from '../api/index'
-import { BarChart2, Zap, Battery, Clock, Trash2, Maximize2, X } from 'lucide-react'
+import { BarChart2, Zap, Battery, Clock, Trash2, Maximize2, X, ZoomIn } from 'lucide-react'
 import { useWsStore } from '../store/wsStore'
 
 type ZoomedChart = 'soc' | 'powerCurrent' | 'voltage' | 'energyBar' | null
@@ -88,6 +88,59 @@ export default function StatisticsPage() {
   const [sessionMessage, setSessionMessage] = useState('')
   const [zoomedChart, setZoomedChart] = useState<ZoomedChart>(null)
 
+  // Zoom state for the pop-up modal charts
+  const [zoomRefLeft, setZoomRefLeft] = useState<number | null>(null)
+  const [zoomRefRight, setZoomRefRight] = useState<number | null>(null)
+  const [zoomXDomain, setZoomXDomain] = useState<[number | string, number | string]>(['dataMin', 'dataMax'])
+  const [zoomYDomain, setZoomYDomain] = useState<[number | string, number | string]>(['auto', 'auto'])
+  const isZoomed = zoomXDomain[0] !== 'dataMin' || zoomYDomain[0] !== 'auto'
+
+  const resetZoom = () => {
+    setZoomRefLeft(null)
+    setZoomRefRight(null)
+    setZoomXDomain(['dataMin', 'dataMax'])
+    setZoomYDomain(['auto', 'auto'])
+  }
+
+  const handleZoomMouseDown = (e: { activeLabel?: number | string; activePayload?: { value: number }[] } | null) => {
+    if (!e || e.activeLabel == null) return
+    const x = e.activeLabel as number
+    setZoomRefLeft(x)
+    setZoomRefRight(null)
+  }
+
+  const handleZoomMouseMove = (e: { activeLabel?: number | string; activePayload?: { value: number }[] } | null) => {
+    if (!e || zoomRefLeft == null) return
+    const x = e.activeLabel as number
+    setZoomRefRight(x)
+  }
+
+  const handleZoomMouseUp = () => {
+    if (zoomRefLeft == null || zoomRefRight == null) {
+      setZoomRefLeft(null)
+      setZoomRefRight(null)
+      return
+    }
+    let x1 = zoomRefLeft
+    let x2 = zoomRefRight
+    if (x1 === x2) {
+      setZoomRefLeft(null)
+      setZoomRefRight(null)
+      return
+    }
+    if (x1 > x2) { [x1, x2] = [x2, x1] }
+    setZoomXDomain([x1, x2])
+    setZoomYDomain(['auto', 'auto'])
+    setZoomRefLeft(null)
+    setZoomRefRight(null)
+  }
+
+  // Reset zoom when changing chart in modal
+  const openZoomedChart = (chart: ZoomedChart) => {
+    resetZoom()
+    setZoomedChart(chart)
+  }
+
   const engineSessionId = useWsStore((s) => s.engine?.sessionId ?? null)
   const prevSessionIdRef = useRef<number | null>(engineSessionId)
 
@@ -105,7 +158,7 @@ export default function StatisticsPage() {
   // Close zoom modal on Escape
   useEffect(() => {
     if (!zoomedChart) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setZoomedChart(null) }
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') { resetZoom(); setZoomedChart(null) } }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [zoomedChart])
@@ -352,7 +405,7 @@ export default function StatisticsPage() {
               <div className="bg-evload-surface border border-evload-border rounded-xl p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-medium text-sm text-evload-muted">State of Charge (%)</h3>
-                  <button onClick={() => setZoomedChart('soc')} className="text-evload-muted hover:text-evload-text transition-colors" title="Expand chart"><Maximize2 size={15} /></button>
+                  <button onClick={() => openZoomedChart('soc')} className="text-evload-muted hover:text-evload-text transition-colors" title="Expand chart"><Maximize2 size={15} /></button>
                 </div>
                 <ResponsiveContainer width="100%" height={180}>
                   <AreaChart data={telemetryData}>
@@ -367,7 +420,7 @@ export default function StatisticsPage() {
               <div className="bg-evload-surface border border-evload-border rounded-xl p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-medium text-sm text-evload-muted">Power & Current</h3>
-                  <button onClick={() => setZoomedChart('powerCurrent')} className="text-evload-muted hover:text-evload-text transition-colors" title="Expand chart"><Maximize2 size={15} /></button>
+                  <button onClick={() => openZoomedChart('powerCurrent')} className="text-evload-muted hover:text-evload-text transition-colors" title="Expand chart"><Maximize2 size={15} /></button>
                 </div>
                 <ResponsiveContainer width="100%" height={180}>
                   <LineChart data={telemetryData}>
@@ -385,7 +438,7 @@ export default function StatisticsPage() {
               <div className="bg-evload-surface border border-evload-border rounded-xl p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-medium text-sm text-evload-muted">Voltage (V)</h3>
-                  <button onClick={() => setZoomedChart('voltage')} className="text-evload-muted hover:text-evload-text transition-colors" title="Expand chart"><Maximize2 size={15} /></button>
+                  <button onClick={() => openZoomedChart('voltage')} className="text-evload-muted hover:text-evload-text transition-colors" title="Expand chart"><Maximize2 size={15} /></button>
                 </div>
                 <ResponsiveContainer width="100%" height={150}>
                   <LineChart data={telemetryData}>
@@ -412,7 +465,7 @@ export default function StatisticsPage() {
         <div className="bg-evload-surface border border-evload-border rounded-xl p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-medium">Energy per Session (kWh)</h3>
-            <button onClick={() => setZoomedChart('energyBar')} className="text-evload-muted hover:text-evload-text transition-colors" title="Expand chart"><Maximize2 size={15} /></button>
+            <button onClick={() => openZoomedChart('energyBar')} className="text-evload-muted hover:text-evload-text transition-colors" title="Expand chart"><Maximize2 size={15} /></button>
           </div>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={sessions.slice(0, 10).reverse().map((s) => ({ name: `#${s.id}`, energy: s.totalEnergyKwh }))}>
@@ -430,7 +483,7 @@ export default function StatisticsPage() {
       {zoomedChart && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
-          onClick={() => setZoomedChart(null)}
+          onClick={() => { resetZoom(); setZoomedChart(null) }}
         >
           <div
             className="bg-evload-surface border border-evload-border rounded-2xl p-6 w-full max-w-4xl shadow-2xl"
@@ -443,37 +496,71 @@ export default function StatisticsPage() {
                 {zoomedChart === 'voltage' && 'Voltage (V)'}
                 {zoomedChart === 'energyBar' && 'Energy per Session (kWh)'}
               </h3>
-              <button onClick={() => setZoomedChart(null)} className="text-evload-muted hover:text-evload-text transition-colors"><X size={20} /></button>
+              <div className="flex items-center gap-2">
+                {isZoomed && (
+                  <button onClick={resetZoom} className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-evload-border text-evload-muted hover:text-evload-text transition-colors" title="Reset zoom">
+                    <ZoomIn size={13} />Reset zoom
+                  </button>
+                )}
+                {!isZoomed && zoomedChart !== 'energyBar' && (
+                  <span className="text-xs text-evload-muted select-none">Drag to zoom</span>
+                )}
+                <button onClick={() => { resetZoom(); setZoomedChart(null) }} className="text-evload-muted hover:text-evload-text transition-colors"><X size={20} /></button>
+              </div>
             </div>
             <ResponsiveContainer width="100%" height={500}>
               {zoomedChart === 'soc' ? (
-                <AreaChart data={telemetryData}>
+                <AreaChart
+                  data={telemetryData}
+                  onMouseDown={(e) => handleZoomMouseDown(e as Parameters<typeof handleZoomMouseDown>[0])}
+                  onMouseMove={(e) => handleZoomMouseMove(e as Parameters<typeof handleZoomMouseMove>[0])}
+                  onMouseUp={handleZoomMouseUp}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                  <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatChartTimeTick} tick={{ fill: '#888', fontSize: 11 }} interval="preserveStartEnd" />
-                  <YAxis domain={[0, 100]} tick={{ fill: '#888', fontSize: 11 }} />
+                  <XAxis dataKey="time" type="number" domain={zoomXDomain} tickFormatter={formatChartTimeTick} tick={{ fill: '#888', fontSize: 11 }} interval="preserveStartEnd" allowDataOverflow />
+                  <YAxis domain={isZoomed ? zoomYDomain : [0, 100]} tick={{ fill: '#888', fontSize: 11 }} allowDataOverflow />
                   <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => formatChartTimeLabel(v)} />
                   <Legend wrapperStyle={{ fontSize: 13 }} />
-                  <Area type="monotone" dataKey="soc" stroke="#22c55e" fill="#22c55e20" name="SoC %" />
+                  <Area type="monotone" dataKey="soc" stroke="#22c55e" fill="#22c55e20" name="SoC %" isAnimationActive={false} />
+                  {zoomRefLeft != null && zoomRefRight != null && (
+                    <ReferenceArea x1={zoomRefLeft} x2={zoomRefRight} strokeOpacity={0.3} fill="#ffffff" fillOpacity={0.1} />
+                  )}
                 </AreaChart>
               ) : zoomedChart === 'powerCurrent' ? (
-                <LineChart data={telemetryData}>
+                <LineChart
+                  data={telemetryData}
+                  onMouseDown={(e) => handleZoomMouseDown(e as Parameters<typeof handleZoomMouseDown>[0])}
+                  onMouseMove={(e) => handleZoomMouseMove(e as Parameters<typeof handleZoomMouseMove>[0])}
+                  onMouseUp={handleZoomMouseUp}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                  <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatChartTimeTick} tick={{ fill: '#888', fontSize: 11 }} interval="preserveStartEnd" />
-                  <YAxis yAxisId="power" tick={{ fill: '#888', fontSize: 11 }} />
-                  <YAxis yAxisId="current" orientation="right" tick={{ fill: '#888', fontSize: 11 }} />
+                  <XAxis dataKey="time" type="number" domain={zoomXDomain} tickFormatter={formatChartTimeTick} tick={{ fill: '#888', fontSize: 11 }} interval="preserveStartEnd" allowDataOverflow />
+                  <YAxis yAxisId="power" domain={isZoomed ? zoomYDomain : ['auto', 'auto']} tick={{ fill: '#888', fontSize: 11 }} allowDataOverflow />
+                  <YAxis yAxisId="current" orientation="right" domain={isZoomed ? zoomYDomain : ['auto', 'auto']} tick={{ fill: '#888', fontSize: 11 }} allowDataOverflow />
                   <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => formatChartTimeLabel(v)} />
                   <Legend wrapperStyle={{ fontSize: 13 }} />
-                  <Line yAxisId="power" type="monotone" dataKey="chargerPower" stroke="#e31937" name="Power (kW)" dot={false} />
-                  <Line yAxisId="current" type="monotone" dataKey="current" stroke="#f59e0b" name="Current (A)" dot={false} />
+                  <Line yAxisId="power" type="monotone" dataKey="chargerPower" stroke="#e31937" name="Power (kW)" dot={false} isAnimationActive={false} />
+                  <Line yAxisId="current" type="monotone" dataKey="current" stroke="#f59e0b" name="Current (A)" dot={false} isAnimationActive={false} />
+                  {zoomRefLeft != null && zoomRefRight != null && (
+                    <ReferenceArea yAxisId="power" x1={zoomRefLeft} x2={zoomRefRight} strokeOpacity={0.3} fill="#ffffff" fillOpacity={0.1} />
+                  )}
                 </LineChart>
               ) : zoomedChart === 'voltage' ? (
-                <LineChart data={telemetryData}>
+                <LineChart
+                  data={telemetryData}
+                  onMouseDown={(e) => handleZoomMouseDown(e as Parameters<typeof handleZoomMouseDown>[0])}
+                  onMouseMove={(e) => handleZoomMouseMove(e as Parameters<typeof handleZoomMouseMove>[0])}
+                  onMouseUp={handleZoomMouseUp}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-                  <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatChartTimeTick} tick={{ fill: '#888', fontSize: 11 }} interval="preserveStartEnd" />
-                  <YAxis tick={{ fill: '#888', fontSize: 11 }} />
+                  <XAxis dataKey="time" type="number" domain={zoomXDomain} tickFormatter={formatChartTimeTick} tick={{ fill: '#888', fontSize: 11 }} interval="preserveStartEnd" allowDataOverflow />
+                  <YAxis domain={isZoomed ? zoomYDomain : ['auto', 'auto']} tick={{ fill: '#888', fontSize: 11 }} allowDataOverflow />
                   <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }} labelFormatter={(v: number) => formatChartTimeLabel(v)} />
                   <Legend wrapperStyle={{ fontSize: 13 }} />
-                  <Line type="monotone" dataKey="voltage" stroke="#60a5fa" name="Voltage (V)" dot={false} />
+                  <Line type="monotone" dataKey="voltage" stroke="#60a5fa" name="Voltage (V)" dot={false} isAnimationActive={false} />
+                  {zoomRefLeft != null && zoomRefRight != null && (
+                    <ReferenceArea x1={zoomRefLeft} x2={zoomRefRight} strokeOpacity={0.3} fill="#ffffff" fillOpacity={0.1} />
+                  )}
                 </LineChart>
               ) : (
                 <BarChart data={sessions.slice(0, 10).reverse().map((s) => ({ name: `#${s.id}`, energy: s.totalEnergyKwh }))}>

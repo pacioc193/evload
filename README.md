@@ -19,6 +19,10 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Single targetSoc and scheduleLead removal**: unified to one persisted targetSoc (removed `targetSocOff`/`targetSocOn` distinction); removed `scheduleLeadTimeSec` and pre-wake logic entirely
+- **Dashboard SoC slider sync fix**: the Target SoC slider was resetting every second during active drag because the WS engine object reference changes on every 1s broadcast; fixed by tracking only the primitive `targetSoc` value in the effect dependency array
+- **Garage unlatch always available**: the Unlatch button in Garage mode is no longer gated on `vehicle.pluggedIn`; it can now open the charge-port door even when the car is idle or sleeping in the garage
+- **Statistics popup chart drag-to-zoom**: in the fullscreen chart popup (SoC, Power/Current, Voltage), drag horizontally on the chart to zoom into a time range; Y axis auto-adjusts; "Reset zoom" restores full view
 - **Frontend build fix (Statistics page)**: removed an unused default `React` import in `StatisticsPage` to restore strict TypeScript compilation (`TS6133`) during production builds
 - **Version bump 1.5.5**: release metadata updated across backend source-of-truth and all package manifests
 - **Statistics CSV export**: from the selected charging session you can now download a CSV file with session metadata and full telemetry rows
@@ -215,7 +219,7 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 
 - Statistics page includes a `Download CSV` action for the selected charging session (metadata + telemetry)
 - Statistics charts (SoC, Power/Current, Voltage) use telemetry `recordedAt` datetime on the X axis
-- **Statistics chart zoom**: each chart card has an expand (⤢) button that opens the chart in a fullscreen popup modal (closes on Escape, overlay click, or ✕)
+- **Statistics chart zoom**: each chart card has an expand (⤢) button that opens the chart in a fullscreen popup modal (closes on Escape, overlay click, or ✕); inside the popup, drag horizontally on the chart to zoom the X axis — the Y axis auto-adjusts to visible data; a "Reset zoom" button restores the full view
 - Dashboard "Evload average" uses a rolling-meter-energy slope over recent samples for responsive ETA and power estimation
 - OFF mode stop resilience: failed `charge_stop` commands are retried in background with bounded attempts and retriggered on proxy reconnect
 - Engine auto-resync for current requests: if Tesla `charge_current_request` diverges from evload setpoint, backend retries `set_charging_amps` until aligned
@@ -252,8 +256,9 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Engine live log rendered newest-first (latest line on top)
 - Climate control commands and scheduling
 - Charging schedules: `start_at`, `finish_by`, `start_end`, `weekly`
-- Climate schedules: `start_at`, `start_end`, `weekly`
-- Schedule lead wake support through `scheduleLeadTimeSec`
+- **Plan pre-wake**: configurable `charging.planWakeBeforeMinutes` sends a `wake_up` command to the vehicle X minutes before a planned charge session starts; exposed in Settings → Charging → Plan Mode; emits a `plan_wake` Telegram notification event
+- **Robust charge start grace window**: configurable `charging.chargeStartGraceSec` (default 120s) — during this window after engine start, temporary vehicle block states (not connected to proxy, BLE wake delay, `chargingState=Disconnected`) are tolerated and `charge_start` retries continue; only after the grace window expires without charging does the engine declare `chargeStartBlocked` and send the Telegram notification
+- Notification templates with emojis: all example templates updated with meaningful Italian messages and emoji; new `{{timestamp_time}}` (HH:MM 24h) and `{{timestamp_date}}` (full date/time) placeholders available alongside `{{timestamp}}`
 - Proxy diagnostics in Settings and raw proxy payload inspection in Dashboard
 - Failsafe protection with automatic reset on proxy reconnect, without latching on transient vehicle reachability drops
 - Telegram notifications with dynamic event catalog and configurable rules
@@ -548,7 +553,7 @@ The backend requires environment configuration at startup, typically via a `.env
 |---|---|
 | `DATABASE_URL` | Required. Database connection string used by Prisma |
 | `JWT_SECRET` | Required. Secret used to sign auth tokens |
-| `TELEGRAM_BOT_TOKEN` | Optional. Can also be written from Notifications UI |
+| `TELEGRAM_BOT_TOKEN` | Legacy/optional. If set at first boot, migrated automatically to the database. Can also be set from Notifications UI (stored in DB, survives container updates) |
 | `HA_CLIENT_ID` | Optional Home Assistant OAuth client id override |
 | `HA_CLIENT_SECRET` | Optional Home Assistant OAuth client secret |
 | `APP_URL` | Optional. If omitted, backend auto-detects a LAN URL for HA OAuth |
@@ -583,7 +588,6 @@ Relevant proxy fields:
 | `proxy.windowPollIntervalMs` | Poll interval (ms) for vehicle_data during the wake window (not charging) |
 | `proxy.bodyPollIntervalMs` | Poll interval (ms) for body_controller_state — always active, independent of window/charging |
 | `proxy.vehicleDataWindowMs` | Duration (ms) of the vehicle_data window after wake/connect (default 300000 = 5 min) |
-| `proxy.scheduleLeadTimeSec` | Scheduler pre-wake lead time |
 | `proxy.rejectUnauthorized` | TLS certificate validation for proxy HTTPS |
 
 ## Settings UI

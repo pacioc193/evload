@@ -43,8 +43,7 @@ export async function wakeVehicle() {
 }
 
 export interface EngineTargetSocPreferences {
-  on: number
-  off: number
+  value: number
 }
 
 export async function getEngineTargetSocPreferences() {
@@ -53,9 +52,8 @@ export async function getEngineTargetSocPreferences() {
 }
 
 export async function patchEngineTargetSocPreference(input: {
-  mode: 'on' | 'off'
   targetSoc: number
-  applyToRunningOnSession?: boolean
+  applyToRunningSession?: boolean
 }) {
   const res = await api.patch('/engine/targets', input)
   return res.data as { success: boolean; targets: EngineTargetSocPreferences }
@@ -165,17 +163,18 @@ export interface AppSettings {
   windowPollIntervalMs: number
   bodyPollIntervalMs: number
   vehicleDataWindowMs: number
-  scheduleLeadTimeSec: number
   rejectUnauthorized: boolean
   batteryCapacityKwh: number
   energyPriceEurPerKwh: number
   defaultAmps: number
   startAmps: number
+  planWakeBeforeMinutes: number
   maxAmps: number
   minAmps: number
   stopChargeOnManualStart: boolean
   rampIntervalSec: number
   chargeStartRetryMs: number
+  chargeStartGraceSec: number
   telegramEnabled: boolean
   telegramBotToken?: string
   telegramAllowedChatIds: string[]

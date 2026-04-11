@@ -67,8 +67,6 @@ export interface EngineStatus {
   /** ISO timestamp of when the current charging session started. Null when no session is active. */
   sessionStartedAt: string | null
   targetSoc: number
-  targetSocOn: number
-  targetSocOff: number
   targetAmps: number
   setpointAmps: number
   currentAmps: number

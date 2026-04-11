@@ -17,8 +17,6 @@ export interface EngineStatus {
   /** ISO timestamp of when the current charging session started, null when no session is active. */
   sessionStartedAt: string | null
   targetSoc: number
-  targetSocOn: number
-  targetSocOff: number
   targetAmps: number
   setpointAmps: number
   currentAmps: number
@@ -42,8 +40,6 @@ let status: EngineStatus = {
   sessionId: null,
   sessionStartedAt: null,
   targetSoc: 80,
-  targetSocOn: 80,
-  targetSocOff: 80,
   targetAmps: 16,
   setpointAmps: 16,
   currentAmps: 0,
@@ -77,6 +73,7 @@ let vehicleBatteryEnergyBaselineKwh: number | null = null
 let chargeStartBlockedNotified = false
 let pendingForceStopVehicleId: string | null = null
 let pendingForceStopRetries = 0
+let engineStartedAtMs = 0
 let pendingForceStopTimer: NodeJS.Timeout | null = null
 
 const FORCE_STOP_RETRY_MS = 15000
@@ -97,8 +94,6 @@ interface PersistedEngineRestoreState {
   restorePlan: boolean
   targetSoc?: number
   targetAmps?: number
-  targetSocOn?: number
-  targetSocOff?: number
 }
 
 const DEFAULT_TARGET_SOC = 80
@@ -108,8 +103,7 @@ function clampTargetSoc(value: number, fallback = DEFAULT_TARGET_SOC): number {
   return Math.max(1, Math.min(100, Math.round(value)))
 }
 
-let persistedTargetSocOn = DEFAULT_TARGET_SOC
-let persistedTargetSocOff = DEFAULT_TARGET_SOC
+let persistedTargetSoc = DEFAULT_TARGET_SOC
 
 async function persistEngineRestoreState(): Promise<void> {
   const payload: PersistedEngineRestoreState = planArmed
@@ -117,13 +111,10 @@ async function persistEngineRestoreState(): Promise<void> {
         restorePlan: true,
         targetSoc: status.targetSoc,
         targetAmps: status.targetAmps,
-        targetSocOn: persistedTargetSocOn,
-        targetSocOff: persistedTargetSocOff,
       }
     : {
         restorePlan: false,
-        targetSocOn: persistedTargetSocOn,
-        targetSocOff: persistedTargetSocOff,
+        targetSoc: persistedTargetSoc,
       }
 
   await prisma.appConfig.upsert({
@@ -137,21 +128,17 @@ export async function initializeEngineState(): Promise<void> {
   const persisted = await prisma.appConfig.findUnique({ where: { id: 1 } })
   if (!persisted?.engine_restore_state) {
     planArmed = false
-    persistedTargetSocOn = DEFAULT_TARGET_SOC
-    persistedTargetSocOff = DEFAULT_TARGET_SOC
+    persistedTargetSoc = DEFAULT_TARGET_SOC
     status = {
       ...status,
       targetSoc: DEFAULT_TARGET_SOC,
-      targetSocOn: persistedTargetSocOn,
-      targetSocOff: persistedTargetSocOff,
     }
     return
   }
 
   try {
     const parsed = JSON.parse(persisted.engine_restore_state) as PersistedEngineRestoreState
-    persistedTargetSocOn = clampTargetSoc(Number(parsed.targetSocOn ?? parsed.targetSoc ?? DEFAULT_TARGET_SOC))
-    persistedTargetSocOff = clampTargetSoc(Number(parsed.targetSocOff ?? parsed.targetSoc ?? DEFAULT_TARGET_SOC))
+    persistedTargetSoc = clampTargetSoc(Number(parsed.targetSoc ?? DEFAULT_TARGET_SOC))
 
     if (!parsed.restorePlan) {
       planArmed = false
@@ -159,17 +146,15 @@ export async function initializeEngineState(): Promise<void> {
         ...status,
         running: false,
         mode: 'off',
-        targetSoc: persistedTargetSocOff,
-        targetSocOn: persistedTargetSocOn,
-        targetSocOff: persistedTargetSocOff,
+        targetSoc: persistedTargetSoc,
       }
       return
     }
 
     const cfg = getConfig()
     const restoredTargetSoc = Number.isFinite(parsed.targetSoc)
-      ? clampTargetSoc(Number(parsed.targetSoc), persistedTargetSocOn)
-      : persistedTargetSocOn
+      ? clampTargetSoc(Number(parsed.targetSoc), persistedTargetSoc)
+      : persistedTargetSoc
     const restoredTargetAmps = Number.isFinite(parsed.targetAmps)
       ? Math.max(cfg.charging.minAmps, Math.min(cfg.charging.maxAmps, Number(parsed.targetAmps)))
       : cfg.charging.defaultAmps
@@ -182,8 +167,6 @@ export async function initializeEngineState(): Promise<void> {
       sessionId: null,
       sessionStartedAt: null,
       targetSoc: restoredTargetSoc,
-      targetSocOn: persistedTargetSocOn,
-      targetSocOff: persistedTargetSocOff,
       targetAmps: restoredTargetAmps,
       setpointAmps: restoredTargetAmps,
       currentAmps: 0,
@@ -201,15 +184,12 @@ export async function initializeEngineState(): Promise<void> {
     }
   } catch {
     planArmed = false
-    persistedTargetSocOn = DEFAULT_TARGET_SOC
-    persistedTargetSocOff = DEFAULT_TARGET_SOC
+    persistedTargetSoc = DEFAULT_TARGET_SOC
     status = {
       ...status,
       running: false,
       mode: 'off',
-      targetSoc: persistedTargetSocOff,
-      targetSocOn: persistedTargetSocOn,
-      targetSocOff: persistedTargetSocOff,
+      targetSoc: persistedTargetSoc,
     }
     await persistEngineRestoreState()
   }
@@ -373,8 +353,6 @@ export function setPlanMode(targetSoc: number): void {
     running: false,
     mode: 'plan',
     targetSoc,
-    targetSocOn: persistedTargetSocOn,
-    targetSocOff: persistedTargetSocOff,
     phase: 'idle',
     message: 'Charge planned — waiting for scheduled start',
     debugLog: [],
@@ -388,51 +366,35 @@ export function setPlanMode(targetSoc: number): void {
   persistEngineRestoreState().catch((err) => logger.error('Failed to persist engine restore state', { err }))
 }
 
-export function getTargetSocPreferences(): { on: number; off: number } {
+export function getTargetSocPreferences(): { value: number } {
   return {
-    on: persistedTargetSocOn,
-    off: persistedTargetSocOff,
+    value: persistedTargetSoc,
   }
 }
 
 export async function setTargetSocPreference(
-  mode: 'on' | 'off',
   targetSoc: number,
-  options?: { applyToRunningOnSession?: boolean }
+  options?: { applyToRunningSession?: boolean }
 ): Promise<void> {
   const safeSoc = clampTargetSoc(targetSoc)
-  if (mode === 'on') {
-    persistedTargetSocOn = safeSoc
-  } else {
-    persistedTargetSocOff = safeSoc
-  }
+  persistedTargetSoc = safeSoc
 
-  const applyToRunningOnSession = options?.applyToRunningOnSession ?? false
-  const shouldApplyToCurrentTarget =
-    (mode === 'on' && status.running && status.mode === 'on' && applyToRunningOnSession) ||
-    (mode === 'off' && !status.running && status.mode === 'off')
+  const applyToRunningSession = options?.applyToRunningSession ?? false
+  const shouldApplyToCurrentTarget = applyToRunningSession && status.running
 
   status = {
     ...status,
     targetSoc: shouldApplyToCurrentTarget ? safeSoc : status.targetSoc,
-    targetSocOn: persistedTargetSocOn,
-    targetSocOff: persistedTargetSocOff,
-    message: shouldApplyToCurrentTarget
-      ? (mode === 'on' ? 'Manual target updated while charging' : 'Off target updated')
-      : status.message,
+    message: shouldApplyToCurrentTarget ? 'Target updated while charging' : status.message,
   }
 
   logger.info('ENGINE_TARGET_SOC_PREFERENCE_UPDATED', {
-    mode,
     targetSoc: safeSoc,
-    applyToRunningOnSession,
+    applyToRunningSession,
     running: status.running,
-    currentMode: status.mode,
     appliedToCurrentTarget: shouldApplyToCurrentTarget,
-    targetSocOn: persistedTargetSocOn,
-    targetSocOff: persistedTargetSocOff,
   })
-  pushEngineLog(`target preference updated: mode=${mode} soc=${safeSoc}% applied=${shouldApplyToCurrentTarget}`)
+  pushEngineLog(`target preference updated: soc=${safeSoc}% applied=${shouldApplyToCurrentTarget}`)
 
   await persistEngineRestoreState()
   engineEvents.emit('target_soc_updated', status)
@@ -499,8 +461,8 @@ export async function startEngine(targetSoc: number, targetAmps?: number, fromPl
   }
 
   const requestedAmps = targetAmps ?? cfg.charging.maxAmps
-  const safeTargetSoc = clampTargetSoc(targetSoc, persistedTargetSocOn)
-  persistedTargetSocOn = safeTargetSoc
+  const safeTargetSoc = clampTargetSoc(targetSoc, persistedTargetSoc)
+  persistedTargetSoc = safeTargetSoc
 
   // Keep last 20 lines from previous session so charge_stop / session-end entries stay visible
   const prevSessionTail = status.debugLog.slice(-20)
@@ -509,8 +471,6 @@ export async function startEngine(targetSoc: number, targetAmps?: number, fromPl
     running: true,
     mode: planArmed ? 'plan' : 'on',
     targetSoc: safeTargetSoc,
-    targetSocOn: persistedTargetSocOn,
-    targetSocOff: persistedTargetSocOff,
     targetAmps: requestedAmps,
     setpointAmps: 0,  // will be sent as startAmps on the first adjustAmps call
     phase: 'idle',
@@ -533,6 +493,7 @@ export async function startEngine(targetSoc: number, targetAmps?: number, fromPl
   lastRampUpMs = Date.now()
   lastSetpointSentMs = 0
   lastSetpointResyncAttemptMs = 0
+  engineStartedAtMs = Date.now()
 
   const session = await prisma.chargingSession.create({
     data: {
@@ -563,8 +524,6 @@ export async function startEngine(targetSoc: number, targetAmps?: number, fromPl
     'engine_started',
     {
       targetSoc,
-      targetSocOn: persistedTargetSocOn,
-      targetSocOff: persistedTargetSocOff,
       targetAmps: requestedAmps,
       vehicleId: cfg.proxy.vehicleId,
       sessionId: session.id,
@@ -586,9 +545,13 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
   const vStateForStop = getVehicleState()
   const stoppedSessionId = status.sessionId
   if (vid) {
-    const shouldSendCommand = forceOff || vStateForStop.connected
+    // Only send charge_stop if the vehicle is actively charging.
+    // If the vehicle is sleeping, disconnected, or already stopped/complete,
+    // there is nothing to stop — skip the proxy command entirely.
+    const shouldSendCommand = vStateForStop.charging
     if (shouldSendCommand) {
-      const sent = await trySendChargeStop(vid, forceOff ? 'user_requested_stop' : 'engine_stop', stoppedSessionId)
+      const reason = forceOff ? 'user_requested_stop' : 'engine_stop'
+      const sent = await trySendChargeStop(vid, reason, stoppedSessionId)
       if (forceOff) {
         if (sent) {
           clearPendingForceStop()
@@ -597,11 +560,14 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
         }
       }
     } else {
-      logger.info('⏭️  [CHARGE_STOP] Skipping charge_stop: vehicle not connected (sleeping or unreachable)', {
+      logger.info('⏭️  [CHARGE_STOP] Skipping charge_stop: vehicle not actively charging', {
         vehicleId: vid,
         sessionId: stoppedSessionId,
+        chargingState: vStateForStop.chargingState,
+        connected: vStateForStop.connected,
+        forceOff,
       })
-      pushEngineLog('charge_stop skipped: vehicle not connected')
+      pushEngineLog(`charge_stop skipped: vehicle not charging (state=${vStateForStop.chargingState ?? 'unknown'})`)
     }
   }
 
@@ -648,9 +614,7 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
     mode: planArmed ? 'plan' : 'off',
     sessionId: null,
     sessionStartedAt: null,
-    targetSoc: planArmed ? status.targetSoc : persistedTargetSocOff,
-    targetSocOn: persistedTargetSocOn,
-    targetSocOff: persistedTargetSocOff,
+    targetSoc: planArmed ? status.targetSoc : persistedTargetSoc,
     phase: 'idle',
     message: planArmed ? 'Plan armed — waiting for scheduled start' : 'Engine stopped',
     chargeStartBlocked: false,
@@ -670,6 +634,7 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
   lastRampUpMs = 0
   lastSetpointSentMs = 0
   lastSetpointResyncAttemptMs = 0
+  engineStartedAtMs = 0
   sessionEnergyPriceEurPerKwh = 0
   lastEnergySampleAtMs = null
   lastEngineHealthSnapshotAtMs = 0
@@ -791,6 +756,20 @@ async function runEngineStep(): Promise<void> {
 
     const vState = getVehicleState()
     if (!vState.connected) {
+      const cfg = getConfig()
+      const graceMs = cfg.charging.chargeStartGraceSec * 1000
+      const inGrace = engineStartedAtMs > 0 && (Date.now() - engineStartedAtMs) < graceMs
+      if (inGrace) {
+        const elapsedSec = Math.floor((Date.now() - engineStartedAtMs) / 1000)
+        const remainingSec = Math.ceil((graceMs - (Date.now() - engineStartedAtMs)) / 1000)
+        setEnginePhase('paused', 'charge_start_grace_not_connected')
+        status.message = `Vehicle not connected — waiting for wake-up (grace ${elapsedSec}s elapsed, ${remainingSec}s remaining)`
+        if (!chargeStartBlockedNotified) {
+          pushEngineLog(`vehicle not connected — grace window active (${elapsedSec}/${cfg.charging.chargeStartGraceSec}s)`)
+        }
+        engineEvents.emit('tick', status)
+        return
+      }
       const blockReason = resolveChargeStartBlockReason(vState) ?? 'Vehicle not connected to proxy'
       const changed = !status.chargeStartBlocked || status.chargeStartBlockReason !== blockReason
       status.chargeStartBlocked = true
@@ -1009,6 +988,7 @@ async function runEngineStep(): Promise<void> {
       actualAmps: status.currentAmps,
       balancingState: { balancing: status.balancing, balancingStartedAt: status.balancingStartedAt },
       nowMs: Date.now(),
+      chargingState: vState.chargingState,
     })
 
     switch (action.type) {
@@ -1050,6 +1030,26 @@ async function runEngineStep(): Promise<void> {
         } else {
           const blockReason = resolveChargeStartBlockReason(vState)
           if (blockReason) {
+            const graceMs = cfg.charging.chargeStartGraceSec * 1000
+            const inGrace = engineStartedAtMs > 0 && (Date.now() - engineStartedAtMs) < graceMs
+            if (inGrace) {
+              const elapsedSec = Math.floor((Date.now() - engineStartedAtMs) / 1000)
+              const remainingSec = Math.ceil((graceMs - (Date.now() - engineStartedAtMs)) / 1000)
+              setEnginePhase('paused', 'charge_start_grace_waiting')
+              status.message = `Waiting for vehicle to start charging — grace window (${elapsedSec}s elapsed, ${remainingSec}s remaining): ${blockReason}`
+              pushEngineLog(`charge_start grace: ${blockReason} (${elapsedSec}/${cfg.charging.chargeStartGraceSec}s)`)
+              logger.info('⏳ [CHARGE_START_GRACE] Block reason present but within grace window — continuing retries', {
+                sessionId: status.sessionId,
+                blockReason,
+                elapsedSec,
+                graceSec: cfg.charging.chargeStartGraceSec,
+                chargingState: vState.chargingState,
+                pluggedIn: vState.pluggedIn,
+                vehicleConnected: vState.connected,
+              })
+              engineEvents.emit('tick', status)
+              return
+            }
             const changed = !status.chargeStartBlocked || status.chargeStartBlockReason !== blockReason
             status.chargeStartBlocked = true
             status.chargeStartBlockReason = blockReason

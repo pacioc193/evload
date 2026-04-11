@@ -5,7 +5,6 @@ import yaml from 'js-yaml'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import rateLimit from 'express-rate-limit'
-import dotenv from 'dotenv'
 import { requireAuth } from '../middleware/auth.middleware'
 import { getConfig, reloadConfig } from '../config'
 import { logger, setLoggerLevel } from '../logger'
@@ -17,12 +16,11 @@ import {
   sendTelegramNotificationTest,
   validateNotificationPayload,
 } from '../services/notification-rules.service'
-import { getTelegramPrerequisiteStatus, initTelegram } from '../services/telegram.service'
+import { getTelegramPrerequisiteStatus, hasBotToken, initTelegram, setBotToken } from '../services/telegram.service'
 
 const execFileAsync = promisify(execFile)
 
 const CONFIG_PATH = process.env.CONFIG_PATH ?? path.join(process.cwd(), 'config.yaml')
-const ENV_PATH = path.join(process.cwd(), '.env')
 const EXAMPLE_PATH = path.join(__dirname, '../../config.example.yaml')
 const LOG_DIR = path.join(process.cwd(), 'logs')
 
@@ -31,7 +29,6 @@ const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 })
 
 router.get('/', limiter, requireAuth, (_req, res) => {
   const cfg = getConfig()
-  const currentToken = process.env.TELEGRAM_BOT_TOKEN
   res.json({
     demo: cfg.demo,
     logLevel: cfg.logLevel,
@@ -48,25 +45,26 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     windowPollIntervalMs: cfg.proxy.windowPollIntervalMs,
     bodyPollIntervalMs: cfg.proxy.bodyPollIntervalMs,
     vehicleDataWindowMs: cfg.proxy.vehicleDataWindowMs,
-    scheduleLeadTimeSec: cfg.proxy.scheduleLeadTimeSec,
     rejectUnauthorized: cfg.proxy.rejectUnauthorized,
     batteryCapacityKwh: cfg.charging.batteryCapacityKwh,
     energyPriceEurPerKwh: cfg.charging.energyPriceEurPerKwh,
     defaultAmps: cfg.charging.defaultAmps,
     startAmps: cfg.charging.startAmps,
+    planWakeBeforeMinutes: cfg.charging.planWakeBeforeMinutes,
     maxAmps: cfg.charging.maxAmps,
     minAmps: cfg.charging.minAmps,
     stopChargeOnManualStart: cfg.charging.stopChargeOnManualStart,
     rampIntervalSec: cfg.charging.rampIntervalSec,
     chargeStartRetryMs: cfg.charging.chargeStartRetryMs,
+    chargeStartGraceSec: cfg.charging.chargeStartGraceSec,
     telegramEnabled: cfg.telegram.enabled,
-    telegramBotToken: currentToken ? '********' : '',
+    telegramBotToken: hasBotToken() ? '********' : '',
     telegramAllowedChatIds: cfg.telegram.allowedChatIds,
     telegramRules: cfg.telegram.notifications.rules,
   })
 })
 
-router.patch('/', limiter, requireAuth, (req, res) => {
+router.patch('/', limiter, requireAuth, async (req, res) => {
   const incoming = req.body as Partial<{
     demo: boolean
     logLevel: 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly'
@@ -83,17 +81,18 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     windowPollIntervalMs: number
     bodyPollIntervalMs: number
     vehicleDataWindowMs: number
-    scheduleLeadTimeSec: number
     rejectUnauthorized: boolean
     batteryCapacityKwh: number
     energyPriceEurPerKwh: number
     defaultAmps: number
     startAmps: number
+    planWakeBeforeMinutes: number
     maxAmps: number
     minAmps: number
     stopChargeOnManualStart: boolean
     rampIntervalSec: number
     chargeStartRetryMs: number
+    chargeStartGraceSec: number
     telegramEnabled: boolean
     telegramBotToken: string
     telegramAllowedChatIds: string[]
@@ -168,7 +167,6 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.windowPollIntervalMs !== undefined) proxy['windowPollIntervalMs'] = incoming.windowPollIntervalMs
   if (incoming.bodyPollIntervalMs !== undefined) proxy['bodyPollIntervalMs'] = incoming.bodyPollIntervalMs
   if (incoming.vehicleDataWindowMs !== undefined) proxy['vehicleDataWindowMs'] = incoming.vehicleDataWindowMs
-  if (incoming.scheduleLeadTimeSec !== undefined) proxy['scheduleLeadTimeSec'] = incoming.scheduleLeadTimeSec
   if (incoming.rejectUnauthorized !== undefined) proxy['rejectUnauthorized'] = incoming.rejectUnauthorized
   parsed['proxy'] = proxy
 
@@ -177,11 +175,13 @@ router.patch('/', limiter, requireAuth, (req, res) => {
   if (incoming.energyPriceEurPerKwh !== undefined) charging['energyPriceEurPerKwh'] = incoming.energyPriceEurPerKwh
   if (incoming.defaultAmps !== undefined) charging['defaultAmps'] = incoming.defaultAmps
   if (incoming.startAmps !== undefined) charging['startAmps'] = incoming.startAmps
+  if (incoming.planWakeBeforeMinutes !== undefined) charging['planWakeBeforeMinutes'] = incoming.planWakeBeforeMinutes
   if (incoming.maxAmps !== undefined) charging['maxAmps'] = incoming.maxAmps
   if (incoming.minAmps !== undefined) charging['minAmps'] = incoming.minAmps
   if (incoming.stopChargeOnManualStart !== undefined) charging['stopChargeOnManualStart'] = incoming.stopChargeOnManualStart
   if (incoming.rampIntervalSec !== undefined) charging['rampIntervalSec'] = incoming.rampIntervalSec
   if (incoming.chargeStartRetryMs !== undefined) charging['chargeStartRetryMs'] = incoming.chargeStartRetryMs
+  if (incoming.chargeStartGraceSec !== undefined) charging['chargeStartGraceSec'] = incoming.chargeStartGraceSec
 
   const nextDefaultAmps = Number(charging['defaultAmps'] ?? activeCfg.charging.defaultAmps)
   const nextMaxAmps = Number(charging['maxAmps'] ?? activeCfg.charging.maxAmps)
@@ -205,17 +205,10 @@ router.patch('/', limiter, requireAuth, (req, res) => {
     const newToken = incoming.telegramBotToken.trim()
     if (newToken) {
       try {
-        let envContent = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : ''
-        if (envContent.includes('TELEGRAM_BOT_TOKEN=')) {
-          envContent = envContent.replace(/TELEGRAM_BOT_TOKEN=.*/, `TELEGRAM_BOT_TOKEN=${newToken}`)
-        } else {
-          envContent += `\nTELEGRAM_BOT_TOKEN=${newToken}\n`
-        }
-        fs.writeFileSync(ENV_PATH, envContent.trim() + '\n', 'utf8')
-        process.env.TELEGRAM_BOT_TOKEN = newToken
-        logger.info('Telegram Bot Token saved to .env')
+        await setBotToken(newToken)
+        logger.info('Telegram Bot Token saved to database')
       } catch (err) {
-        logger.error('Failed to update .env for telegram token', { err })
+        logger.error('Failed to save Telegram bot token to database', { err })
       }
     }
   }

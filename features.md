@@ -3,7 +3,37 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
-## Aggiornamenti Recenti (2026-04-08) — v1.5.6
+## Aggiornamenti Recenti (2026-04-10) — v1.5.5
+
+- **Rimozione targetSocOff e scheduleLead**:
+	- Eliminato il concetto di `targetSocOff` (target SoC separato per quando il motore è spento): esiste ora un solo `targetSoc` persisted che si applica in tutti i modi (idle, on, plan).
+	- Rimosso `targetSocOn`/`targetSocOff` da `EngineStatus`, `PersistedEngineRestoreState`, store WS frontend, API `/engine/targets`.
+	- L'endpoint `PATCH /api/engine/targets` non richiede più il parametro `mode` ("on"/"off"): accetta direttamente `{ targetSoc, applyToRunningSession }`.
+	- La funzione `getTargetSocPreferences()` restituisce `{ value: number }` invece di `{ on, off }`.
+	- Rimosso `scheduleLeadTimeSec` dal backend (`config.ts`, `settings.routes.ts`) e dal frontend (`SettingsPage.tsx`, `api/index.ts`): il programma non sveglia più il veicolo in anticipo rispetto all'orario pianificato.
+	- Rimossa la sezione "Scheduler" dalla pagina Impostazioni.
+	- Il cursore della Dashboard ora opera su un singolo `manualTargetSoc` (prima `manualTargetSocOn`/`manualTargetSocOff` separati).
+
+- **Dashboard — fix cursore SoC non mostra valore salvato nel backend**:
+	- Il `useEffect` che sincronizzava `manualTargetSocOn`/`manualTargetSocOff` dallo store WS aveva `engine` (oggetto) nel dependency array.
+	- Il backend fa broadcast WS ogni **1 secondo** → il riferimento dell'oggetto `engine` cambia ad ogni messaggio → l'effect si rieseguiva ogni secondo con il vecchio valore del backend, resettando il cursore durante il trascinamento.
+	- Fix: rimosso `engine` dal dependency array; si traccia solo `engine?.targetSocOn` e `engine?.targetSocOff` (valori primitivi) che cambiano solo quando il backend persiste un nuovo valore.
+	- Risultato: il cursore mostra sempre il valore salvato nel backend, si aggiorna correttamente quando un altro utente connesso modifica il target, e non viene più resettato durante il trascinamento locale.
+
+- **Garage — Unlatch sempre disponibile**:
+	- Il pulsante Unlatch in GaragePage non richiede più che il cavo sia collegato (`vehicle.pluggedIn`).
+	- Il pulsante è disabilitato solo mentre un comando è in corso (`busy`), consentendo di aprire lo sportello anche quando l'auto è in stato idle/sleep in garage.
+	- Aggiornato il testo descrittivo del pulsante da "Open the charge-port door for cable removal" a "Open the charge-port door".
+
+
+- **Statistics — zoom drag su grafici nel popup**:
+	- Nella modale di espansione grafici (SoC, Power/Current, Voltage) è ora possibile trascinare orizzontalmente per zoomare sull'asse X.
+	- Al rilascio del mouse il dominio X viene aggiornato a `[x1, x2]` e l'asse Y si adatta automaticamente ai dati visibili (`auto`).
+	- Durante il trascinamento viene mostrata una `ReferenceArea` semitrasparente come anteprima della selezione.
+	- Quando lo zoom è attivo compare il pulsante "Reset zoom" nell'header del modale; in caso contrario viene mostrato il testo guida "Drag to zoom".
+	- La funzione `openZoomedChart` resetta sempre lo zoom prima di aprire un nuovo grafico.
+	- Chiusura del modale (click overlay, pulsante ✕, Escape) resetta lo zoom.
+
 
 - **Fix compilazione frontend (TypeScript strict)**:
 	- Build bloccata da `TS6133` in `frontend/src/pages/StatisticsPage.tsx` per import `React` non usato.
@@ -321,7 +351,7 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 23. Policy `.env` Minimo Obbligatorio.
 - Una configurazione environment resta necessaria anche se molte impostazioni applicative sono persistite nel `.db` o in `config.yaml`, perché contiene variabili runtime e segreti di bootstrap.
 - Variabili obbligatorie minime: `DATABASE_URL`, `JWT_SECRET`.
-- Variabili opzionali (da tenere come placeholder commentati nel template): `TELEGRAM_BOT_TOKEN`, `HA_CLIENT_ID`, `HA_CLIENT_SECRET`, `APP_URL`, `FRONTEND_URL`, `PORT`, `LOG_LEVEL`.
+- Variabili opzionali (da tenere come placeholder commentati nel template): `TELEGRAM_BOT_TOKEN` (legacy, migrato automaticamente al DB al primo avvio), `HA_CLIENT_ID`, `HA_CLIENT_SECRET`, `APP_URL`, `FRONTEND_URL`, `PORT`, `LOG_LEVEL`.
 - Ogni modifica alla policy `.env` deve aggiornare `backend/.env.example` e la sezione Environment Variables in `README.md`.
 
 24. Tutti i valori configurabili devono essere presenti nella pagina Impostazioni.
@@ -1175,3 +1205,42 @@ Accettazione:
 - C2: Modale fullscreen (`fixed inset-0 z-50`) con sfondo scuro semitrasparente; chiusura su click overlay, pulsante ✕ o tasto Escape.
 - C3: Ogni card grafico ha un pulsante `Maximize2` (lucide-react) nell'header per aprire il relativo grafico a 500px di altezza nel modale.
 - C4: Il modale riutilizza gli stessi dati `telemetryData`/`sessions` già in memoria — nessuna chiamata API aggiuntiva.
+
+
+## F-65 Statistics Popup Chart Zoom (X-axis drag)
+
+Requisito: "Il grafico che si apre nella finestra pop-up deve avere la possibilità di essere zommato sull'asse X e Y così da migliorare la lettura dei dati."
+Accettazione:
+- C1: I grafici SoC, Power/Current e Voltage nella modale di espansione supportano zoom X via drag del mouse.
+- C2: Durante il trascinamento una `ReferenceArea` semitrasparente indica la selezione in corso.
+- C3: Al rilascio il dominio XAxis viene impostato a `[x1, x2]`; YAxis si adatta automaticamente (`auto`/`allowDataOverflow`).
+- C4: Quando lo zoom è attivo: pulsante "Reset zoom" visibile nell'header → ripristina `['dataMin','dataMax']`.
+- C5: Quando lo zoom non è attivo: testo guida "Drag to zoom" visibile (solo per grafici time-series).
+- C6: `openZoomedChart` resetta lo zoom prima di aprire ogni grafico; chiusura modale (overlay, ✕, Escape) resetta lo zoom.
+- C7: Nessuna dipendenza esterna aggiunta — usa solo `ReferenceArea` già incluso in recharts.
+
+## F-66 Piano Pre-Wake + Miglioramento Template Notifiche
+
+Requisito: "Aggiungere parametro per svegliare l'auto X minuti prima in modalità Plan. Modificare template con emoticon e messaggi significativi. Due varianti timestamp: data completa e solo orario HH:MM (H24). Default template con solo orario. Revisione messaggi (es. engine_started aveva ref vuoto)."
+Accettazione:
+- C1: `config.ts`: aggiunto `planWakeBeforeMinutes: z.number().min(0).default(0)` in `charging`.
+- C2: `settings.routes.ts`: `planWakeBeforeMinutes` esposto in GET e PATCH `/api/settings`.
+- C3: `scheduler.service.ts`: in `runSchedulerTick`, se `planWakeBeforeMinutes > 0`, invia `requestWakeMode(true)` e evento `plan_wake` quando una carica pianificata è entro `planWakeBeforeMinutes` minuti; set `preWakeArmedIds` evita wake multipli per lo stesso ID; per schedule settimanali, l'ID viene rimosso dal set alla fine di ogni esecuzione.
+- C4: `notification-rules.service.ts`: nuovi placeholder `{{timestamp_time}}` (HH:MM 24h) e `{{timestamp_date}}` (gg/mm/aaaa HH:MM) aggiunti automaticamente al payload base; nuovo evento `plan_wake` con campi `planId`, `wakeBeforeMinutes`; catalogo placeholder aggiornato per tutti gli eventi.
+- C5: `notification-rules.service.ts`: Fix `engine_started` — rimosso `{{reason}}` dal catalogo (non è in payload); `vehicleId` sempre correttamente incluso.
+- C6: `NotificationsPage.tsx`: tutti i template di esempio aggiornati con emoji e messaggi in italiano significativi; `loadExampleRules()` ora carica 7 regole; default template usa `{{timestamp_time}}`.
+- C7: `SettingsPage.tsx`: nuovo campo "Pre-wake (min)" nel pannello Charging → Plan Mode.
+- C8: `api/index.ts`: `planWakeBeforeMinutes: number` aggiunto a `AppSettings`.
+
+## F-67 Robust Charge Start Grace Window
+
+Requisito: "Assicurati che quando un piano parte non venga interrotto se l'auto non risponde subito mettendosi in charging. Crea un sistema robusto prima di dichiarare errore e stoppare il piano di ricarica."
+Accettazione:
+- C1: `config.ts`: aggiunto `chargeStartGraceSec: z.number().min(0).default(120)` in `charging`.
+- C2: `charging.engine.ts`: aggiunto `engineStartedAtMs: number` (reset a 0 in `stopEngine`, impostato a `Date.now()` in `startEngine`).
+- C3: `runEngineStep` — blocco `!vState.connected` al top: se entro la grace window, invece di impostare `chargeStartBlocked=true`, imposta fase `charge_start_grace_not_connected` e ritorna senza bloccare i retry; solo dopo scaduta la grace window si dichiara blocked e si invia la notifica Telegram.
+- C4: `runEngineStep` — ramo `resolveChargeStartBlockReason` nel case `continue_charging`: stessa logica grace window; durante il periodo si logga `⏳ [CHARGE_START_GRACE]` e si ritorna senza impostare blocked; alla scadenza si dichiara blocked normalmente.
+- C5: Il messaggio di stato durante la grace window mostra i secondi trascorsi e quelli rimanenti.
+- C6: `chargeStartGraceSec` esposto in GET/PATCH `/api/settings`.
+- C7: `AppSettings` (frontend) e `SettingsPage` aggiornati con campo "Charge Start Grace" (secondi) nel pannello Charging → Current Limits.
+- C8: `config.example.yaml`, `features.md`, `README.md` aggiornati.

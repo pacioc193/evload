@@ -7,7 +7,9 @@ import { dispatchTelegramNotificationEvent } from './notification-rules.service'
 import { prisma } from '../prisma'
 
 let schedulerTimer: NodeJS.Timeout | null = null
-let lastLeadWakeKey: string | null = null
+
+/** IDs of scheduled charges for which we have already sent the pre-wake command. */
+const preWakeArmedIds = new Set<number>()
 
 async function startEngineWithWake(scheduleId: number, vehicleId: string, targetSoc: number, targetAmps?: number): Promise<void> {
   logger.debug('Scheduler: startEngineWithWake', { scheduleId, vehicleId, targetSoc, targetAmps })
@@ -27,26 +29,27 @@ async function runSchedulerTick(): Promise<void> {
   const cfg = getConfig()
   const chargeSchedulesEnabled = getEngineStatus().mode !== 'off'
 
-  const nextPlanned = await resolveNextPlannedCharge(now)
-  if (chargeSchedulesEnabled && nextPlanned) {
-    const nextStartMs = nextPlanned.computedStartAt.getTime() - now.getTime()
-    const leadWindowMs = Math.max(0, cfg.proxy.scheduleLeadTimeSec) * 1000
-    if (nextStartMs > 0 && nextStartMs <= leadWindowMs) {
-      const wakeKey = `${nextPlanned.id}:${nextPlanned.computedStartAt.getTime()}`
-      if (lastLeadWakeKey !== wakeKey) {
-        logger.info('Upcoming schedule within lead window, requesting wake mode', {
-          scheduleId: nextPlanned.id,
-          nextStartMs,
-          leadWindowMs,
-        })
-        await requestWakeMode(true)
-        lastLeadWakeKey = wakeKey
-      }
-    } else {
-      lastLeadWakeKey = null
+  // ── Pre-wake: send wake_up command X minutes before a scheduled charge ───
+  const planWakeBeforeMs = (cfg.charging.planWakeBeforeMinutes ?? 0) * 60 * 1000
+  if (planWakeBeforeMs > 0 && chargeSchedulesEnabled) {
+    const wakeWindowStart = now
+    const wakeWindowEnd = new Date(now.getTime() + planWakeBeforeMs)
+    const soonCharges = await prisma.scheduledCharge.findMany({
+      where: {
+        enabled: true,
+        scheduleType: { in: ['start_at', 'weekly', 'start_end'] },
+        startedAt: null,
+        scheduledAt: { gt: wakeWindowStart, lte: wakeWindowEnd },
+      },
+    })
+    for (const sc of soonCharges) {
+      if (preWakeArmedIds.has(sc.id)) continue
+      preWakeArmedIds.add(sc.id)
+      const minutesUntilStart = Math.round((sc.scheduledAt!.getTime() - now.getTime()) / 60000)
+      logger.info(`⏰ [PLAN_WAKE] Sending pre-wake for scheduled charge id=${sc.id} (starts in ${minutesUntilStart} min)`)
+      requestWakeMode(true).catch((err) => logger.error('Pre-wake requestWakeMode failed', { err, chargeId: sc.id }))
+      dispatchTelegramNotificationEvent('plan_wake', { planId: sc.id, wakeBeforeMinutes: minutesUntilStart }).catch(() => {})
     }
-  } else {
-    lastLeadWakeKey = null
   }
 
   // ── Start-at scheduled charges ────────────────────────────────────────────
@@ -80,6 +83,7 @@ async function runSchedulerTick(): Promise<void> {
     const currentScheduledAt = sc.scheduledAt ?? now
     const nextWeeklyOccurrence = new Date(currentScheduledAt.getTime() + (7 * 24 * 60 * 60 * 1000))
     await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { scheduledAt: nextWeeklyOccurrence } })
+    preWakeArmedIds.delete(sc.id) // allow pre-wake on the next weekly occurrence
 
     logger.info(`Executing weekly charge id=${sc.id} targetSoc=${sc.targetSoc}`)
     if (!isFailsafeActive() && !getEngineStatus().running) {

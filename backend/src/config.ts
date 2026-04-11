@@ -42,9 +42,11 @@ const ConfigSchema = z.object({
     maxAmps: z.number().min(1).max(48).default(32),
     minAmps: z.number().min(1).max(48).default(5),
     startAmps: z.number().min(1).max(48).default(8),
+    planWakeBeforeMinutes: z.number().min(0).default(0),
     stopChargeOnManualStart: z.boolean().default(false),
     rampIntervalSec: z.number().min(1).default(10),
     chargeStartRetryMs: z.number().min(500).default(10000),
+    chargeStartGraceSec: z.number().min(0).default(120),
     batteryCapacityKwh: z.number().min(1).default(75),
     energyPriceEurPerKwh: z.number().min(0).default(0.3),
   }).default({}),
@@ -83,7 +85,6 @@ const ConfigSchema = z.object({
     // How long (ms) to keep polling vehicle_data after a wake or connect event.
     // After this window, only body_controller_state is polled until the next charge session starts.
     vehicleDataWindowMs: z.number().min(10000).default(300000),
-    scheduleLeadTimeSec: z.number().min(0).default(1800),
     rejectUnauthorized: z.boolean().default(true),
     // If true, stop an autonomous Tesla charge detected after proxy reconnects
     // (e.g. car started charging on its own while the proxy was offline)
