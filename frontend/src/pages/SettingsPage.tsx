@@ -211,7 +211,7 @@ function SelectField({
         className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
       >
         {!options.includes(value) && (
-          <option value={value}>{value}</option>
+          <option value={value}>{value} (custom)</option>
         )}
         {options.map((tz) => (
           <option key={tz} value={tz}>{tz}</option>
