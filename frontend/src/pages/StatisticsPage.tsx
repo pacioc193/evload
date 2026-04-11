@@ -302,7 +302,7 @@ export default function StatisticsPage() {
         <div className="pointer-events-none absolute -left-16 -bottom-14 h-44 w-44 rounded-full bg-sky-300/20 blur-3xl" />
         <div className="relative">
           <h1 className="text-2xl font-black tracking-tight sm:text-3xl">Statistics</h1>
-          <p className="mt-1 text-sm text-evload-muted">Sessioni, costi, efficienza e grafici avanzati in una vista più leggibile.</p>
+          <p className="mt-1 text-sm text-evload-muted">Sessions, costs, efficiency, and advanced charts in a clearer view.</p>
         </div>
       </section>
 

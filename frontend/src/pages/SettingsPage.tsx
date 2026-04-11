@@ -155,9 +155,9 @@ function Tooltip({ text }: { text: string }) {
 }
 
 function Field({
-  label, value, onChange, type = 'text', unit, placeholder, description, listId,
+  label, value, onChange, type = 'text', unit, placeholder, description, listId, disabled = false,
 }: {
-  label: string; value: string | number; onChange: (v: string) => void; type?: string; unit?: string; placeholder?: string; description?: string; listId?: string
+  label: string; value: string | number; onChange: (v: string) => void; type?: string; unit?: string; placeholder?: string; description?: string; listId?: string; disabled?: boolean
 }) {
   return (
     <div>
@@ -172,6 +172,7 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         list={listId}
         placeholder={placeholder}
+        disabled={disabled}
         className="ev-input"
       />
     </div>
@@ -927,7 +928,7 @@ export default function SettingsPage() {
         <div className="relative flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black tracking-tight sm:text-3xl">Settings</h1>
-            <p className="mt-1 text-sm text-evload-muted">Configurazione completa con pannelli strutturati e controlli operativi.</p>
+            <p className="mt-1 text-sm text-evload-muted">Complete configuration with structured panels and operational controls.</p>
           </div>
         </div>
       </section>
@@ -1143,8 +1144,14 @@ export default function SettingsPage() {
                   value={settings.proxyUrl}
                   onChange={upd('proxyUrl')}
                   placeholder="http://proxy.local"
+                  disabled={settings.demo}
                   description="Base URL for the Tesla proxy API. All vehicle requests are routed through this address."
                 />
+                {settings.demo && (
+                  <div className="text-xs text-evload-muted rounded-lg border border-evload-border bg-evload-bg/60 px-3 py-2">
+                    Demo mode forces proxy URL to <span className="font-mono text-evload-text">http://127.0.0.1:8080</span>.
+                  </div>
+                )}
                 <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
                   <div className="flex items-center gap-1.5">
                     <span className="font-medium text-sm">Verify TLS</span>
@@ -1830,7 +1837,7 @@ export default function SettingsPage() {
 
           {backupStatus?.lastBackupAt && (
             <p className="text-xs text-evload-muted">
-              Ultimo backup: {new Date(backupStatus.lastBackupAt).toLocaleString()}
+              Last backup: {new Date(backupStatus.lastBackupAt).toLocaleString()}
             </p>
           )}
           {backupStatus?.nextBackupAt && backupStatus.connected && backupStatus.enabled && (

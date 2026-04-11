@@ -5,6 +5,22 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 ## Recent Updates (2026-04-11)
 
+- Settings panel stability fix for demo workflow: switching `demo` now applies immediately at runtime (start/stop simulator) with immediate proxy repoll, reducing stale runtime errors after mode toggles.
+- Demo proxy enforcement: when `demo=true`, backend forces proxy URL to `http://127.0.0.1:8080` and provides default demo vehicle identity when missing.
+- Simulator parity update: added `body_controller_state` endpoint and additional command coverage (`charge_port_door_open` / `charge_port_door_close`) to align with current engine/proxy logic.
+- README documentation improved with a dedicated step-by-step section: "How To Use Engine Demo Mode" (UI flow + YAML alternative + rollback tip to real mode).
+- SOC ring drag safety fix: target selector now remains stable at the 100% seam and no longer wraps unexpectedly to 0% when dragging near the top boundary.
+- Dashboard space optimization and visual bug fix: corrected SOC ring coloring (solid actual arc + dashed target arc), increased ring size, and adjusted cockpit spacing to maximize SoC chart readability.
+- Control hierarchy update: moved `Off/Plan/On` selector above `Car/Engine/Cable`, moved `Reason` directly below `Proxy`, and relocated range blocks away from the ring to avoid shrinking the SOC graph.
+- Dashboard SOC control reworked: removed linear target bar and introduced a ring-based draggable target control around the SOC widget (solid arc for actual SoC, dashed arc for target zone, direct ring knob interaction).
+- Charge Cockpit cleanup: moved `Current range` and `Range at target` below the SOC object and removed duplicated vehicle/engine status lines to reduce repeated information blocks.
+- Charge Cockpit layout refinement: KPI tiles moved to a dedicated row above the entire cockpit content (including SoC), improving visual hierarchy and reducing right-column-only emphasis.
+- Target SoC presentation refined in the SoC widget: added an in-circle sublabel (`Target xx%`) directly under the SoC label for immediate actual-vs-target readability.
+- Dashboard micro-UX polish pass completed: target SoC is now rendered directly inside the cockpit SoC bar; cable status moved into the main car/engine status cluster; right column order changed to **Power Snapshot** first, then **Plan Timeline**.
+- Power Snapshot visualization updated from horizontal split bar to a donut chart (Home vs EV) with explicit percentage rows for quick interpretation.
+- Dashboard KPI tiles now enforce no-wrap labels/values and tighter text fallbacks to keep vertical alignment stable on wide desktop layouts.
+- Dashboard now uses a completely different information layout with three modern operational blocks: **Charge Cockpit**, **Plan Timeline**, and **Power Snapshot**.
+- Removed the **Engine Live Log** section from Dashboard to reduce noise and prioritize actionable metrics.
 - Full UI redesign pass applied across all main tabs (Dashboard, Climate, Garage, Statistics, Notifications, Settings) plus shared Layout shell, with stronger visual hierarchy, premium card depth, and improved mobile spacing.
 - Introduced a shared style primitive set in frontend CSS (`ev-hero`, `ev-card`, `ev-card-strong`, `ev-input`, `ev-btn-primary`, `ev-btn-ghost`) to enforce consistent modern UI/UX patterns across pages.
 - Dashboard UX refresh: modernized visual language (premium cards, richer typography, atmospheric gradient background), improved responsive spacing and readability on smartphone screens.

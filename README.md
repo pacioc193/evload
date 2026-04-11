@@ -19,6 +19,20 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Settings + Demo mode reliability fix**: demo toggle now applies live at runtime (simulator start/stop) and refreshes proxy polling immediately to prevent stale Settings runtime errors after mode changes
+- **Demo proxy URL is now forced**: when demo mode is enabled, EVLoad forces proxy routing to `http://127.0.0.1:8080` and auto-fills demo vehicle defaults when needed
+- **Simulator aligned with current polling logic**: fleet simulator now serves `body_controller_state` and additional command coverage used by current engine/dashboard flows
+- **Target SoC ring anti-wrap fix**: circular target drag now stays stable at the top seam and no longer wraps from `100%` back to `0%` during pointer movement
+- **SOC ring rendering corrected + space optimization**: fixed circular SoC control coloring behavior (solid actual arc + dashed target arc), enlarged the ring footprint, and rebalanced cockpit layout to prioritize SoC readability
+- **Control and status hierarchy refined**: moved `Off/Plan/On` selector above `Car/Engine/Cable` cards, moved `Reason` directly under `Proxy` in the cockpit header, and relocated range info away from the ring so the chart can stay at maximum visual size
+- **Circular SoC target control**: removed the linear target bar and introduced a draggable circular control around the SoC widget (solid arc = actual SoC, dashed arc = target delta, direct knob drag on ring)
+- **Cockpit de-duplication pass**: moved `Current range` / `Range at target` below the SoC control and removed repeated car/engine status lines to keep a cleaner single-source status narrative
+- **Cockpit KPI placement improved**: main KPI tiles are now rendered above the full charge cockpit area (including the SoC block), so the metric row aligns with the entire section rather than only the target-slider side
+- **Target SoC integrated in SoC widget**: the circular SoC module now includes a dedicated in-widget `Target xx%` sub-label to keep actual vs target immediately readable in one visual focus point
+- **Dashboard micro-UX refinements**: target SoC is now shown directly inside the cockpit SoC bar, cable state is integrated with car/engine status, right-side intelligence cards are reordered (`Power Snapshot` before `Plan Timeline`), and KPI cards now enforce no-wrap alignment for cleaner large-screen readability
+- **Power Snapshot now uses a donut chart**: replaced the previous split bar with a donut-style Home vs EV visualization plus explicit percentage rows for faster at-a-glance interpretation
+- **Dashboard information architecture reworked**: the dashboard now uses a completely different modern layout (`Charge Cockpit`, `Plan Timeline`, `Power Snapshot`) focused on high-signal operational decisions instead of long stacked sections
+- **Engine Live Log removed from Dashboard**: runtime telemetry and control remain visible in structured cards while the live engine log panel was removed to reduce cognitive noise
 - **Full UI redesign across tabs**: Dashboard, Climate, Garage, Statistics, Notifications, Settings, and shared Layout now use a unified premium design system with modern cards, richer spacing, and stronger visual hierarchy
 - **Shared design primitives**: introduced reusable frontend style primitives (`ev-hero`, `ev-card`, `ev-card-strong`, `ev-input`, `ev-btn-primary`, `ev-btn-ghost`) to keep all pages visually consistent and faster to evolve
 - **Dashboard modernized (mobile-first)**: refreshed visual hierarchy with premium card styling, atmospheric gradients, stronger typography, and optimized responsive spacing for smartphone usage
@@ -686,6 +700,32 @@ The simulator supports:
 - `set_temps`
 
 This is useful for validating UI behavior and proxy contract assumptions without a live car.
+
+### How To Use Engine Demo Mode
+
+Use this flow when you want to test engine behavior without a real car/proxy.
+
+1. Open Settings in the EVLoad UI.
+2. Go to Engine Options.
+3. Enable Demo mode.
+4. Save settings.
+5. Return to Dashboard and use normal controls (`Off`, `Plan`, `On`) to test engine flows.
+
+Note: in demo mode, Proxy URL is forced to `http://127.0.0.1:8080`.
+
+What to expect in demo mode:
+
+- charging commands are handled by the internal simulator
+- SoC, power, and charging state evolve as simulated data
+- planner/scheduler logic can be tested without BLE/proxy connectivity
+
+Alternative via YAML configuration:
+
+1. Open Settings -> YAML.
+2. Set `demo: true`.
+3. Save configuration.
+
+Tip: when switching back to real vehicle control, disable demo mode (`demo: false`) before validating live commands.
 
 ## Development Commands
 

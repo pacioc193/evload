@@ -36,7 +36,7 @@ export default function ClimatePage() {
               Comfort Intelligence
             </div>
             <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Climate Control</h1>
-            <p className="mt-1 text-sm text-evload-muted">Regola temperatura abitacolo con comandi rapidi e feedback chiaro.</p>
+            <p className="mt-1 text-sm text-evload-muted">Adjust cabin temperature with quick actions and clear feedback.</p>
           </div>
         </div>
       </section>

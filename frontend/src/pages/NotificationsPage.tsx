@@ -641,7 +641,7 @@ export default function NotificationsPage() {
       <section className="ev-hero">
         <div className="relative flex flex-col gap-2">
           <h1 className="text-2xl font-black tracking-tight sm:text-3xl flex items-center gap-2"><Bell size={24} />Notifications Panel</h1>
-          <p className="text-sm text-evload-muted">Gestione avanzata regole Telegram con test rapido e placeholder assistiti.</p>
+          <p className="text-sm text-evload-muted">Advanced Telegram rule management with quick testing and guided placeholders.</p>
         </div>
       </section>
 
