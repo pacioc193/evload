@@ -88,10 +88,10 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
         onClick={onNavigate}
         className={({ isActive }) =>
           clsx(
-            'flex items-center gap-3 px-4 py-3 mx-2 rounded-xl transition-all',
+            'flex items-center gap-3 px-4 py-3 mx-2 rounded-xl transition-all font-semibold',
             isActive
-              ? 'bg-gradient-to-r from-evload-accent to-red-700 text-white shadow-md'
-              : 'text-evload-muted hover:text-evload-text hover:bg-evload-border/80'
+              ? 'bg-gradient-to-r from-evload-accent to-red-700 text-white shadow-[0_14px_30px_rgba(227,25,55,0.3)]'
+              : 'text-evload-muted hover:text-evload-text hover:bg-evload-border/70 hover:translate-x-0.5'
           )
         }
       >
@@ -373,7 +373,7 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
             <Menu size={18} />
           </button>
           <Zap className="text-evload-accent" size={24} />
-          <span className="text-xl font-bold">evload</span>
+          <span className="text-xl font-black tracking-tight">evload</span>
           <span className="ml-1 rounded border border-evload-border bg-evload-bg px-1.5 py-0.5 text-[10px] font-semibold text-evload-muted">
             {currentVersion ? `v${currentVersion}` : 'v—'}
           </span>
@@ -410,15 +410,17 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
       <div className="flex flex-1 min-h-0">
         <nav
           className={clsx(
-            'hidden lg:flex border-r border-evload-border/70 bg-evload-surface/80 backdrop-blur flex-col py-4 gap-1 transition-all duration-200 overflow-hidden',
+            'hidden lg:flex border-r border-evload-border/70 bg-evload-surface/75 backdrop-blur-xl flex-col py-4 gap-1 transition-all duration-200 overflow-hidden',
             sidebarCollapsed ? 'w-0 border-r-0 p-0' : 'w-56'
           )}
         >
           {!sidebarCollapsed && renderNavLinks()}
         </nav>
-        <main className="flex-1 p-4 sm:p-6 overflow-auto">{children}</main>
+        <main className="flex-1 p-4 sm:p-6 overflow-auto">
+          <div className="mx-auto w-full max-w-7xl">{children}</div>
+        </main>
         {isDemo && simulatorOpen && (
-          <aside className="hidden lg:block w-[380px] border-l border-evload-border/70 bg-evload-surface/80 backdrop-blur p-4 space-y-4 overflow-auto shrink-0">
+          <aside className="hidden lg:block w-[380px] border-l border-evload-border/70 bg-evload-surface/85 backdrop-blur-xl p-4 space-y-4 overflow-auto shrink-0">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Simulator Panel</h2>
               <button

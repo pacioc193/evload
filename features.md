@@ -5,6 +5,11 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 ## Recent Updates (2026-04-11)
 
+- Full UI redesign pass applied across all main tabs (Dashboard, Climate, Garage, Statistics, Notifications, Settings) plus shared Layout shell, with stronger visual hierarchy, premium card depth, and improved mobile spacing.
+- Introduced a shared style primitive set in frontend CSS (`ev-hero`, `ev-card`, `ev-card-strong`, `ev-input`, `ev-btn-primary`, `ev-btn-ghost`) to enforce consistent modern UI/UX patterns across pages.
+- Dashboard UX refresh: modernized visual language (premium cards, richer typography, atmospheric gradient background), improved responsive spacing and readability on smartphone screens.
+- Dashboard mode pills now use a planner-consistent accent background effect to keep UI language coherent across Schedule and Dashboard.
+- Added a dedicated "Finish-by Wake & Sync" status panel on Dashboard to make finish-by runtime progression explicit (wake requested, waiting SoC, SoC available, computed schedule).
 - Planner scheduler now exposes four explicit charge modes with corrected wording: **Start at**, **End at**, **Time range**, and **Finish by**.
 - Added real backend support for `end_at` and `end_at_weekly` charge schedules (stop charging when end time is reached).
 - Schedule cards now render `End at` and `Finish by` distinctly, including weekly variants.

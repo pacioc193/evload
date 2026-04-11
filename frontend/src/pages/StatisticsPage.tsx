@@ -296,8 +296,16 @@ export default function StatisticsPage() {
   const efficiencySamplesCount = efficiencyValues.length
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Statistics</h1>
+    <div className="ev-page">
+      <section className="ev-hero">
+        <div className="pointer-events-none absolute -right-12 -top-10 h-36 w-36 rounded-full bg-emerald-300/25 blur-3xl" />
+        <div className="pointer-events-none absolute -left-16 -bottom-14 h-44 w-44 rounded-full bg-sky-300/20 blur-3xl" />
+        <div className="relative">
+          <h1 className="text-2xl font-black tracking-tight sm:text-3xl">Statistics</h1>
+          <p className="mt-1 text-sm text-evload-muted">Sessioni, costi, efficienza e grafici avanzati in una vista più leggibile.</p>
+        </div>
+      </section>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Sessions', value: sessions.length, unit: '', icon: BarChart2 },
@@ -310,7 +318,7 @@ export default function StatisticsPage() {
           { label: 'Efficiency Samples', value: efficiencySamplesCount, unit: '', icon: BarChart2 },
           { label: 'Last Session', value: sessions[0] ? new Date(sessions[0].startedAt).toLocaleDateString() : '—', unit: '', icon: Clock },
         ].map(({ label, value, unit, icon: Icon }) => (
-          <div key={label} className="bg-evload-surface border border-evload-border rounded-xl p-4">
+          <div key={label} className="ev-card">
             <div className="flex items-center gap-2 text-evload-muted text-sm mb-2"><Icon size={16} />{label}</div>
             <div className="text-2xl font-bold">{value}{unit && <span className="text-sm text-evload-muted ml-1">{unit}</span>}</div>
           </div>
@@ -318,7 +326,7 @@ export default function StatisticsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 bg-evload-surface border border-evload-border rounded-xl p-4">
+        <div className="lg:col-span-1 ev-card">
           <h2 className="font-semibold mb-3">Sessions</h2>
           <p className="mb-3 text-xs text-evload-muted">Delete requires two confirmations: arm the action first, then approve the browser confirmation dialog.</p>
           {sessionMessage && <p className="mb-3 text-sm text-evload-muted">{sessionMessage}</p>}
@@ -365,7 +373,7 @@ export default function StatisticsPage() {
         </div>
 
         <div className="lg:col-span-2 space-y-4">
-          {sessionLoading && <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center text-evload-muted">Loading...</div>}
+          {sessionLoading && <div className="ev-card text-center text-evload-muted py-6">Loading...</div>}
           {selectedSession && !sessionLoading && (
             <div className="flex justify-end">
               <button
@@ -379,7 +387,7 @@ export default function StatisticsPage() {
           )}
           {selectedSession && !sessionLoading && telemetryData.length > 0 && (
             <>
-              <div className="bg-evload-surface border border-evload-border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+              <div className="ev-card grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                 {selectedSession.locationName && (
                   <div className="sm:col-span-3">
                     <div className="text-evload-muted uppercase tracking-wide text-xs">Charging plan</div>
@@ -418,7 +426,7 @@ export default function StatisticsPage() {
                   </div>
                 )}
               </div>
-              <div className="bg-evload-surface border border-evload-border rounded-xl p-4">
+              <div className="ev-card">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-medium text-sm text-evload-muted">State of Charge (%)</h3>
                   <button onClick={() => openZoomedChart('soc')} className="text-evload-muted hover:text-evload-text transition-colors" title="Expand chart"><Maximize2 size={15} /></button>
@@ -433,7 +441,7 @@ export default function StatisticsPage() {
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
-              <div className="bg-evload-surface border border-evload-border rounded-xl p-4">
+              <div className="ev-card">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-medium text-sm text-evload-muted">Power & Current</h3>
                   <button onClick={() => openZoomedChart('powerCurrent')} className="text-evload-muted hover:text-evload-text transition-colors" title="Expand chart"><Maximize2 size={15} /></button>
@@ -451,7 +459,7 @@ export default function StatisticsPage() {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-              <div className="bg-evload-surface border border-evload-border rounded-xl p-4">
+              <div className="ev-card">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-medium text-sm text-evload-muted">Voltage (V)</h3>
                   <button onClick={() => openZoomedChart('voltage')} className="text-evload-muted hover:text-evload-text transition-colors" title="Expand chart"><Maximize2 size={15} /></button>
@@ -469,16 +477,16 @@ export default function StatisticsPage() {
             </>
           )}
           {selectedSession && !sessionLoading && telemetryData.length === 0 && (
-            <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center text-evload-muted">No telemetry data</div>
+            <div className="ev-card text-center text-evload-muted py-6">No telemetry data</div>
           )}
           {!selectedSession && !sessionLoading && (
-            <div className="bg-evload-surface border border-evload-border rounded-xl p-6 text-center text-evload-muted">Select a session to view charts</div>
+            <div className="ev-card text-center text-evload-muted py-6">Select a session to view charts</div>
           )}
         </div>
       </div>
 
       {sessions.length > 0 && (
-        <div className="bg-evload-surface border border-evload-border rounded-xl p-4">
+        <div className="ev-card">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-medium">Energy per Session (kWh)</h3>
             <button onClick={() => openZoomedChart('energyBar')} className="text-evload-muted hover:text-evload-text transition-colors" title="Expand chart"><Maximize2 size={15} /></button>
@@ -502,7 +510,7 @@ export default function StatisticsPage() {
           onClick={() => { resetZoom(); setZoomedChart(null) }}
         >
           <div
-            className="bg-evload-surface border border-evload-border rounded-2xl p-6 w-full max-w-4xl shadow-2xl"
+            className="ev-card-strong w-full max-w-4xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">

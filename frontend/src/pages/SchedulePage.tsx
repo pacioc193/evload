@@ -463,9 +463,9 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      <div className="space-y-6 p-4 sm:p-6">
+      <div className="space-y-6 p-4 sm:p-6 max-w-7xl mx-auto">
         {showBuilder && (
-          <div className="rounded-3xl border border-evload-border bg-gradient-to-br from-evload-surface to-evload-bg p-5 shadow-xl sm:p-6">
+          <div className="ev-card-strong bg-gradient-to-br from-evload-surface to-evload-bg sm:p-6">
             <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-evload-bg p-1">
               <button
                 onClick={() => setMode('charger')}
@@ -482,7 +482,7 @@ export default function SchedulePage() {
             </div>
 
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-              <section className="space-y-4 rounded-2xl border border-evload-border bg-evload-bg/60 p-4">
+              <section className="space-y-4 rounded-2xl border border-evload-border bg-evload-bg/70 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.06)]">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-evload-muted">1. Plan name</h2>
                 <input
                   type="text"
@@ -589,7 +589,7 @@ export default function SchedulePage() {
                 </div>
               </section>
 
-              <section className="space-y-4 rounded-2xl border border-evload-border bg-evload-bg/60 p-4">
+              <section className="space-y-4 rounded-2xl border border-evload-border bg-evload-bg/70 p-4 shadow-[0_10px_24px_rgba(0,0,0,0.06)]">
                 <div className="space-y-2">
                   <h3 className="text-sm font-semibold uppercase tracking-wide text-evload-muted">4. Recurrence</h3>
                   <label className="flex items-center justify-between rounded-lg border border-evload-border px-3 py-2">

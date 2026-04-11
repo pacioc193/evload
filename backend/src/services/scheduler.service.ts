@@ -430,6 +430,22 @@ export interface NextPlannedCharge {
   finishBy: Date | null
 }
 
+export interface SchedulerRuntimeStatus {
+  preWakeArmedCount: number
+  finishByWakePendingCount: number
+  finishByScheduledNotifiedCount: number
+  timestamp: string
+}
+
+export function getSchedulerRuntimeStatus(): SchedulerRuntimeStatus {
+  return {
+    preWakeArmedCount: preWakeArmedIds.size,
+    finishByWakePendingCount: finishByWakeArmedIds.size,
+    finishByScheduledNotifiedCount: finishByScheduledNotifiedIds.size,
+    timestamp: new Date().toISOString(),
+  }
+}
+
 export async function resolveNextPlannedCharge(now: Date = new Date()): Promise<NextPlannedCharge | null> {
   const cfg = getConfig()
 

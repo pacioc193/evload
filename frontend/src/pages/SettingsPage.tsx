@@ -82,7 +82,7 @@ function readExpandedPanels(): Record<PanelKey, boolean> {
 
 function SectionCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-3 space-y-3">
+    <div className="rounded-2xl border border-evload-border bg-evload-bg/70 p-4 space-y-3 shadow-[0_12px_28px_rgba(0,0,0,0.08)]">
       <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">{title}</h4>
       {children}
     </div>
@@ -105,7 +105,7 @@ function CollapsiblePanel({
   action?: ReactNode
 }) {
   return (
-    <section className="bg-evload-surface border border-evload-border rounded-xl overflow-hidden">
+    <section className="bg-evload-surface/92 border border-evload-border rounded-2xl overflow-hidden shadow-[0_18px_42px_rgba(0,0,0,0.09)]">
       <div className="flex items-center gap-3 px-5 py-4">
         <button
           type="button"
@@ -120,7 +120,7 @@ function CollapsiblePanel({
         </button>
         {action}
       </div>
-      {expanded && <div className="px-5 pb-5 border-t border-evload-border">{children}</div>}
+      {expanded && <div className="px-5 pb-5 border-t border-evload-border/80">{children}</div>}
     </section>
   )
 }
@@ -172,7 +172,7 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         list={listId}
         placeholder={placeholder}
-        className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
+        className="ev-input"
       />
     </div>
   )
@@ -210,7 +210,7 @@ function SelectField({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
+        className="ev-input"
       >
         {!options.includes(value) && (
           <option value={value}>{value} (custom)</option>
@@ -922,11 +922,19 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="ev-page">
+      <section className="ev-hero">
+        <div className="relative flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-black tracking-tight sm:text-3xl">Settings</h1>
+            <p className="mt-1 text-sm text-evload-muted">Configurazione completa con pannelli strutturati e controlli operativi.</p>
+          </div>
+        </div>
+      </section>
+
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Settings</h1>
         <button onClick={() => { clearToken(); navigate('/login') }}
-          className="flex items-center gap-2 px-4 py-2 bg-evload-border hover:bg-evload-bg text-evload-text rounded-lg font-medium transition-colors text-sm">
+          className="ev-btn-ghost">
           <LogOut size={16} />Sign Out
         </button>
       </div>
@@ -948,7 +956,7 @@ export default function SettingsPage() {
                   <span className={`text-xs ${settingsMsg.includes('failed') ? 'text-evload-error' : 'text-evload-success'}`}>{settingsMsg}</span>
                 )}
                 <button onClick={() => handleSettingsSave('ha')}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-xs">
+                  className="ev-btn-primary px-3 py-1.5 text-xs">
                   <Save size={12} />Save
                 </button>
                 <span className={`w-2 h-2 rounded-full ${haStatusOk ? 'bg-evload-success' : 'bg-evload-error'}`} />

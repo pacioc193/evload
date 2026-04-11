@@ -337,9 +337,21 @@ export interface NextPlannedCharge {
   finishBy: string | null
 }
 
+export interface SchedulerRuntimeStatus {
+  preWakeArmedCount: number
+  finishByWakePendingCount: number
+  finishByScheduledNotifiedCount: number
+  timestamp: string
+}
+
 export async function getNextPlannedCharge() {
   const res = await api.get('/schedule/next-charge')
   return res.data as NextPlannedCharge | null
+}
+
+export async function getSchedulerRuntimeStatus() {
+  const res = await api.get('/schedule/runtime-status')
+  return res.data as SchedulerRuntimeStatus
 }
 
 export async function getScheduledCharges() {

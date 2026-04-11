@@ -6,11 +6,13 @@ import {
   setPlanMode,
   wakeVehicle,
   getNextPlannedCharge,
+  getSchedulerRuntimeStatus,
   getEngineTargetSocPreferences,
   patchEngineTargetSocPreference,
   NextPlannedCharge,
+  SchedulerRuntimeStatus,
 } from '../api/index'
-import { WifiOff, Car, Clock3, Home, Zap as ZapIcon, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
+import { WifiOff, Car, Clock3, Home, Zap as ZapIcon, ChevronDown, ChevronRight, AlertTriangle, Sparkles, Bot } from 'lucide-react'
 import { clsx } from 'clsx'
 import { flog } from '../utils/frontendLogger'
 
@@ -191,15 +193,107 @@ function ModePill({ active, label, onClick, disabled }: {
       onClick={onClick}
       disabled={disabled}
       className={clsx(
-        'px-3 py-1.5 rounded-full text-sm font-medium transition-colors disabled:opacity-60',
+        'px-3 py-1.5 rounded-full text-sm font-semibold transition-all disabled:opacity-60',
         active
-          ? 'bg-evload-border text-evload-text shadow-sm'
+          ? 'bg-gradient-to-r from-evload-accent to-red-700 text-white shadow-[0_12px_28px_rgba(227,25,55,0.35)]'
           : 'text-evload-muted hover:bg-evload-border/50 hover:text-evload-text'
       )}
     >
       {label}
     </button>
   )
+}
+
+type FinishByWakeTone = 'idle' | 'waking' | 'ready' | 'scheduled'
+
+function deriveFinishByWakeStatus(params: {
+  nextCharge: NextPlannedCharge | null
+  schedulerRuntime: SchedulerRuntimeStatus | null
+  debugLog: string[]
+  waking: boolean
+  isVehicleSleeping: boolean
+}): {
+  tone: FinishByWakeTone
+  title: string
+  detail: string
+} {
+  const { nextCharge, schedulerRuntime, debugLog, waking, isVehicleSleeping } = params
+  const isFinishByPlan = nextCharge?.scheduleType === 'finish_by' || nextCharge?.scheduleType === 'finish_by_weekly'
+
+  if (!isFinishByPlan) {
+    return {
+      tone: 'idle',
+      title: 'Finish-by wake monitor idle',
+      detail: 'No active finish-by plan in queue.',
+    }
+  }
+
+  if (waking) {
+    return {
+      tone: 'waking',
+      title: 'Waking vehicle for finish-by',
+      detail: 'Wake command sent, waiting for live SoC from vehicle_data.',
+    }
+  }
+
+  if ((schedulerRuntime?.finishByWakePendingCount ?? 0) > 0) {
+    return {
+      tone: 'waking',
+      title: 'Waiting SoC after wake',
+      detail: 'Scheduler wake cycle active: collecting live SoC before computing the start window.',
+    }
+  }
+
+  if ((schedulerRuntime?.finishByScheduledNotifiedCount ?? 0) > 0) {
+    return {
+      tone: 'scheduled',
+      title: 'Finish-by window scheduled',
+      detail: 'Start time computed and confirmed by scheduler runtime state.',
+    }
+  }
+
+  const latestRelevant = [...debugLog].reverse().find((line) =>
+    line.includes('[FINISH_BY_WAKE]') || line.includes('[FINISH_BY]')
+  )
+  const latest = latestRelevant?.toLowerCase() ?? ''
+
+  if (latest.includes('waiting for soc data') || latest.includes('has no soc data')) {
+    return {
+      tone: 'waking',
+      title: 'Waiting SoC after wake',
+      detail: 'Finish-by planner requested wake-up and is waiting telemetry.',
+    }
+  }
+
+  if (latest.includes('soc now available')) {
+    return {
+      tone: 'ready',
+      title: 'Vehicle data received',
+      detail: 'Live SoC acquired, computing charging window with safety margin.',
+    }
+  }
+
+  if (latest.includes('charging start scheduled for') || latest.includes('computedstart')) {
+    return {
+      tone: 'scheduled',
+      title: 'Finish-by window scheduled',
+      detail: 'Start time computed and queued according to target SoC and finish deadline.',
+    }
+  }
+
+  if (isVehicleSleeping) {
+    return {
+      tone: 'waking',
+      title: 'Vehicle sleeping',
+      detail: 'Finish-by plan will wake the vehicle when SoC is required for calculation.',
+    }
+  }
+
+  return {
+    tone: 'ready',
+    title: 'Finish-by tracking active',
+    detail: 'Waiting next scheduler tick to refresh plan timing.',
+  }
 }
 
 function FlowStatRow({ icon, label, value, accentClass }: {
@@ -272,6 +366,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false)
   const [waking, setWaking] = useState(false)
   const [nextCharge, setNextCharge] = useState<NextPlannedCharge | null>(null)
+  const [schedulerRuntime, setSchedulerRuntime] = useState<SchedulerRuntimeStatus | null>(null)
   const [vehicleDetailsExpanded, setVehicleDetailsExpanded] = useState(() => readStoredBoolean(VEHICLE_DETAILS_PANEL_STORAGE_KEY, false))
   const meterEnergySamplesRef = useRef<MeterEnergySample[]>([])
 
@@ -304,7 +399,13 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!wsConnected) return
     const poll = () => {
-      getNextPlannedCharge().then(setNextCharge).catch(() => setNextCharge(null))
+      Promise.all([
+        getNextPlannedCharge().catch(() => null),
+        getSchedulerRuntimeStatus().catch(() => null),
+      ]).then(([next, runtime]) => {
+        setNextCharge(next)
+        setSchedulerRuntime(runtime)
+      })
     }
     poll()
     const interval = setInterval(poll, 15000)
@@ -554,6 +655,13 @@ export default function DashboardPage() {
   const vehicleInGarage = vehicle?.connected ?? false
   const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
   const carStatusLabel = isVehicleSleeping ? 'Sleeping' : vehicleInGarage ? 'In garage' : 'Not in garage / unreachable'
+  const finishByWakeStatus = deriveFinishByWakeStatus({
+    nextCharge,
+    schedulerRuntime,
+    debugLog: engine?.debugLog ?? [],
+    waking,
+    isVehicleSleeping,
+  })
   const statusReason = vehicle?.error ?? proxy?.error ?? vehicle?.reason ?? null
   const controlsDisabled = loading || !!failsafe?.active
 
@@ -610,7 +718,32 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-4 pb-8">
+    <div className="max-w-6xl mx-auto space-y-5 pb-10">
+      <div className="relative overflow-hidden rounded-[2rem] border border-evload-border bg-evload-surface/85 px-5 py-5 sm:px-6 sm:py-6 shadow-[0_20px_60px_rgba(4,10,24,0.18)]">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-44 w-44 rounded-full bg-red-500/25 blur-3xl" />
+        <div className="pointer-events-none absolute -left-20 -bottom-20 h-52 w-52 rounded-full bg-orange-300/25 blur-3xl" />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-evload-border bg-evload-bg/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-evload-muted">
+              <Sparkles size={12} className="text-evload-accent" />
+              Live Smart Charging
+            </div>
+            <h1 className="mt-3 text-2xl font-black tracking-tight text-evload-text sm:text-3xl">Dashboard</h1>
+            <p className="mt-1 text-sm text-evload-muted">Controllo immediato, stato piano chiaro, UX ottimizzata anche su smartphone.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:min-w-[290px]">
+            <div className="rounded-2xl border border-evload-border bg-evload-bg/80 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-evload-muted">Car</div>
+              <div className="mt-1 text-sm font-semibold text-evload-text">{carStatusLabel}</div>
+            </div>
+            <div className="rounded-2xl border border-evload-border bg-evload-bg/80 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-evload-muted">Engine</div>
+              <div className="mt-1 text-sm font-semibold text-evload-text">{enginePhaseLabel}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {demo && (
         <div className="bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 text-xs font-bold uppercase tracking-widest rounded-lg px-3 py-2 text-center">
           Demo Mode Active — Simulated Data
@@ -648,7 +781,33 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="bg-evload-surface border border-evload-border rounded-[2rem] p-4 sm:p-5">
+      <div
+        className={clsx(
+          'rounded-3xl border p-4 sm:p-5 transition-all',
+          finishByWakeStatus.tone === 'waking' && 'border-indigo-400/60 bg-indigo-500/10',
+          finishByWakeStatus.tone === 'ready' && 'border-cyan-400/60 bg-cyan-500/10',
+          finishByWakeStatus.tone === 'scheduled' && 'border-emerald-400/60 bg-emerald-500/10',
+          finishByWakeStatus.tone === 'idle' && 'border-evload-border bg-evload-surface'
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-evload-text">
+            <Bot size={16} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] uppercase tracking-[0.2em] text-evload-muted">Finish-by Wake & Sync</div>
+            <h3 className="mt-1 text-base font-bold text-evload-text">{finishByWakeStatus.title}</h3>
+            <p className="mt-1 text-sm text-evload-muted">{finishByWakeStatus.detail}</p>
+            {nextCharge?.finishBy && (
+              <div className="mt-2 text-xs text-evload-muted">
+                Deadline: {new Date(nextCharge.finishBy).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-evload-surface/90 border border-evload-border rounded-[2rem] p-4 sm:p-5 shadow-[0_20px_40px_rgba(0,0,0,0.08)]">
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-[0.28em] text-evload-muted font-semibold">Energy Flow</div>
@@ -701,7 +860,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="bg-evload-surface border border-evload-border rounded-3xl p-4 sm:p-5 text-evload-text">
+      <div className="bg-evload-surface/90 border border-evload-border rounded-3xl p-4 sm:p-5 text-evload-text shadow-[0_20px_40px_rgba(0,0,0,0.08)]">
         <div className="rounded-full border border-evload-border bg-evload-bg p-1 flex items-center justify-between">
           <ModePill active={chargeMode === 'off'} label="Off" onClick={() => applyMode('off')} disabled={controlsDisabled} />
           <ModePill active={chargeMode === 'plan'} label="Plan" onClick={() => applyMode('plan')} disabled={controlsDisabled} />
@@ -944,7 +1103,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="bg-evload-surface border border-evload-border rounded-3xl p-4 sm:p-5 space-y-3">
+      <div className="bg-evload-surface/90 border border-evload-border rounded-3xl p-4 sm:p-5 space-y-3 shadow-[0_20px_40px_rgba(0,0,0,0.08)]">
         <h2 className="font-semibold text-lg">Engine Live Log</h2>
         <div className="bg-evload-bg border border-evload-border rounded-xl p-3 h-56 overflow-auto font-mono text-xs leading-5">
           {(engine?.debugLog?.length ?? 0) === 0 ? (

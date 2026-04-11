@@ -19,6 +19,11 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Full UI redesign across tabs**: Dashboard, Climate, Garage, Statistics, Notifications, Settings, and shared Layout now use a unified premium design system with modern cards, richer spacing, and stronger visual hierarchy
+- **Shared design primitives**: introduced reusable frontend style primitives (`ev-hero`, `ev-card`, `ev-card-strong`, `ev-input`, `ev-btn-primary`, `ev-btn-ghost`) to keep all pages visually consistent and faster to evolve
+- **Dashboard modernized (mobile-first)**: refreshed visual hierarchy with premium card styling, atmospheric gradients, stronger typography, and optimized responsive spacing for smartphone usage
+- **Finish-by wake status clarity**: Dashboard now exposes a dedicated "Finish-by Wake & Sync" status block with clear runtime phases (wake request, SoC wait, SoC acquired, schedule computed)
+- **Planner visual continuity on Dashboard controls**: mode selector pills now reuse the planner-like accent background effect for a more cohesive UX language
 - **Planner UX alignment + 4 clear schedule modes**: planner flow is fully English and now exposes four explicit charge plan modes in the scheduler builder: `Start at`, `End at`, `Time range`, and `Finish by` (including weekly variants and proper schedule card rendering)
 - **Planner option help + label cleanup**: planner mode hints now use the same tooltip interaction style as Settings (`?` popovers), and duplicate unit labels were cleaned up (for example `Pre-wake` now shows `min` only once)
 - **Scheduler test coverage upgraded**: added a dedicated backend test suite for scheduler charge modes with focused coverage for `start_at`, `end_at`, `start_end`, and `finish_by` (plus weekly rolling and next-plan resolution checks)
@@ -251,6 +256,7 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Statistics charts (SoC, Power/Current, Voltage) use telemetry `recordedAt` datetime on the X axis
 - **Statistics chart zoom**: each chart card has an expand (⤢) button that opens the chart in a fullscreen popup modal (closes on Escape, overlay click, or ✕); inside the popup, drag horizontally on the chart to zoom the X axis — the Y axis auto-adjusts to visible data; a "Reset zoom" button restores the full view
 - Dashboard "Evload average" uses a rolling-meter-energy slope over recent samples for responsive ETA and power estimation
+- Dashboard includes a dedicated "Finish-by Wake & Sync" runtime status card to surface scheduler wake/sync progress in plain language
 - OFF mode stop resilience: failed `charge_stop` commands are retried in background with bounded attempts and retriggered on proxy reconnect
 - Engine auto-resync for current requests: if Tesla `charge_current_request` diverges from evload setpoint, backend retries `set_charging_amps` until aligned
 - Dashboard target SoC persistence split by mode (`on` / `off`) and shared across browser sessions via backend API

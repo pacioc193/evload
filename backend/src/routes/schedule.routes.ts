@@ -4,7 +4,7 @@ import { requireAuth } from '../middleware/auth.middleware'
 import { getConfig } from '../config'
 import { logger } from '../logger'
 import { prisma } from '../prisma'
-import { resolveNextPlannedCharge } from '../services/scheduler.service'
+import { resolveNextPlannedCharge, getSchedulerRuntimeStatus } from '../services/scheduler.service'
 
 const router = Router()
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 })
@@ -16,6 +16,15 @@ router.get('/next-charge', limiter, requireAuth, async (_req, res) => {
   } catch (err) {
     logger.error('Failed to resolve next planned charge', { err })
     res.status(500).json({ error: 'Failed to resolve next planned charge' })
+  }
+})
+
+router.get('/runtime-status', limiter, requireAuth, (_req, res) => {
+  try {
+    res.json(getSchedulerRuntimeStatus())
+  } catch (err) {
+    logger.error('Failed to read scheduler runtime status', { err })
+    res.status(500).json({ error: 'Failed to read scheduler runtime status' })
   }
 })
 

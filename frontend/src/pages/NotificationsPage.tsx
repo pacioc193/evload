@@ -637,23 +637,30 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="ev-page">
+      <section className="ev-hero">
+        <div className="relative flex flex-col gap-2">
+          <h1 className="text-2xl font-black tracking-tight sm:text-3xl flex items-center gap-2"><Bell size={24} />Notifications Panel</h1>
+          <p className="text-sm text-evload-muted">Gestione avanzata regole Telegram con test rapido e placeholder assistiti.</p>
+        </div>
+      </section>
+
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Bell size={22} />Notifications Panel</h1>
+        <h2 className="text-lg font-semibold text-evload-muted">Controls</h2>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
             onClick={() => {
               setPhModalContext(undefined);
               setIsPhModalOpen(true);
             }}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-evload-bg/50 border border-evload-border hover:bg-evload-border rounded-lg text-sm font-medium transition-colors"
+            className="ev-btn-ghost flex-1 sm:flex-none"
           >
             <HelpCircle size={15} /> Placeholders
           </button>
           <button
             onClick={saveNotifications}
             disabled={saving}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+            className="ev-btn-primary flex-1 sm:flex-none disabled:opacity-50"
           >
             <Save size={15} />{saving ? 'Saving...' : 'Save'}
           </button>
@@ -669,7 +676,7 @@ export default function NotificationsPage() {
         currentEvent={phModalContext}
       />
 
-      <div className="bg-evload-surface border border-evload-border rounded-xl p-4 space-y-3">
+      <div className="ev-card-strong space-y-3">
         <div className="flex items-center justify-between py-2 border border-evload-border rounded-lg px-3">
           <div>
             <div className="font-medium text-sm">Telegram Notifications</div>
@@ -692,7 +699,7 @@ export default function NotificationsPage() {
             value={settings.telegramBotToken || ''}
             placeholder={settings.telegramBotToken ? '********' : 'Enter Bot Token...'}
             onChange={(e) => setSettings((prev) => prev ? { ...prev, telegramBotToken: e.target.value } : prev)}
-            className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent placeholder:text-evload-muted/50"
+            className="ev-input placeholder:text-evload-muted/50"
           />
         </div>
         <div>
@@ -703,7 +710,7 @@ export default function NotificationsPage() {
               const parsed = e.target.value.split(',').map((v) => v.trim()).filter(Boolean)
               setSettings((prev) => prev ? { ...prev, telegramAllowedChatIds: parsed } : prev)
             }}
-            className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
+            className="ev-input"
           />
         </div>
         {message && (
@@ -711,7 +718,7 @@ export default function NotificationsPage() {
         )}
       </div>
 
-      <div className="bg-evload-surface border border-evload-border rounded-xl p-4 space-y-3">
+      <div className="ev-card-strong space-y-3">
         <div className="flex items-center justify-between">
           <CollapsibleHeader
             title="Event Message Widget"
@@ -895,7 +902,7 @@ export default function NotificationsPage() {
 
       <div id="test-center-anchor" className="h-0" />
 
-      <div className="bg-evload-surface border border-evload-border rounded-xl p-4 space-y-3">
+      <div className="ev-card-strong space-y-3">
         <CollapsibleHeader
           title="Rules Builder"
           subtitle="Advanced conditions and multiple rules"
