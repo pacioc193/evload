@@ -844,20 +844,20 @@ export default function SettingsPage() {
     ? 'Unknown'
     : `${Math.floor(haTokenStatus.secondsRemaining / 60)}m ${haTokenStatus.secondsRemaining % 60}s`
 
-  const handleDownloadBackendLog = async (type: 'combined' | 'error', since?: string) => {
+  const handleDownloadBackendLog = async (since?: string) => {
     setLogBusy(true)
     setLogMsg('')
     setLogError(false)
     try {
-      flog.info('LOGS', `Backend ${type} log download requested`)
-      await downloadBackendLog(type, since || undefined)
-      flog.info('LOGS', `Backend ${type} log downloaded`)
-      setLogMsg(`Backend ${type} log downloaded (pretty format)`)
+      flog.info('LOGS', 'Backend log download requested', { since })
+      await downloadBackendLog(since || undefined)
+      flog.info('LOGS', 'Backend log downloaded')
+      setLogMsg('Backend log downloaded (pretty format)')
     } catch (err) {
       const msg = `Download failed: ${err instanceof Error ? err.message : 'unknown error'}`
       setLogMsg(msg)
       setLogError(true)
-      flog.error('LOGS', `Backend ${type} log download failed`, { error: String(err) })
+      flog.error('LOGS', 'Backend log download failed', { error: String(err) })
     } finally {
       setLogBusy(false)
       setTimeout(() => setLogMsg(''), 5000)
@@ -1661,15 +1661,6 @@ export default function SettingsPage() {
                     {otaStatus?.state === 'running' ? 'Loading output from server...' : 'No logs'}
                   </div>
                 )}
-                <div className="flex items-center gap-2 text-xs text-evload-muted">
-                  <button
-                    type="button"
-                    onClick={() => setActiveLog('backend')}
-                    className="hover:text-evload-text transition-colors"
-                  >
-                    View full backend logs →
-                  </button>
-                </div>
               </div>
             )}
           </div>

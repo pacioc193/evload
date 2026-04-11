@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Calendar, Clock, Zap, Thermometer, Trash2, Plus, FlagTriangleRight } from 'lucide-react'
+import { Calendar, Zap, Thermometer, Trash2, Plus } from 'lucide-react'
 import {
   getScheduledCharges,
   createScheduledCharge,
@@ -114,28 +114,6 @@ export default function SchedulePage() {
 
   const toggleWeekday = (days: number[], day: number, setter: (next: number[]) => void) => {
     setter(days.includes(day) ? days.filter((d) => d !== day) : [...days, day])
-  }
-
-  const applyTodayTomorrowQuick = (kind: 'today' | 'tomorrow') => {
-    const offset = kind === 'today' ? 0 : 1
-    const weekday = (new Date().getDay() + offset) % 7
-
-    if (settingsMode === 'charger') {
-      if (chargeType === 'weekly') {
-        setChargeWeekdays([weekday])
-      } else {
-        setChargeAt((prev) => setDateToTodayOrTomorrow(prev, offset))
-        setChargeFinishBy((prev) => setDateToTodayOrTomorrow(prev, offset))
-      }
-      return
-    }
-
-    if (climateType === 'weekly') {
-      setClimateWeekdays([weekday])
-    } else {
-      setClimateAt((prev) => setDateToTodayOrTomorrow(prev, offset))
-      setClimateFinishBy((prev) => setDateToTodayOrTomorrow(prev, offset))
-    }
   }
 
   const handleSave = async () => {
