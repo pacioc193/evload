@@ -25,6 +25,7 @@ The project is designed for home charging scenarios where you want to:
 - **OTA come deployment ufficiale**: Documentazione `docs/DEPLOYMENT.md` raccomanda OTA per tutti deploy remoti, con database/config preservation
 - **Unified logging system**: removed dual error/combined logs, now single unified `log` file with JSON format; API and UI simplified
 - **Schedule builder rewritten from scratch**: modern step-by-step planner flow with ordered fields (Plan name → Oggi/Domani → Start/Finish/Range → Ripetizione → SOC/A), stronger mobile layout, and redesigned modern sliders
+- **Scheduler target sliders refined**: SOC slider is now green and displays `% + estimated km` together; Amps slider is red and its min/max are bound dynamically to engine settings (`minAmps` / `maxAmps`)
 - **Vehicle defrost fixed**: corrected from `defrost_max` to `auto_conditioning_start` with `wait: true` for Tesla proxy spec compliance
 - **OTA error visibility enhanced**: 
   - Backend provides detailed error messages per failure scenario (guards, already running, file errors)

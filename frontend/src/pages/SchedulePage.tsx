@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Calendar, Zap, Thermometer, Trash2, Plus } from 'lucide-react'
 import {
+  getSettings,
   getScheduledCharges,
   createScheduledCharge,
   deleteScheduledCharge,
   getScheduledClimates,
   createScheduledClimate,
   deleteScheduledClimate,
+  type AppSettings,
   type ScheduledCharge,
   type ScheduledClimate,
 } from '../api/index'
+import { useWsStore } from '../store/wsStore'
 
 type BuilderMode = 'charger' | 'climate'
 type ChargePlanType = 'start' | 'finish' | 'range'
@@ -56,21 +59,46 @@ function moveDateToOffset(localDateTime: string, dayOffset: number): string {
   return toLocalDatetimeInputValue(out.toISOString())
 }
 
-function sliderClassName(trackGradient: string): string {
-  return [
+function sliderClassName(kind: 'soc' | 'amps' | 'temp'): string {
+  const base = [
     'w-full appearance-none h-2 rounded-full cursor-pointer',
-    trackGradient,
     '[&::-webkit-slider-thumb]:appearance-none',
     '[&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5',
     '[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white',
-    '[&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-evload-accent',
-    '[&::-webkit-slider-thumb]:shadow-[0_0_0_4px_rgba(239,68,68,0.18)]',
+    '[&::-webkit-slider-thumb]:border-2',
     '[&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:duration-150',
     'hover:[&::-webkit-slider-thumb]:scale-110',
+  ]
+
+  if (kind === 'soc') {
+    return [
+      ...base,
+      'bg-gradient-to-r from-green-500/40 to-emerald-600/70',
+      '[&::-webkit-slider-thumb]:border-emerald-500',
+      '[&::-webkit-slider-thumb]:shadow-[0_0_0_4px_rgba(16,185,129,0.20)]',
+    ].join(' ')
+  }
+
+  if (kind === 'amps') {
+    return [
+      ...base,
+      'bg-gradient-to-r from-rose-500/40 to-red-600/70',
+      '[&::-webkit-slider-thumb]:border-red-500',
+      '[&::-webkit-slider-thumb]:shadow-[0_0_0_4px_rgba(239,68,68,0.20)]',
+    ].join(' ')
+  }
+
+  return [
+    ...base,
+    'bg-gradient-to-r from-amber-500/40 to-orange-600/70',
+    '[&::-webkit-slider-thumb]:border-orange-500',
+    '[&::-webkit-slider-thumb]:shadow-[0_0_0_4px_rgba(249,115,22,0.20)]',
   ].join(' ')
 }
 
 export default function SchedulePage() {
+  const vehicle = useWsStore((s) => s.vehicle)
+
   const [charges, setCharges] = useState<ScheduledCharge[]>([])
   const [climates, setClimates] = useState<ScheduledClimate[]>([])
   const [loadingCharges, setLoadingCharges] = useState(true)
@@ -95,6 +123,17 @@ export default function SchedulePage() {
   const [showBuilder, setShowBuilder] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formMsg, setFormMsg] = useState('')
+  const [engineSettings, setEngineSettings] = useState<Pick<AppSettings, 'minAmps' | 'maxAmps'> | null>(null)
+
+  const ampsMin = engineSettings?.minAmps ?? 5
+  const ampsMax = engineSettings?.maxAmps ?? 32
+
+  const targetSocKm = useMemo(() => {
+    const socNow = vehicle?.stateOfCharge
+    const rangeNow = vehicle?.batteryRange
+    if (socNow == null || rangeNow == null || socNow <= 0 || rangeNow <= 0) return null
+    return Math.round((rangeNow / socNow) * chargeSoc)
+  }, [vehicle?.stateOfCharge, vehicle?.batteryRange, chargeSoc])
 
   const loadCharges = () =>
     getScheduledCharges()
@@ -111,7 +150,18 @@ export default function SchedulePage() {
   useEffect(() => {
     loadCharges()
     loadClimates()
+
+    getSettings()
+      .then((s) => setEngineSettings({ minAmps: s.minAmps, maxAmps: s.maxAmps }))
+      .catch(() => {
+        // Keep default range if settings endpoint is temporarily unavailable.
+        setEngineSettings(null)
+      })
   }, [])
+
+  useEffect(() => {
+    setChargeAmps((prev) => Math.min(Math.max(prev, ampsMin), ampsMax))
+  }, [ampsMin, ampsMax])
 
   const toggleDay = (day: number) => {
     setRepeatDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]))
@@ -496,7 +546,7 @@ export default function SchedulePage() {
                       <div>
                         <div className="mb-1 flex items-center justify-between text-xs font-semibold text-evload-muted">
                           <span>SOC</span>
-                          <span className="text-evload-text">{chargeSoc}%</span>
+                          <span className="text-evload-text">{chargeSoc}% • {targetSocKm != null ? `${targetSocKm} km` : '— km'}</span>
                         </div>
                         <input
                           type="range"
@@ -504,21 +554,21 @@ export default function SchedulePage() {
                           max={100}
                           value={chargeSoc}
                           onChange={(e) => setChargeSoc(Number(e.target.value))}
-                          className={sliderClassName('bg-gradient-to-r from-rose-500/40 to-rose-600/70')}
+                          className={sliderClassName('soc')}
                         />
                       </div>
                       <div>
                         <div className="mb-1 flex items-center justify-between text-xs font-semibold text-evload-muted">
                           <span>Amps</span>
-                          <span className="text-evload-text">{chargeAmps}A</span>
+                          <span className="text-evload-text">{chargeAmps}A ({ampsMin}-{ampsMax})</span>
                         </div>
                         <input
                           type="range"
-                          min={5}
-                          max={32}
+                          min={ampsMin}
+                          max={ampsMax}
                           value={chargeAmps}
                           onChange={(e) => setChargeAmps(Number(e.target.value))}
-                          className={sliderClassName('bg-gradient-to-r from-sky-500/40 to-cyan-600/70')}
+                          className={sliderClassName('amps')}
                         />
                       </div>
                     </>
@@ -534,7 +584,7 @@ export default function SchedulePage() {
                         max={30}
                         value={climateTemp}
                         onChange={(e) => setClimateTemp(Number(e.target.value))}
-                        className={sliderClassName('bg-gradient-to-r from-amber-500/40 to-orange-600/70')}
+                        className={sliderClassName('temp')}
                       />
                     </div>
                   )}

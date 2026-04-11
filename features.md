@@ -42,6 +42,8 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 	- Nuovo ordine campi conforme al flusso richiesto: **Nome piano → Oggi/Domani → Start/Finish/Range → Ripetizione → SOC/A**.
 	- Layout migliorato per mobile e desktop con card step-by-step a due colonne responsive.
 	- Nuovi controlli slider moderni (thumb custom, track gradient, interazione più fluida).
+	- Slider SOC in verde con visualizzazione combinata **percentuale + km stimati**.
+	- Slider Amps in rosso con limiti dinamici da impostazioni engine (`minAmps` / `maxAmps`) invece di range hardcoded.
 	- Pulsanti rapidi Oggi/Domani per riposizionare date mantenendo l'orario scelto.
 	- Ripetizione disponibile con selezione giorni per start, finish e range.
 	- Liste piani Charger/Climate mantenute e rese più pulite visivamente.
