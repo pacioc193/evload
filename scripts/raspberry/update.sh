@@ -66,7 +66,9 @@ rsync -avz "${REPO_ROOT}/backend/prisma/" "${SSH_TARGET}:${INSTALL_DIR}/backend/
 
 # ── Step 3: Force clean npm reinstall on RPi ─────────────────────────────────
 info "Forcing clean npm reinstall on RPi (backend + frontend)..."
-ssh "${SSH_TARGET}" "cd '${INSTALL_DIR}' && rm -rf backend/node_modules frontend/node_modules && npm ci --prefix backend --omit=dev && npm ci --prefix frontend"
+ssh "${SSH_TARGET}" "cd '${INSTALL_DIR}' && rm -rf backend/node_modules frontend/node_modules && \
+  (npm ci --prefix backend --omit=dev || (echo '[WARN] backend npm ci failed (lockfile mismatch), using npm install fallback' && npm install --prefix backend --omit=dev --no-audit --no-fund)) && \
+  (npm ci --prefix frontend || (echo '[WARN] frontend npm ci failed (lockfile mismatch), using npm install fallback' && npm install --prefix frontend --no-audit --no-fund))"
 
 # ── Step 4: Apply DB migrations on RPi ───────────────────────────────────────
 info "Applying Prisma schema on RPi..."

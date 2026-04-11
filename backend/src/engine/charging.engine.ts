@@ -92,6 +92,7 @@ let suspendedState: SuspendedChargeState | null = null
 
 interface PersistedEngineRestoreState {
   restorePlan: boolean
+  preferredTargetSoc?: number
   targetSoc?: number
   targetAmps?: number
 }
@@ -109,11 +110,13 @@ async function persistEngineRestoreState(): Promise<void> {
   const payload: PersistedEngineRestoreState = planArmed
     ? {
         restorePlan: true,
+        preferredTargetSoc: persistedTargetSoc,
         targetSoc: status.targetSoc,
         targetAmps: status.targetAmps,
       }
     : {
         restorePlan: false,
+        preferredTargetSoc: persistedTargetSoc,
         targetSoc: persistedTargetSoc,
       }
 
@@ -138,7 +141,8 @@ export async function initializeEngineState(): Promise<void> {
 
   try {
     const parsed = JSON.parse(persisted.engine_restore_state) as PersistedEngineRestoreState
-    persistedTargetSoc = clampTargetSoc(Number(parsed.targetSoc ?? DEFAULT_TARGET_SOC))
+    const rawPreferredTargetSoc = parsed.preferredTargetSoc ?? parsed.targetSoc ?? DEFAULT_TARGET_SOC
+    persistedTargetSoc = clampTargetSoc(Number(rawPreferredTargetSoc))
 
     if (!parsed.restorePlan) {
       planArmed = false

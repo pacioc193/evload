@@ -19,6 +19,9 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Docker DB persistence guard**: `docker-compose.yml` now sets a safe default `DATABASE_URL=file:/app/backend/data/db.sqlite` when env is missing, so AppConfig and target SoC preferences survive container rebuild/update on the named volume
+- **Native/Raspberry DB persistence guard**: backend runtime and Prisma CLI now default to `file:./data/evload.db` in production when `DATABASE_URL` is not set, and native systemd services explicitly set that path; this prevents `AppConfig` resets (target SoC returning to 80) after updates
+- **targetSoc persistence fix (plan vs preference)**: `engine_restore_state` now persists `preferredTargetSoc` separately from the currently armed plan target, so a scheduled/manual plan at 80 no longer overwrites the user's persisted target preference
 - **Single targetSoc and scheduleLead removal**: unified to one persisted targetSoc (removed `targetSocOff`/`targetSocOn` distinction); removed `scheduleLeadTimeSec` and pre-wake logic entirely
 - **Dashboard SoC slider sync fix**: the Target SoC slider was resetting every second during active drag because the WS engine object reference changes on every 1s broadcast; fixed by tracking only the primitive `targetSoc` value in the effect dependency array
 - **Garage unlatch always available**: the Unlatch button in Garage mode is no longer gated on `vehicle.pluggedIn`; it can now open the charge-port door even when the car is idle or sleeping in the garage

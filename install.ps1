@@ -65,11 +65,23 @@ Write-Host "[*] Starting install for evload (PowerShell)"
 
 Write-Host "[*] Forcing clean reinstall of root dependencies..."
 if (Test-Path "node_modules") { Remove-Item -Recurse -Force "node_modules" }
-npm ci --no-audit --no-fund
+try {
+    npm ci --no-audit --no-fund
+    Write-Host "[*] Root dependencies installed with npm ci"
+} catch {
+    Write-Host "[!] Root npm ci failed (lockfile mismatch), falling back to npm install..." -ForegroundColor Yellow
+    npm install --no-audit --no-fund
+}
 
 Write-Host "[*] Forcing clean reinstall of backend dependencies..."
 if (Test-Path "backend/node_modules") { Remove-Item -Recurse -Force "backend/node_modules" }
-npm --prefix backend ci --include=dev --no-audit --no-fund
+try {
+    npm --prefix backend ci --include=dev --no-audit --no-fund
+    Write-Host "[*] Backend dependencies installed with npm ci"
+} catch {
+    Write-Host "[!] Backend npm ci failed (lockfile mismatch), falling back to npm install..." -ForegroundColor Yellow
+    npm --prefix backend install --include=dev --no-audit --no-fund
+}
 
 Write-Host "[*] Ensuring backend .env exists"
 $backendEnv = Join-Path "backend" ".env"
@@ -87,7 +99,13 @@ if (-not (Test-Path $backendEnv) -and (Test-Path $backendEnvExample)) {
 
 Write-Host "[*] Forcing clean reinstall of frontend dependencies..."
 if (Test-Path "frontend/node_modules") { Remove-Item -Recurse -Force "frontend/node_modules" }
-npm --prefix frontend ci --no-audit --no-fund
+try {
+    npm --prefix frontend ci --no-audit --no-fund
+    Write-Host "[*] Frontend dependencies installed with npm ci"
+} catch {
+    Write-Host "[!] Frontend npm ci failed (lockfile mismatch), falling back to npm install..." -ForegroundColor Yellow
+    npm --prefix frontend install --no-audit --no-fund
+}
 
 Write-Host "[*] Running Prisma generate in backend (if applicable)..."
 try {

@@ -5,6 +5,21 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 
 ## Aggiornamenti Recenti (2026-04-10) — v1.5.5
 
+- **Docker — fix persistenza DB su update/rebuild**:
+	- Aggiunto in `docker-compose.yml` il default `DATABASE_URL=${DATABASE_URL:-file:/app/backend/data/db.sqlite}`.
+	- Se il file `.env` manca o non contiene `DATABASE_URL`, il backend non ricade piu su `file:./dev.db` (path volatile nel container), evitando reset di `AppConfig` e del target SoC a 80 dopo aggiornamenti.
+
+- **Native/Raspberry — fix persistenza DB senza dipendenza da `.env`**:
+	- Aggiornato backend runtime (`backend/src/prisma.ts`) e Prisma CLI (`backend/prisma.config.ts`) per usare di default `file:./data/evload.db` in produzione quando `DATABASE_URL` non e impostato.
+	- Aggiornati i service systemd nei deploy script (`scripts/raspberry/install.sh`, `Deploy-EvloadNative.ps1`) con `Environment=DATABASE_URL=file:/opt/evload/backend/data/evload.db`.
+	- Effetto: i dati applicativi persistenti (`AppConfig`, inclusi target SoC e segreti) restano nel DB su disco anche se `.env` non contiene `DATABASE_URL`.
+
+- **Fix bug target SoC persistito sovrascritto dal plan**:
+	- In `engine_restore_state` il `targetSoc` del piano armato veniva riusato anche come preferenza persistita, quindi un plan/schedule a 80 poteva sovrascrivere la preferenza utente (es. 100) dopo riavvio/update.
+	- Introdotto campo `preferredTargetSoc` separato in `PersistedEngineRestoreState` (`backend/src/engine/charging.engine.ts`).
+	- `initializeEngineState()` ora ricarica la preferenza da `preferredTargetSoc` (con fallback retrocompatibile a `targetSoc` per record vecchi).
+	- Aggiunto test di regressione: `engine.modes.test.ts` verifica che con plan=80 e preferenza=100, dopo restart il piano resti 80 ma la preferenza resti 100.
+
 - **Rimozione targetSocOff e scheduleLead**:
 	- Eliminato il concetto di `targetSocOff` (target SoC separato per quando il motore è spento): esiste ora un solo `targetSoc` persisted che si applica in tutti i modi (idle, on, plan).
 	- Rimosso `targetSocOn`/`targetSocOff` da `EngineStatus`, `PersistedEngineRestoreState`, store WS frontend, API `/engine/targets`.
