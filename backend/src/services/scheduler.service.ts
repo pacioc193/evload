@@ -136,7 +136,7 @@ async function runSchedulerTick(): Promise<void> {
   })
 
   const vState = getVehicleState()
-  const currentSoc = vState.stateOfCharge
+  const currentSoc: number | null = vState.stateOfCharge
   const batteryKwh = cfg.charging.batteryCapacityKwh
   // Use nominal voltage for estimation: live charger voltage is unavailable while
   // the vehicle is asleep, and the problem spec calls for "220 × A" nominal power.
@@ -208,7 +208,7 @@ async function runSchedulerTick(): Promise<void> {
         hour: '2-digit',
         minute: '2-digit',
         hour12: false,
-        timeZone: tz && tz !== 'UTC' ? tz : 'UTC',
+        timeZone: tz || 'UTC',
       })
       logger.info(`⏰ [FINISH_BY] Charging start scheduled for ${computedStartAt.toISOString()} (plan "${planName}", id=${sc.id})`)
       dispatchTelegramNotificationEvent('plan_finish_by_scheduled', {
