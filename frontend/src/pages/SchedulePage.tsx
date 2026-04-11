@@ -64,8 +64,9 @@ export default function SchedulePage() {
   const [loadingCharges, setLoadingCharges] = useState(true)
   const [loadingClimates, setLoadingClimates] = useState(true)
 
-  const [settingsMode, setSettingsMode] = useState<SettingsMode>('charger')
+  const [mode, setMode] = useState<SettingsMode>('charger')
   const [formMsg, setFormMsg] = useState('')
+  const [showForm, setShowForm] = useState(false)
 
   const [chargeType, setChargeType] = useState<ChargeType>('start_at')
   const [chargeAt, setChargeAt] = useState(toLocalDatetimeInputValue())
@@ -141,7 +142,7 @@ export default function SchedulePage() {
     setSaving(true)
     setFormMsg('')
     try {
-      if (settingsMode === 'charger') {
+      if (mode === 'charger') {
         const nameVal = chargeName.trim() || undefined
         if (nameVal && nameVal.length > 50) {
           setFormMsg('Name must be at most 50 characters')
@@ -245,6 +246,9 @@ export default function SchedulePage() {
       }
 
       setFormMsg('Scheduled successfully')
+      setShowForm(false)
+      setChargeName('')
+      setClimateName('')
     } catch {
       setFormMsg('Failed to save schedule')
     } finally {
@@ -271,350 +275,358 @@ export default function SchedulePage() {
     }
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <Calendar size={24} className="text-evload-accent" />
-        <h1 className="text-2xl font-bold">Schedule</h1>
-      </div>
-
-      <div className="bg-evload-surface border border-evload-border rounded-3xl p-6 space-y-5">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h2 className="font-semibold text-lg">Schedule Settings</h2>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setSettingsMode('charger')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${settingsMode === 'charger' ? 'bg-evload-accent text-white' : 'bg-evload-border text-evload-muted hover:text-evload-text'}`}
-            >
-              Charger
-            </button>
-            <button
-              onClick={() => setSettingsMode('climate')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${settingsMode === 'climate' ? 'bg-evload-accent text-white' : 'bg-evload-border text-evload-muted hover:text-evload-text'}`}
-            >
-              Climate
-            </button>
+  const renderScheduleItem = (sc: ScheduledCharge | ScheduledClimate, type: 'charge' | 'climate') => {
+    const isClimate = type === 'climate'
+    const target = isClimate ? `${(sc as ScheduledClimate).targetTempC}°C` : `${(sc as ScheduledCharge).targetSoc}%`
+    const details = isClimate 
+      ? undefined
+      : `${(sc as ScheduledCharge).targetAmps}A`
+    
+    return (
+      <div key={sc.id} className="group bg-evload-bg hover:bg-evload-border/50 border border-evload-border rounded-xl p-4 transition-all duration-200 flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-2">
+            <span className={`w-3 h-3 rounded-full flex-shrink-0 ${sc.enabled ? 'bg-gradient-to-br from-green-400 to-green-600' : 'bg-evload-muted'}`} />
+            <h3 className="font-semibold text-sm text-evload-text truncate">
+              {sc.name || (isClimate ? 'Climate' : 'Charge')}
+            </h3>
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-evload-accent/20 text-evload-accent flex-shrink-0">
+              {sc.scheduleType === 'weekly' ? '🔄' : sc.scheduleType === 'start_end' ? '⏱️' : '⏰'}
+            </span>
           </div>
+          <p className="text-xs text-evload-muted/80 line-clamp-2">
+            {sc.scheduleType === 'weekly'
+              ? `Every ${weekdayNameFromDate(sc.scheduledAt)} at ${timeFromDate(sc.scheduledAt)}`
+              : sc.scheduleType === 'finish_by'
+                ? `Finish by ${formatDateTime(sc.finishBy)}`
+                : sc.scheduleType === 'start_end'
+                  ? `${formatDateTime(sc.scheduledAt)} → ${formatDateTime(sc.finishBy)}`
+                  : formatDateTime(sc.scheduledAt)}
+          </p>
+          <p className="text-xs text-evload-accent font-medium mt-1">
+            {target} {details ? `• ${details}` : ''}
+          </p>
+          {!sc.enabled && <p className="text-xs text-evload-muted italic mt-1">✓ Executed</p>}
         </div>
+        <button
+          onClick={() => isClimate ? handleDeleteClimate(sc.id) : handleDeleteCharge(sc.id)}
+          className="p-1.5 flex-shrink-0 text-evload-muted hover:text-evload-error hover:bg-evload-error/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+        >
+          <Trash2 size={16} />
+        </button>
+      </div>
+    )
+  }
 
-        <div className="flex gap-2">
+  return (
+    <div className="min-h-screen pb-20" style={{ background: 'linear-gradient(135deg, transparent 0%, rgba(220,38,38,0.03) 100%)' }}>
+      {/* Header */}
+      <div className="sticky top-0 z-40 bg-evload-bg/95 backdrop-blur border-b border-evload-border/50 p-4 sm:p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Calendar size={24} className="text-evload-accent" />
+            <div>
+              <h1 className="text-2xl font-bold">Schedule</h1>
+              <p className="text-xs text-evload-muted">Manage charging & climate</p>
+            </div>
+          </div>
           <button
-            onClick={() => applyTodayTomorrowQuick('today')}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-evload-border text-evload-muted hover:text-evload-text"
+            onClick={() => setShowForm(!showForm)}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-br from-evload-accent to-red-700 text-white rounded-lg font-medium hover:shadow-lg transition-all duration-200 hover:scale-105"
           >
-            Oggi
-          </button>
-          <button
-            onClick={() => applyTodayTomorrowQuick('tomorrow')}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-evload-border text-evload-muted hover:text-evload-text"
-          >
-            Domani
+            <Plus size={18} /> New
           </button>
         </div>
-
-        {settingsMode === 'charger' ? (
-          <>
-            <div className="flex gap-2 flex-wrap">
-              {(['start_at', 'finish_by', 'start_end', 'weekly'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setChargeType(t)}
-                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${chargeType === t ? 'bg-evload-accent text-white' : 'bg-evload-border text-evload-muted hover:text-evload-text'}`}
-                >
-                  {t === 'start_at' ? <><Clock size={13} />Start at</> : t === 'finish_by' ? <><FlagTriangleRight size={13} />Finish by</> : t === 'start_end' ? <><Calendar size={13} />Start + End</> : <><Calendar size={13} />Weekly</>}
-                </button>
-              ))}
-            </div>
-
-            {chargeType === 'weekly' ? (
-              <div className="space-y-3">
-                <div className="flex gap-2 flex-wrap">
-                  {[
-                    { d: 1, label: 'Mon' },
-                    { d: 2, label: 'Tue' },
-                    { d: 3, label: 'Wed' },
-                    { d: 4, label: 'Thu' },
-                    { d: 5, label: 'Fri' },
-                    { d: 6, label: 'Sat' },
-                    { d: 0, label: 'Sun' },
-                  ].map((item) => {
-                    const active = chargeWeekdays.includes(item.d)
-                    return (
-                      <button
-                        key={item.d}
-                        onClick={() => toggleWeekday(chargeWeekdays, item.d, setChargeWeekdays)}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium ${active ? 'bg-evload-accent text-white' : 'bg-evload-border text-evload-muted hover:text-evload-text'}`}
-                      >
-                        {item.label}
-                      </button>
-                    )
-                  })}
-                </div>
-                <div>
-                  <label className="block text-sm text-evload-muted mb-1">Time</label>
-                  <input
-                    type="time"
-                    value={chargeWeeklyTime}
-                    onChange={(e) => setChargeWeeklyTime(e.target.value)}
-                    className="w-full sm:w-56 bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {chargeType !== 'finish_by' && (
-                  <div>
-                    <label className="block text-sm text-evload-muted mb-1">Start Date &amp; Time</label>
-                    <input
-                      type="datetime-local"
-                      value={chargeAt}
-                      onChange={(e) => setChargeAt(e.target.value)}
-                      className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
-                    />
-                  </div>
-                )}
-                {(chargeType === 'finish_by' || chargeType === 'start_end') && (
-                  <div>
-                    <label className="block text-sm text-evload-muted mb-1">Finish by</label>
-                    <input
-                      type="datetime-local"
-                      value={chargeFinishBy}
-                      onChange={(e) => setChargeFinishBy(e.target.value)}
-                      className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-              <div>
-                <label className="block text-sm text-evload-muted mb-1">Target SoC: {chargeSoc}%</label>
-                <input type="range" min={1} max={100} value={chargeSoc} onChange={(e) => setChargeSoc(Number(e.target.value))} className="w-full accent-evload-accent" />
-              </div>
-              <div>
-                <label className="block text-sm text-evload-muted mb-1">Target Amps: {chargeAmps}A</label>
-                <input type="range" min={5} max={32} value={chargeAmps} onChange={(e) => setChargeAmps(Number(e.target.value))} className="w-full accent-evload-accent" />
-              </div>
-              <div>
-                <label className="block text-sm text-evload-muted mb-1">
-                  Nome piano <span className="text-evload-muted/60 text-xs">(opzionale, max 50 car.)</span>
-                </label>
-                <input
-                  type="text"
-                  maxLength={50}
-                  placeholder="es. Notturna, Lavoro…"
-                  value={chargeName}
-                  onChange={(e) => setChargeName(e.target.value)}
-                  className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
-                />
-              </div>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="sm:col-start-3 flex items-center justify-center gap-2 px-4 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
-              >
-                <Plus size={16} />{saving ? 'Saving…' : 'Save Charger Schedule'}
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="flex gap-2 flex-wrap">
-              {(['start_at', 'start_end', 'weekly'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setClimateType(t)}
-                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${climateType === t ? 'bg-evload-accent text-white' : 'bg-evload-border text-evload-muted hover:text-evload-text'}`}
-                >
-                  {t === 'start_at' ? <><Clock size={13} />Start at</> : t === 'start_end' ? <><Calendar size={13} />Start + End</> : <><Calendar size={13} />Weekly</>}
-                </button>
-              ))}
-            </div>
-
-            {climateType === 'weekly' ? (
-              <div className="space-y-3">
-                <div className="flex gap-2 flex-wrap">
-                  {[
-                    { d: 1, label: 'Mon' },
-                    { d: 2, label: 'Tue' },
-                    { d: 3, label: 'Wed' },
-                    { d: 4, label: 'Thu' },
-                    { d: 5, label: 'Fri' },
-                    { d: 6, label: 'Sat' },
-                    { d: 0, label: 'Sun' },
-                  ].map((item) => {
-                    const active = climateWeekdays.includes(item.d)
-                    return (
-                      <button
-                        key={item.d}
-                        onClick={() => toggleWeekday(climateWeekdays, item.d, setClimateWeekdays)}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium ${active ? 'bg-evload-accent text-white' : 'bg-evload-border text-evload-muted hover:text-evload-text'}`}
-                      >
-                        {item.label}
-                      </button>
-                    )
-                  })}
-                </div>
-                <div>
-                  <label className="block text-sm text-evload-muted mb-1">Time</label>
-                  <input
-                    type="time"
-                    value={climateWeeklyTime}
-                    onChange={(e) => setClimateWeeklyTime(e.target.value)}
-                    className="w-full sm:w-56 bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm text-evload-muted mb-1">Start Date &amp; Time</label>
-                  <input
-                    type="datetime-local"
-                    value={climateAt}
-                    onChange={(e) => setClimateAt(e.target.value)}
-                    className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
-                  />
-                </div>
-                {climateType === 'start_end' && (
-                  <div>
-                    <label className="block text-sm text-evload-muted mb-1">End Date &amp; Time</label>
-                    <input
-                      type="datetime-local"
-                      value={climateFinishBy}
-                      onChange={(e) => setClimateFinishBy(e.target.value)}
-                      className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-              <div>
-                <label className="block text-sm text-evload-muted mb-1">Target Temperature: {climateTemp}°C</label>
-                <input type="range" min={15} max={30} value={climateTemp} onChange={(e) => setClimateTemp(Number(e.target.value))} className="w-full accent-evload-accent" />
-              </div>
-              <div>
-                <label className="block text-sm text-evload-muted mb-1">
-                  Nome piano <span className="text-evload-muted/60 text-xs">(opzionale, max 50 car.)</span>
-                </label>
-                <input
-                  type="text"
-                  maxLength={50}
-                  placeholder="es. Mattina, Sera…"
-                  value={climateName}
-                  onChange={(e) => setClimateName(e.target.value)}
-                  className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
-                />
-              </div>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex items-center justify-center gap-2 px-4 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
-              >
-                <Plus size={16} />{saving ? 'Saving…' : 'Save Climate Schedule'}
-              </button>
-            </div>
-          </>
-        )}
-
-        {formMsg && (
-          <p className={`text-sm ${formMsg.includes('Failed') ? 'text-evload-error' : 'text-evload-success'}`}>{formMsg}</p>
-        )}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className="bg-evload-surface border border-evload-border rounded-3xl p-6 space-y-4">
-          <h2 className="font-semibold text-lg flex items-center gap-2">
-            <Zap size={18} className="text-evload-accent" />
-            Charger Recap
-          </h2>
-          {loadingCharges ? (
-            <p className="text-evload-muted text-sm">Loading…</p>
-          ) : charges.length === 0 ? (
-            <p className="text-evload-muted text-sm">No scheduled charges</p>
-          ) : (
-            <div className="space-y-2">
-              {charges.map((sc) => (
-                <div key={sc.id} className="flex items-center justify-between p-3 rounded-lg border border-evload-border bg-evload-bg">
-                  <div className="flex flex-col gap-1 min-w-0 flex-1">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className={`w-2 h-2 flex-shrink-0 rounded-full ${sc.enabled ? 'bg-evload-success' : 'bg-evload-muted'}`} />
-                      {sc.name && (
-                        <span className="font-semibold text-evload-text truncate max-w-[160px]" title={sc.name}>{sc.name}</span>
-                      )}
-                      <span className="text-xs px-2 py-0.5 rounded bg-evload-border text-evload-muted flex-shrink-0">
-                        {sc.scheduleType === 'weekly' ? 'Weekly' : sc.scheduleType === 'finish_by' ? 'Finish by' : sc.scheduleType === 'start_end' ? 'Start + End' : 'Start at'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-evload-muted flex-wrap pl-4">
-                      <span>
-                        {sc.scheduleType === 'weekly'
-                          ? `Every ${weekdayNameFromDate(sc.scheduledAt)} at ${timeFromDate(sc.scheduledAt)}`
-                          : sc.scheduleType === 'finish_by'
-                            ? `Finish ${formatDateTime(sc.finishBy)}`
-                            : sc.scheduleType === 'start_end'
-                              ? `Start ${formatDateTime(sc.scheduledAt)} · End ${formatDateTime(sc.finishBy)}`
-                              : formatDateTime(sc.scheduledAt)}
-                      </span>
-                      <span>→ {sc.targetSoc}%</span>
-                      {sc.targetAmps && <span>{sc.targetAmps}A</span>}
-                      {!sc.enabled && <span className="italic">executed</span>}
-                    </div>
-                  </div>
-                  <button onClick={() => handleDeleteCharge(sc.id)} className="p-1 ml-2 flex-shrink-0 text-evload-muted hover:text-evload-error transition-colors">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
+      <div className="p-4 sm:p-5 space-y-6">
+        {/* Form Section */}
+        {showForm && (
+          <div className="bg-gradient-to-br from-evload-surface to-evload-bg border border-evload-border rounded-2xl p-5 sm:p-6 space-y-5">
+            {/* Mode Tabs */}
+            <div className="flex gap-2 bg-evload-bg rounded-lg p-1">
+              {['charger', 'climate'].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m as SettingsMode)}
+                  className={`flex-1 py-2 px-3 rounded-md font-medium text-sm transition-all ${
+                    mode === m
+                      ? 'bg-evload-accent text-white shadow-md'
+                      : 'text-evload-muted hover:text-evload-text'
+                  }`}
+                >
+                  {m === 'charger' ? '⚡ Charger' : '🌡️ Climate'}
+                </button>
               ))}
             </div>
-          )}
-        </div>
 
-        <div className="bg-evload-surface border border-evload-border rounded-3xl p-6 space-y-4">
-          <h2 className="font-semibold text-lg flex items-center gap-2">
-            <Thermometer size={18} className="text-evload-accent" />
-            Climate Recap
-          </h2>
-          {loadingClimates ? (
-            <p className="text-evload-muted text-sm">Loading…</p>
-          ) : climates.length === 0 ? (
-            <p className="text-evload-muted text-sm">No scheduled climate sessions</p>
-          ) : (
+            {/* Type Selection */}
             <div className="space-y-2">
-              {climates.map((sc) => (
-                <div key={sc.id} className="flex items-center justify-between p-3 rounded-lg border border-evload-border bg-evload-bg">
-                  <div className="flex flex-col gap-1 min-w-0 flex-1">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className={`w-2 h-2 flex-shrink-0 rounded-full ${sc.enabled ? 'bg-evload-success' : 'bg-evload-muted'}`} />
-                      {sc.name && (
-                        <span className="font-semibold text-evload-text truncate max-w-[160px]" title={sc.name}>{sc.name}</span>
-                      )}
-                      <span className="text-xs px-2 py-0.5 rounded bg-evload-border text-evload-muted flex-shrink-0">
-                        {sc.scheduleType === 'weekly' ? 'Weekly' : sc.scheduleType === 'start_end' ? 'Start + End' : 'Start at'}
-                      </span>
+              <label className="text-xs font-semibold uppercase tracking-wider text-evload-muted">Schedule Type</label>
+              <div className="flex gap-2 flex-wrap">
+                {mode === 'charger'
+                  ? (['start_at', 'finish_by', 'start_end', 'weekly'] as const).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setChargeType(t)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${chargeType === t ? 'bg-evload-accent text-white' : 'bg-evload-border text-evload-muted hover:text-evload-text'}`}
+                      >
+                        {t === 'start_at' ? '🕐 Start' : t === 'finish_by' ? '🏁 Finish' : t === 'start_end' ? '⏱️ Range' : '🔄 Weekly'}
+                      </button>
+                    ))
+                  : (['start_at', 'start_end', 'weekly'] as const).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setClimateType(t)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${climateType === t ? 'bg-evload-accent text-white' : 'bg-evload-border text-evload-muted hover:text-evload-text'}`}
+                      >
+                        {t === 'start_at' ? '🕐 Start' : t === 'start_end' ? '⏱️ Range' : '🔄 Weekly'}
+                      </button>
+                    ))}
+              </div>
+            </div>
+
+            {/* Dynamic Fields */}
+            <div className="space-y-4">
+              {mode === 'charger' ? (
+                <>
+                  {chargeType === 'weekly' ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wider text-evload-muted block mb-2">Days</label>
+                        <div className="grid grid-cols-4 gap-2">
+                          {[
+                            { d: 1, label: 'M' },
+                            { d: 2, label: 'T' },
+                            { d: 3, label: 'W' },
+                            { d: 4, label: 'T' },
+                            { d: 5, label: 'F' },
+                            { d: 6, label: 'S' },
+                            { d: 0, label: 'S' },
+                          ].map((item) => (
+                            <button
+                              key={item.d}
+                              onClick={() => toggleWeekday(chargeWeekdays, item.d, setChargeWeekdays)}
+                              className={`py-2 rounded-lg font-bold text-sm transition-all ${chargeWeekdays.includes(item.d) ? 'bg-evload-accent text-white' : 'bg-evload-border text-evload-muted'}`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wider text-evload-muted block mb-2">Time</label>
+                        <input
+                          type="time"
+                          value={chargeWeeklyTime}
+                          onChange={(e) => setChargeWeeklyTime(e.target.value)}
+                          className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm"
+                        />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-evload-muted flex-wrap pl-4">
-                      <span>
-                        {sc.scheduleType === 'weekly'
-                          ? `Every ${weekdayNameFromDate(sc.scheduledAt)} at ${timeFromDate(sc.scheduledAt)}`
-                          : sc.scheduleType === 'start_end'
-                            ? `Start ${formatDateTime(sc.scheduledAt)} · End ${formatDateTime(sc.finishBy)}`
-                            : formatDateTime(sc.scheduledAt)}
-                      </span>
-                      <span>→ {sc.targetTempC}°C</span>
-                      {!sc.enabled && <span className="italic">executed</span>}
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {chargeType !== 'finish_by' && (
+                        <div>
+                          <label className="text-xs font-semibold uppercase tracking-wider text-evload-muted block mb-1">Start</label>
+                          <input
+                            type="datetime-local"
+                            value={chargeAt}
+                            onChange={(e) => setChargeAt(e.target.value)}
+                            className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm"
+                          />
+                        </div>
+                      )}
+                      {(chargeType === 'finish_by' || chargeType === 'start_end') && (
+                        <div>
+                          <label className="text-xs font-semibold uppercase tracking-wider text-evload-muted block mb-1">End</label>
+                          <input
+                            type="datetime-local"
+                            value={chargeFinishBy}
+                            onChange={(e) => setChargeFinishBy(e.target.value)}
+                            className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-evload-muted block mb-2">SoC: {chargeSoc}%</label>
+                      <input type="range" min={1} max={100} value={chargeSoc} onChange={(e) => setChargeSoc(Number(e.target.value))} className="w-full accent-evload-accent" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-evload-muted block mb-2">Amps: {chargeAmps}A</label>
+                      <input type="range" min={5} max={32} value={chargeAmps} onChange={(e) => setChargeAmps(Number(e.target.value))} className="w-full accent-evload-accent" />
+                    </div>
+                    <div className="col-span-2 sm:col-span-1">
+                      <label className="text-xs font-semibold text-evload-muted block mb-1">Name (opt)</label>
+                      <input
+                        type="text"
+                        maxLength={50}
+                        placeholder="e.g. Late shift"
+                        value={chargeName}
+                        onChange={(e) => setChargeName(e.target.value)}
+                        className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-xs"
+                      />
                     </div>
                   </div>
-                  <button onClick={() => handleDeleteClimate(sc.id)} className="p-1 ml-2 flex-shrink-0 text-evload-muted hover:text-evload-error transition-colors">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
+                </>
+              ) : (
+                <>
+                  {climateType === 'weekly' ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wider text-evload-muted block mb-2">Days</label>
+                        <div className="grid grid-cols-4 gap-2">
+                          {[
+                            { d: 1, label: 'M' },
+                            { d: 2, label: 'T' },
+                            { d: 3, label: 'W' },
+                            { d: 4, label: 'T' },
+                            { d: 5, label: 'F' },
+                            { d: 6, label: 'S' },
+                            { d: 0, label: 'S' },
+                          ].map((item) => (
+                            <button
+                              key={item.d}
+                              onClick={() => toggleWeekday(climateWeekdays, item.d, setClimateWeekdays)}
+                              className={`py-2 rounded-lg font-bold text-sm transition-all ${climateWeekdays.includes(item.d) ? 'bg-evload-accent text-white' : 'bg-evload-border text-evload-muted'}`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wider text-evload-muted block mb-2">Time</label>
+                        <input
+                          type="time"
+                          value={climateWeeklyTime}
+                          onChange={(e) => setClimateWeeklyTime(e.target.value)}
+                          className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-semibold uppercase tracking-wider text-evload-muted block mb-1">Start</label>
+                        <input
+                          type="datetime-local"
+                          value={climateAt}
+                          onChange={(e) => setClimateAt(e.target.value)}
+                          className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm"
+                        />
+                      </div>
+                      {climateType === 'start_end' && (
+                        <div>
+                          <label className="text-xs font-semibold uppercase tracking-wider text-evload-muted block mb-1">End</label>
+                          <input
+                            type="datetime-local"
+                            value={climateFinishBy}
+                            onChange={(e) => setClimateFinishBy(e.target.value)}
+                            className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-evload-muted block mb-2">Temp: {climateTemp}°C</label>
+                      <input type="range" min={15} max={30} value={climateTemp} onChange={(e) => setClimateTemp(Number(e.target.value))} className="w-full accent-evload-accent" />
+                    </div>
+                    <div className="col-span-2 sm:col-span-2">
+                      <label className="text-xs font-semibold text-evload-muted block mb-1">Name (opt)</label>
+                      <input
+                        type="text"
+                        maxLength={50}
+                        placeholder="e.g. Morning warmup"
+                        value={climateName}
+                        onChange={(e) => setClimateName(e.target.value)}
+                        className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-xs"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-          )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex-1 py-2 px-4 bg-gradient-to-r from-evload-accent to-red-700 text-white rounded-lg font-medium hover:shadow-lg transition-all disabled:opacity-50"
+              >
+                {saving ? 'Saving…' : '✓ Save'}
+              </button>
+              <button
+                onClick={() => setShowForm(false)}
+                className="flex-1 py-2 px-4 bg-evload-border text-evload-text rounded-lg font-medium hover:bg-evload-surface transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {formMsg && (
+              <p className={`text-sm text-center ${formMsg.includes('Failed') ? 'text-evload-error' : 'text-evload-success'}`}>
+                {formMsg}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Schedules Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Charger Schedules */}
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Zap size={20} className="text-evload-accent" />
+              <h2 className="font-bold text-lg">Charger Schedules</h2>
+              <span className="text-xs bg-evload-accent/20 text-evload-accent px-2 py-1 rounded-full font-semibold">
+                {loadingCharges ? '...' : charges.length}
+              </span>
+            </div>
+            <div className="space-y-3">
+              {loadingCharges ? (
+                <div className="flex items-center justify-center p-6 text-evload-muted">Loading…</div>
+              ) : charges.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-6 text-center text-evload-muted/60 bg-evload-bg/50 rounded-lg border border-dashed border-evload-border">
+                  <Zap size={24} className="opacity-50 mb-2" />
+                  <p className="text-xs">No schedules yet</p>
+                </div>
+              ) : (
+                charges.map((sc) => renderScheduleItem(sc, 'charge'))
+              )}
+            </div>
+          </div>
+
+          {/* Climate Schedules */}
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Thermometer size={20} className="text-evload-accent" />
+              <h2 className="font-bold text-lg">Climate Schedules</h2>
+              <span className="text-xs bg-evload-accent/20 text-evload-accent px-2 py-1 rounded-full font-semibold">
+                {loadingClimates ? '...' : climates.length}
+              </span>
+            </div>
+            <div className="space-y-3">
+              {loadingClimates ? (
+                <div className="flex items-center justify-center p-6 text-evload-muted">Loading…</div>
+              ) : climates.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-6 text-center text-evload-muted/60 bg-evload-bg/50 rounded-lg border border-dashed border-evload-border">
+                  <Thermometer size={24} className="opacity-50 mb-2" />
+                  <p className="text-xs">No schedules yet</p>
+                </div>
+              ) : (
+                climates.map((sc) => renderScheduleItem(sc, 'climate'))
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

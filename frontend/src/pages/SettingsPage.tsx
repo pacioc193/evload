@@ -2011,18 +2011,11 @@ export default function SettingsPage() {
                   </select>
                 </div>
                 <button
-                  onClick={() => handleDownloadBackendLog('combined', logSince)}
+                  onClick={() => handleDownloadBackendLog(logSince)}
                   disabled={logBusy}
                   className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
                 >
-                  <FileDown size={14} />Download combined.log
-                </button>
-                <button
-                  onClick={() => handleDownloadBackendLog('error', logSince)}
-                  disabled={logBusy}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-evload-surface border border-evload-border hover:border-evload-accent text-evload-text rounded-lg font-medium transition-colors text-sm disabled:opacity-50"
-                >
-                  <FileDown size={14} />Download error.log
+                  <FileDown size={14} />Download log
                 </button>
               </div>
             </div>

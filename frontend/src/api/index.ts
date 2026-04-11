@@ -252,20 +252,19 @@ export async function getTelegramPlaceholders() {
 // ─── Logs ─────────────────────────────────────────────────────────────────────
 
 /**
- * Download the backend combined or error log as a file.
+ * Download the backend log file as a file.
  * Triggers a browser file download.
  */
-export async function downloadBackendLog(type: 'combined' | 'error' = 'combined', since?: string): Promise<void> {
+export async function downloadBackendLog(since?: string): Promise<void> {
   const res = await api.get(`/settings/logs/backend`, {
-    params: { type, format: 'pretty', ...(since ? { since } : {}) },
+    params: { format: 'pretty', ...(since ? { since } : {}) },
     responseType: 'blob',
   })
   const blob = new Blob([res.data as BlobPart], { type: 'text/plain;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  const filename = type === 'error' ? 'evload-backend-error.log' : 'evload-backend-combined.log'
-  a.download = filename
+  a.download = 'evload-backend.log'
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)

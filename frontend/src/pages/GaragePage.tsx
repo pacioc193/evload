@@ -165,12 +165,12 @@ export default function GaragePage() {
     setBusy(true)
     setStatusMsg(null)
     try {
-      await sendVehicleCommand('defrost_max', { on: true })
+      await sendVehicleCommand('auto_conditioning_start', { wait: true })
       setStatusMsg('🌡️ Defrost enabled')
-      flog.info('GARAGE', 'Defrost activated')
+      flog.info('GARAGE', 'Climate defrost activated')
     } catch (e) {
       setStatusMsg('❌ Defrost failed')
-      flog.error('GARAGE', 'Defrost failed', { e })
+      flog.error('GARAGE', 'Climate defrost failed', { e })
     } finally {
       setBusy(false)
       clearMsg()
