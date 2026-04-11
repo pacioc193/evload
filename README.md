@@ -19,6 +19,9 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Planner UX alignment + 4 clear schedule modes**: planner flow is fully English and now exposes four explicit charge plan modes in the scheduler builder: `Start at`, `End at`, `Time range`, and `Finish by` (including weekly variants and proper schedule card rendering)
+- **Planner option help + label cleanup**: planner mode hints now use the same tooltip interaction style as Settings (`?` popovers), and duplicate unit labels were cleaned up (for example `Pre-wake` now shows `min` only once)
+- **Scheduler test coverage upgraded**: added a dedicated backend test suite for scheduler charge modes with focused coverage for `start_at`, `end_at`, `start_end`, and `finish_by` (plus weekly rolling and next-plan resolution checks)
 - **Version bump 1.6.6**: Smart finish-by scheduler — vehicle auto-wake when SOC data unavailable, nominal voltage and configurable safety margin for charging window calculation, two new Telegram notification events
 - **Version bump 1.6.5**: release metadata aligned across backend source-of-truth (`backend/src/version.ts`) and all package manifests, prepared for first Git tag/release flow
 - **Versioning fallback for first tag**: when `releases/latest` is not available yet, backend now falls back to GitHub `tags` API, so the UI can still detect updates from tag-only releases

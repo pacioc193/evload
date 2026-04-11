@@ -1333,7 +1333,7 @@ export default function SettingsPage() {
               <SectionCard title="Plan Mode">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <Field
-                    label="Pre-wake (min)"
+                    label="Pre-wake"
                     value={settings.planWakeBeforeMinutes}
                     onChange={upd('planWakeBeforeMinutes')}
                     type="number"
@@ -1827,7 +1827,7 @@ export default function SettingsPage() {
           )}
           {backupStatus?.nextBackupAt && backupStatus.connected && backupStatus.enabled && (
             <p className="text-xs text-evload-muted">
-              Prossimo backup: {new Date(backupStatus.nextBackupAt).toLocaleString()}
+              Next backup: {new Date(backupStatus.nextBackupAt).toLocaleString('en-GB')}
             </p>
           )}
 
@@ -1846,7 +1846,7 @@ export default function SettingsPage() {
                   className="flex-1 bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-evload-accent"
                 />
                 <button
-                  title="Sfoglia cartelle su Drive"
+                  title="Browse Drive folders"
                   disabled={foldersLoading}
                   onClick={async () => {
                     setFoldersLoading(true)
@@ -1856,7 +1856,7 @@ export default function SettingsPage() {
                       setDriveFolders(res.folders)
                       setFolderPickerOpen(true)
                     } catch {
-                      setBackupMsg('Impossibile caricare le cartelle Drive')
+                      setBackupMsg('Failed to load Drive folders')
                       setBackupError(true)
                       setTimeout(() => setBackupMsg(''), 4000)
                     } finally {
@@ -1866,7 +1866,7 @@ export default function SettingsPage() {
                   className="flex items-center gap-1 px-3 py-2 bg-evload-surface border border-evload-border rounded-lg text-sm hover:bg-evload-border disabled:opacity-50"
                 >
                   <FolderOpen size={16} className={foldersLoading ? 'animate-pulse' : ''} />
-                  Sfoglia
+                  Browse
                 </button>
               </div>
 

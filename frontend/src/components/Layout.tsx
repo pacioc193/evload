@@ -88,10 +88,10 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
         onClick={onNavigate}
         className={({ isActive }) =>
           clsx(
-            'flex items-center gap-3 px-4 py-3 mx-2 rounded-lg transition-colors',
+            'flex items-center gap-3 px-4 py-3 mx-2 rounded-xl transition-all',
             isActive
-              ? 'bg-evload-accent text-white'
-              : 'text-evload-muted hover:text-evload-text hover:bg-evload-border'
+              ? 'bg-gradient-to-r from-evload-accent to-red-700 text-white shadow-md'
+              : 'text-evload-muted hover:text-evload-text hover:bg-evload-border/80'
           )
         }
       >
@@ -351,13 +351,19 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
   )
 
   return (
-    <div className="min-h-screen bg-evload-bg text-evload-text flex flex-col">
+    <div
+      className="min-h-screen text-evload-text flex flex-col"
+      style={{
+        background:
+          'radial-gradient(1200px circle at 20% -20%, rgba(239,68,68,0.16), transparent 40%), radial-gradient(900px circle at 100% 0%, rgba(14,165,233,0.12), transparent 35%), var(--ev-bg)',
+      }}
+    >
       {failsafe?.active && (
         <div className="bg-evload-error text-white px-4 py-2 text-sm text-center font-medium">
           ⚠️ FAILSAFE ACTIVE: {failsafe.reason} — Use Tesla app manually
         </div>
       )}
-      <header className="border-b border-evload-border bg-evload-surface px-6 py-4 flex items-center justify-between">
+      <header className="sticky top-0 z-30 border-b border-evload-border/60 bg-evload-bg/95 px-4 py-4 backdrop-blur sm:px-6 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <button
             onClick={handleMenuToggle}
@@ -404,15 +410,15 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
       <div className="flex flex-1 min-h-0">
         <nav
           className={clsx(
-            'hidden lg:flex border-r border-evload-border bg-evload-surface flex-col py-4 gap-1 transition-all duration-200 overflow-hidden',
+            'hidden lg:flex border-r border-evload-border/70 bg-evload-surface/80 backdrop-blur flex-col py-4 gap-1 transition-all duration-200 overflow-hidden',
             sidebarCollapsed ? 'w-0 border-r-0 p-0' : 'w-56'
           )}
         >
           {!sidebarCollapsed && renderNavLinks()}
         </nav>
-        <main className="flex-1 p-6 overflow-auto">{children}</main>
+        <main className="flex-1 p-4 sm:p-6 overflow-auto">{children}</main>
         {isDemo && simulatorOpen && (
-          <aside className="hidden lg:block w-[380px] border-l border-evload-border bg-evload-surface p-4 space-y-4 overflow-auto shrink-0">
+          <aside className="hidden lg:block w-[380px] border-l border-evload-border/70 bg-evload-surface/80 backdrop-blur p-4 space-y-4 overflow-auto shrink-0">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Simulator Panel</h2>
               <button
@@ -430,7 +436,7 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
 
       {isDemo && simulatorOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 lg:hidden" onClick={() => setSimulatorOpen(false)}>
-          <div className="absolute inset-x-0 top-0 h-[90vh] bg-evload-surface border-b border-evload-border rounded-b-2xl p-4 overflow-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="absolute inset-x-0 top-0 h-[90vh] bg-evload-surface/95 border-b border-evload-border rounded-b-2xl p-4 overflow-auto backdrop-blur" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold">Simulator Panel</h2>
               <button
@@ -449,7 +455,7 @@ export default function Layout({ children, theme, onToggleTheme }: LayoutProps) 
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setMobileMenuOpen(false)}>
           <aside
-            className="absolute left-0 top-0 h-full w-72 bg-evload-surface border-r border-evload-border py-4"
+            className="absolute left-0 top-0 h-full w-72 bg-evload-surface/95 border-r border-evload-border py-4 backdrop-blur"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-4 pb-3 text-xs uppercase tracking-wider text-evload-muted">Navigation</div>

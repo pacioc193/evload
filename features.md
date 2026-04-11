@@ -3,6 +3,16 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Recent Updates (2026-04-11)
+
+- Planner scheduler now exposes four explicit charge modes with corrected wording: **Start at**, **End at**, **Time range**, and **Finish by**.
+- Added real backend support for `end_at` and `end_at_weekly` charge schedules (stop charging when end time is reached).
+- Schedule cards now render `End at` and `Finish by` distinctly, including weekly variants.
+- Planner option hints now use the same `?` popover tooltip style as Settings for consistent UX.
+- Fixed duplicate unit rendering in Settings Plan Mode (`Pre-wake` now displays `min` only once).
+- Planner GUI copy is now fully English (including labels and action text).
+- Added dedicated backend scheduler tests for charge modes: `start_at`, `end_at`, `start_end`, `finish_by`, including weekly roll-forward checks and `resolveNextPlannedCharge()` selection behavior.
+
 ## Aggiornamenti Recenti (2026-04-11) — v1.6.6
 
 - **Smart finish-by scheduler con wake automatico e margine di sicurezza**:

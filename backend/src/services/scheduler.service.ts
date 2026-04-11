@@ -274,6 +274,30 @@ async function runSchedulerTick(): Promise<void> {
     }
   }
 
+  const pendingEndAtStop = await prisma.scheduledCharge.findMany({
+    where: { enabled: true, scheduleType: { in: ['end_at', 'end_at_weekly'] }, finishBy: { lte: now } },
+  })
+
+  for (const sc of pendingEndAtStop) {
+    if (sc.scheduleType === 'end_at_weekly' && sc.finishBy) {
+      const nextFinish = new Date(sc.finishBy.getTime() + 7 * 24 * 60 * 60 * 1000)
+      await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { finishBy: nextFinish } })
+    } else {
+      await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
+    }
+
+    logger.info(`Executing end_at charge stop id=${sc.id} finishBy=${sc.finishBy?.toISOString()}`)
+    const planName = sc.name ?? `#${sc.id}`
+    if (!isFailsafeActive()) {
+      try {
+        await sendProxyCommand(sc.vehicleId || cfg.proxy.vehicleId, 'charge_stop', {})
+        dispatchTelegramNotificationEvent('plan_completed', { planId: String(sc.id), planName, reason: 'end_at_reached' }).catch(() => {})
+      } catch (err) {
+        logger.error(`Scheduled end_at charge id=${sc.id} failed to stop charging`, { err })
+      }
+    }
+  }
+
   // ── Scheduled climate ────────────────────────────────────────────────────
   const pendingClimateStartAt = await prisma.scheduledClimate.findMany({
     where: { enabled: true, scheduleType: 'start_at', scheduledAt: { lte: now } },

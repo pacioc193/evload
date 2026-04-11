@@ -382,7 +382,7 @@ export default function StatisticsPage() {
               <div className="bg-evload-surface border border-evload-border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                 {selectedSession.locationName && (
                   <div className="sm:col-span-3">
-                    <div className="text-evload-muted uppercase tracking-wide text-xs">Piano di ricarica</div>
+                    <div className="text-evload-muted uppercase tracking-wide text-xs">Charging plan</div>
                     <div className="text-base font-semibold truncate" title={selectedSession.locationName}>📌 {selectedSession.locationName}</div>
                   </div>
                 )}

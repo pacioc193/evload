@@ -350,7 +350,9 @@ export async function getScheduledCharges() {
 export async function createScheduledCharge(
   options:
     | { scheduleType: 'start_at'; scheduledAt: string; targetSoc: number; targetAmps?: number; name?: string }
+    | { scheduleType: 'end_at'; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
     | { scheduleType: 'finish_by'; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
+    | { scheduleType: 'end_at_weekly'; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
     | { scheduleType: 'finish_by_weekly'; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
     | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
     | { scheduleType: 'start_end_weekly'; scheduledAt: string; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
