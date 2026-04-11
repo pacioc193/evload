@@ -30,7 +30,7 @@ async function runSchedulerTick(): Promise<void> {
     const soonCharges = await prisma.scheduledCharge.findMany({
       where: {
         enabled: true,
-        scheduleType: { in: ['start_at', 'weekly', 'start_end'] },
+        scheduleType: { in: ['start_at', 'weekly', 'start_end', 'start_end_weekly'] },
         startedAt: null,
         scheduledAt: { gt: wakeWindowStart, lte: wakeWindowEnd },
       },
@@ -94,7 +94,7 @@ async function runSchedulerTick(): Promise<void> {
   }
 
   const pendingStartEndStart = await prisma.scheduledCharge.findMany({
-    where: { enabled: true, scheduleType: 'start_end', startedAt: null, scheduledAt: { lte: now } },
+    where: { enabled: true, scheduleType: { in: ['start_end', 'start_end_weekly'] }, startedAt: null, scheduledAt: { lte: now } },
   })
 
   for (const sc of pendingStartEndStart) {
@@ -118,7 +118,7 @@ async function runSchedulerTick(): Promise<void> {
 
   // ── Finish-by scheduled charges ───────────────────────────────────────────
   const pendingFinishBy = await prisma.scheduledCharge.findMany({
-    where: { enabled: true, scheduleType: 'finish_by', finishBy: { gte: now } },
+    where: { enabled: true, scheduleType: { in: ['finish_by', 'finish_by_weekly'] }, finishBy: { gte: now } },
   })
 
   const vState = getVehicleState()
@@ -139,7 +139,12 @@ async function runSchedulerTick(): Promise<void> {
     const requiredMs = (requiredKwh / powerKw) * 3600 * 1000
     const startMs = sc.finishBy.getTime() - requiredMs
     if (Date.now() >= startMs) {
-      await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
+      if (sc.scheduleType === 'finish_by_weekly') {
+        const nextFinishBy = new Date(sc.finishBy.getTime() + 7 * 24 * 60 * 60 * 1000)
+        await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { finishBy: nextFinishBy } })
+      } else {
+        await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
+      }
       logger.info(`Executing finish_by charge id=${sc.id} targetSoc=${sc.targetSoc} (must finish by ${sc.finishBy.toISOString()})`)
       const planName = sc.name ?? `#${sc.id}`
       if (!isFailsafeActive() && !getEngineStatus().running) {
@@ -157,11 +162,18 @@ async function runSchedulerTick(): Promise<void> {
   }
 
   const pendingStartEndStop = await prisma.scheduledCharge.findMany({
-    where: { enabled: true, scheduleType: 'start_end', startedAt: { not: null }, finishBy: { lte: now } },
+    where: { enabled: true, scheduleType: { in: ['start_end', 'start_end_weekly'] }, startedAt: { not: null }, finishBy: { lte: now } },
   })
 
   for (const sc of pendingStartEndStop) {
-    await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
+    if (sc.scheduleType === 'start_end_weekly' && sc.scheduledAt && sc.finishBy) {
+      const nextStart = new Date(sc.scheduledAt.getTime() + 7 * 24 * 60 * 60 * 1000)
+      const nextFinish = new Date(sc.finishBy.getTime() + 7 * 24 * 60 * 60 * 1000)
+      await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { startedAt: null, scheduledAt: nextStart, finishBy: nextFinish } })
+      preWakeArmedIds.delete(sc.id)
+    } else {
+      await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
+    }
     logger.info(`Executing start_end charge stop id=${sc.id} finishBy=${sc.finishBy?.toISOString()}`)
     const planName = sc.name ?? `#${sc.id}`
     if (!isFailsafeActive()) {
@@ -330,7 +342,7 @@ export async function resolveNextPlannedCharge(now: Date = new Date()): Promise<
   }
 
   const futureStartEnd = await prisma.scheduledCharge.findFirst({
-    where: { enabled: true, scheduleType: 'start_end', startedAt: null, scheduledAt: { gt: now } },
+    where: { enabled: true, scheduleType: { in: ['start_end', 'start_end_weekly'] }, startedAt: null, scheduledAt: { gt: now } },
     orderBy: { scheduledAt: 'asc' },
   })
   if (futureStartEnd?.scheduledAt) {
@@ -346,7 +358,7 @@ export async function resolveNextPlannedCharge(now: Date = new Date()): Promise<
   }
 
   const pendingFinishBy = await prisma.scheduledCharge.findMany({
-    where: { enabled: true, scheduleType: 'finish_by', finishBy: { gt: now } },
+    where: { enabled: true, scheduleType: { in: ['finish_by', 'finish_by_weekly'] }, finishBy: { gt: now } },
     orderBy: { finishBy: 'asc' },
   })
   const vState = getVehicleState()

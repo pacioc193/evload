@@ -19,8 +19,19 @@ import { isFailsafeActive, getFailsafeReason } from '../services/failsafe.servic
 const router = Router()
 
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 })
-// Tighter limit for start: max 3 updates in 5 minutes
-const startLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 3 })
+// Dedicated OTA start limiter:
+// - Higher cap to avoid lockouts when UI retries after guard failures/network issues.
+// - Failed attempts (4xx/5xx) are not counted, so users are not trapped by 429.
+const startLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 30,
+  skipFailedRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: 'Too many OTA start attempts. Please wait a moment and retry.',
+  },
+})
 // Fetch limiter: avoid hammering GitHub
 const fetchLimiter = rateLimit({ windowMs: 60 * 1000, max: 6 })
 

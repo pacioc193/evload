@@ -38,14 +38,13 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 	- Frontend: `downloadBackendLog()` non richiede più il tipo, scarica un unico file `evload-backend.log`.
 
 - **Schedule panel — complete mobile-first redesign**:
-	- Refactor UI da desktop-first a mobile-first responsive.
-	- Sticky header con pulsante "New" gradiente.
-	- Collapsible form per aggiungere/modificare schedule (toggle `showForm`).
-	- Integrazione mode tabs (Charger/Climate) direttamente nel form.
-	- Card-based list items con delete on hover.
-	- Responsive grid: verticale su mobile (stacked), 2-colonne su desktop.
-	- Day selector semplificato a bottoni single-letter (L/M/M/G/V/S/D).
-	- Estrazione di `renderScheduleItem()` per renderizzazione coerente.
+	- Riscrittura completa del builder scheduler (approccio da zero, non refactor incrementale).
+	- Nuovo ordine campi conforme al flusso richiesto: **Nome piano → Oggi/Domani → Start/Finish/Range → Ripetizione → SOC/A**.
+	- Layout migliorato per mobile e desktop con card step-by-step a due colonne responsive.
+	- Nuovi controlli slider moderni (thumb custom, track gradient, interazione più fluida).
+	- Pulsanti rapidi Oggi/Domani per riposizionare date mantenendo l'orario scelto.
+	- Ripetizione disponibile con selezione giorni per start, finish e range.
+	- Liste piani Charger/Climate mantenute e rese più pulite visivamente.
 
 - **Vehicle defrost command — fixed to proxy API spec**:
 	- Bottone defrost ora chiama `sendVehicleCommand('auto_conditioning_start', { wait: true })` verso proxy.
@@ -67,6 +66,12 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 		- Timeout warning dopo 30 secondi di no output: "⚠️ No output received for 30+ seconds. Check backend logs for details".
 		- Empty state message: "Loading output from server..." vs "No logs".
 	- State tracking: `otaStartTime`, `otaNoOutputWarning` per monitorare timeout di output.
+
+- **Fix OTA 429 su start update**:
+	- Route `POST /api/update/start` aveva limiter troppo stretto (`max: 3` in 5 minuti) e poteva bloccare l'avvio con `429` dopo pochi retry.
+	- Nuova policy limiter: `max: 30` in 5 minuti, con `skipFailedRequests: true`.
+	- Effetto: i tentativi falliti (4xx/5xx) non consumano quota e non causano lockout durante troubleshooting/guard retries.
+	- Mantenuta protezione anti-spam con headers standard di rate-limit.
 
 ## Aggiornamenti Recenti (2026-04-10) — v1.5.5
 

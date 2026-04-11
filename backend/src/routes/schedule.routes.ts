@@ -41,19 +41,19 @@ router.post('/charges', limiter, requireAuth, async (req, res) => {
     name?: string
   }
   const type = scheduleType ?? 'start_at'
-  if (type !== 'start_at' && type !== 'finish_by' && type !== 'start_end' && type !== 'weekly') {
-    res.status(400).json({ error: 'scheduleType must be start_at, finish_by, start_end or weekly' })
+  if (type !== 'start_at' && type !== 'finish_by' && type !== 'start_end' && type !== 'weekly' && type !== 'finish_by_weekly' && type !== 'start_end_weekly') {
+    res.status(400).json({ error: 'scheduleType must be start_at, finish_by, start_end, weekly, finish_by_weekly or start_end_weekly' })
     return
   }
   if ((type === 'start_at' || type === 'weekly') && !scheduledAt) {
     res.status(400).json({ error: 'scheduledAt is required for start_at/weekly schedules' })
     return
   }
-  if (type === 'finish_by' && !finishBy) {
+  if ((type === 'finish_by' || type === 'finish_by_weekly') && !finishBy) {
     res.status(400).json({ error: 'finishBy is required for finish_by schedules' })
     return
   }
-  if (type === 'start_end' && (!scheduledAt || !finishBy)) {
+  if ((type === 'start_end' || type === 'start_end_weekly') && (!scheduledAt || !finishBy)) {
     res.status(400).json({ error: 'scheduledAt and finishBy are required for start_end schedules' })
     return
   }
@@ -80,7 +80,7 @@ router.post('/charges', limiter, requireAuth, async (req, res) => {
     res.status(400).json({ error: 'Invalid finishBy date' })
     return
   }
-  if (type === 'start_end' && scheduledAtDate && finishByDate && finishByDate.getTime() <= scheduledAtDate.getTime()) {
+  if ((type === 'start_end' || type === 'start_end_weekly') && scheduledAtDate && finishByDate && finishByDate.getTime() <= scheduledAtDate.getTime()) {
     res.status(400).json({ error: 'finishBy must be after scheduledAt for start_end schedules' })
     return
   }
