@@ -265,7 +265,9 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Demo/simulator mode for development without a real Tesla
 - **Verbose production logging**: every critical engine operation (`charge_start`, `charge_stop`, `set_charging_amps`, engine start/stop, HA throttle, failsafe, plan mode) emits a structured log entry with emoji-prefixed tag, context values (vehicleId, sessionId, before/after amps, reasons, costs) for post-mortem analysis of overnight sessions
 - **Log download from Settings**: authenticated Settings panel lets operators download backend `combined.log` / `error.log` and frontend browser logs directly from the UI
-- **Timezone & system clock settings**: new System panel in Settings to configure IANA timezone (applied immediately to backend process for log timestamps) and to set the OS clock via `POST /api/settings/system-time`
+- **Timezone & system clock settings**: new System panel in Settings to configure IANA timezone via dropdown (covering ~60 common IANA zones) applied immediately to backend process for log timestamps, and to set the OS clock via `POST /api/settings/system-time`
+- **Secure Telegram error logging**: bot token is redacted (`***REDACTED***`) from all Telegram error log entries — the full request URI is no longer written to log files
+- **Multi-line notification templates**: all 24 default notification templates redesigned with `\n` line breaks and dedicated lines for each relevant placeholder (`{{timestamp_date}}`, event-specific fields), making Telegram messages clearly readable at a glance
 - **Garage unlatch fix**: corrected command from `charge_port_open` → `charge_port_door_open` (matching the proxy allowlist); sync execution via `?wait=true` confirmed
 
 ## Prerequisites

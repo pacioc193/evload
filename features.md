@@ -1244,3 +1244,35 @@ Accettazione:
 - C6: `chargeStartGraceSec` esposto in GET/PATCH `/api/settings`.
 - C7: `AppSettings` (frontend) e `SettingsPage` aggiornati con campo "Charge Start Grace" (secondi) nel pannello Charging → Current Limits.
 - C8: `config.example.yaml`, `features.md`, `README.md` aggiornati.
+
+## F-68 Fix Missing timestamp_time/timestamp_date in Notification Test Placeholder Check
+
+Requisito: "Missing placeholders in payload: timestamp_time — il test mostra timestamp_time come mancante anche se il messaggio viene renderizzato correttamente."
+Accettazione:
+- C1: `notification-rules.service.ts`: `buildTimestampPayload()` è ora esportata (era privata).
+- C2: `settings.routes.ts`: `POST /telegram/test` usa `buildTimestampPayload(new Date())` per costruire il payload di controllo in `extractMissingTemplatePlaceholders`; i campi `timestamp`, `timestamp_time` e `timestamp_date` non vengono più segnalati come mancanti nei template che li usano.
+
+## F-69 Redact Telegram Bot Token from Error Logs
+
+Requisito: "Il token del bot Telegram appare in chiaro nei log di errore perché è parte dell'URL della richiesta HTTP verso api.telegram.org."
+Accettazione:
+- C1: `telegram.service.ts`: aggiunta helper `sanitizeTelegramError()` che estrae solo i campi sicuri dell'errore (`code`, `name`, `message`, `statusCode`, `description`) e sostituisce il token nel campo `message` con `***REDACTED***`.
+- C2: `sanitizeTelegramError` applicata a tutti i `logger.error` del servizio: `sendTelegramNotification`, `bot.on('error')`, `bot.on('polling_error')`.
+- C3: Nessun dato sensibile (token, URL completa) viene scritto nei log combinati o di errore.
+
+## F-70 Timezone Field: da testo libero a dropdown IANA
+
+Requisito: "Rendi il campo timezone una dropdown per evitare errori di battitura che causano fallback silenzioso a UTC."
+Accettazione:
+- C1: `SettingsPage.tsx`: aggiunta costante `IANA_TIMEZONES` con ~60 timezone comuni suddivise per continente.
+- C2: Aggiunto componente `SelectField` che renderizza un `<select>` stilizzato coerente con gli altri field della pagina.
+- C3: Il pannello System → Timezone ora mostra una dropdown al posto del campo di testo libero.
+- C4: Se il valore salvato non è presente nella lista (es. timezone configurata manualmente in yaml), viene mostrato come prima opzione nel select così non va perso.
+
+## F-71 Template di Notifica Multi-Riga con Tutti i Placeholder
+
+Requisito: "Rivedi tutti i template default per avere testi per andare a capo nelle informazioni, così da avere un bel testo chiaro e formattato con tutte le informazioni necessarie già nei template."
+Accettazione:
+- C1: `NotificationsPage.tsx`: tutti i 24 template in `EVENT_EXAMPLE_TEMPLATES` riformattati con `\n` per andare a capo; ogni template include header con emoji + titolo, riga `📅 {{timestamp_date}}` e righe dedicate per ogni campo rilevante dell'evento.
+- C2: Le 7 regole di esempio in `loadExamples()` aggiornate con lo stesso formato multiriga; in particolare `charge_start_blocked` ora include `{{chargingState}}` e `{{soc}}%`; `soc_increased` include la riga data.
+- C3: Tutti i template usano `{{timestamp_date}}` (data+ora completa) invece di `{{timestamp_time}}` inline nel testo, garantendo leggibilità anche su notifiche ricevute a distanza di ore.
