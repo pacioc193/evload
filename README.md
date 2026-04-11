@@ -32,6 +32,7 @@ The project is designed for home charging scenarios where you want to:
   - UI shows live status ("Process starting...", "Live", timeout warnings after 30s of no output)
   - Log viewer displays detailed error context for debugging OTA failures
 - **OTA 429 lockout mitigation**: `/api/update/start` rate limit is now tuned to avoid false lockouts during repeated failed/retried attempts; failed requests (4xx/5xx) are not counted, preventing users from being blocked by `429` while diagnosing guards/errors
+- **OTA log panel persistence fix**: the OTA log viewer no longer disappears right after start; it stays visible (pinned) and keeps polling logs during transient status transitions so background updates remain observable
 - **Docker DB persistence guard**: `docker-compose.yml` now sets a safe default `DATABASE_URL=file:/app/backend/data/db.sqlite` when env is missing, so AppConfig and target SoC preferences survive container rebuild/update on the named volume
 - **Native/Raspberry DB persistence guard**: backend runtime and Prisma CLI now default to `file:./data/evload.db` in production when `DATABASE_URL` is not set, and native systemd services explicitly set that path; this prevents `AppConfig` resets (target SoC returning to 80) after updates
 - **targetSoc persistence fix (plan vs preference)**: `engine_restore_state` now persists `preferredTargetSoc` separately from the currently armed plan target, so a scheduled/manual plan at 80 no longer overwrites the user's persisted target preference

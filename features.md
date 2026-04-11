@@ -73,6 +73,11 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 	- Effetto: i tentativi falliti (4xx/5xx) non consumano quota e non causano lockout durante troubleshooting/guard retries.
 	- Mantenuta protezione anti-spam con headers standard di rate-limit.
 
+- **Fix pannello log OTA che scompariva subito**:
+	- In `SettingsPage`, il viewer log OTA ora resta visibile dopo `Start Update` (stato pinned).
+	- Il polling log continua non solo in stato `running`, ma anche quando il pannello è pinned, evitando buchi durante transizioni stato/backend restart.
+	- Risultato: se OTA continua in background, l'utente continua a vedere il pannello e il tail log senza sparizioni improvvise.
+
 ## Aggiornamenti Recenti (2026-04-10) — v1.5.5
 
 - **Docker — fix persistenza DB su update/rebuild**:

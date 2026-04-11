@@ -320,6 +320,7 @@ export default function SettingsPage() {
   const [otaForceStart, setOtaForceStart] = useState(false)
   const [otaStartTime, setOtaStartTime] = useState<number | null>(null)
   const [otaNoOutputWarning, setOtaNoOutputWarning] = useState(false)
+  const [otaLogPanelPinned, setOtaLogPanelPinned] = useState(false)
   const logBoxRef = useRef<HTMLPreElement>(null)
   
   // Security / Password Change
@@ -515,6 +516,10 @@ export default function SettingsPage() {
     try {
       const s = await getUpdateStatus(otaBranch || undefined)
       setOtaStatus(s)
+      if (s.state === 'running') {
+        // Keep panel visible while backend reports running, even across transient UI state changes.
+        setOtaLogPanelPinned(true)
+      }
       if (!otaBranch) setOtaBranch(s.currentBranch)
     } catch { /* ignore */ }
   }, [otaBranch])
@@ -526,9 +531,9 @@ export default function SettingsPage() {
     return () => clearInterval(id)
   }, [refreshOtaStatus])
 
-  // When an update is running, poll log tail every second
+  // Poll OTA logs while running or while the panel is pinned after a user-triggered start.
   useEffect(() => {
-    if (otaStatus?.state !== 'running') return
+    if (otaStatus?.state !== 'running' && !otaLogPanelPinned) return
     const id = setInterval(async () => {
       try {
         const { content, totalBytes } = await getOtaLogs(otaLogOffset)
@@ -539,7 +544,7 @@ export default function SettingsPage() {
       } catch { /* ignore */ }
     }, 1_000)
     return () => clearInterval(id)
-  }, [otaStatus?.state, otaLogOffset])
+  }, [otaStatus?.state, otaLogOffset, otaLogPanelPinned])
 
   // Auto-scroll log box to bottom when new lines arrive
   useEffect(() => {
@@ -680,6 +685,7 @@ export default function SettingsPage() {
     setOtaGuardReasons([])
     setOtaLogs('')
     setOtaLogOffset(0)
+    setOtaLogPanelPinned(true)
     setOtaStartTime(Date.now())
     setOtaNoOutputWarning(false)
     try {
@@ -1651,7 +1657,7 @@ export default function SettingsPage() {
             )}
 
             {/* Live log viewer */}
-            {(otaLogs || otaStatus?.state === 'running') && (
+            {(otaLogs || otaStatus?.state === 'running' || otaLogPanelPinned) && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-1.5">
                   <div className="flex items-center gap-1.5 text-xs text-evload-muted">
