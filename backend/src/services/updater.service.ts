@@ -307,7 +307,6 @@ echo "✅ Source updated to origin/${branch}"
 echo ""
 
 echo "📦 [2/5] Installing dependencies (may take a few minutes)..."
-rm -rf "$REPO/backend/node_modules" "$REPO/frontend/node_modules"
 if npm --prefix "$REPO/backend" ci --include=dev; then
   echo "✅ Backend dependencies installed with npm ci"
 else
