@@ -288,6 +288,15 @@ echo ""
 
 echo "🔄 [1/5] Fetching latest changes (branch: ${branch})..."
 cd "$REPO"
+
+# If previous runs left local modifications (for example lockfiles), stash them
+# so branch checkout never aborts. Keep stash for post-mortem if needed.
+if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+  STASH_NAME="evload-ota-autostash-$(date -u +%Y%m%dT%H%M%SZ)"
+  echo "ℹ️  Working tree not clean — stashing local changes as $STASH_NAME"
+  git stash push --include-untracked -m "$STASH_NAME" >/dev/null 2>&1 || true
+fi
+
 git fetch origin "${branch}"
 git checkout -B "${branch}" FETCH_HEAD
 git reset --hard FETCH_HEAD
@@ -299,8 +308,19 @@ echo ""
 
 echo "📦 [2/5] Installing dependencies (may take a few minutes)..."
 rm -rf "$REPO/backend/node_modules" "$REPO/frontend/node_modules"
-npm --prefix "$REPO/backend" ci --include=dev
-npm --prefix "$REPO/frontend" ci --include=dev
+if npm --prefix "$REPO/backend" ci --include=dev; then
+  echo "✅ Backend dependencies installed with npm ci"
+else
+  echo "⚠️  Backend npm ci failed (lock mismatch), falling back to npm install --no-package-lock"
+  npm --prefix "$REPO/backend" install --include=dev --no-audit --no-fund --no-package-lock
+fi
+
+if npm --prefix "$REPO/frontend" ci --include=dev; then
+  echo "✅ Frontend dependencies installed with npm ci"
+else
+  echo "⚠️  Frontend npm ci failed (lock mismatch), falling back to npm install --no-package-lock"
+  npm --prefix "$REPO/frontend" install --include=dev --no-audit --no-fund --no-package-lock
+fi
 echo "✅ Dependencies installed"
 echo ""
 

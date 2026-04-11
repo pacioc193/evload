@@ -36,6 +36,11 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 	- Ogni release lunga ha toggle `Read more / Show less` per evitare blocchi di testo troppo estesi.
 	- Risultato: pagina Settings più leggibile, meno scroll e accesso completo ai dettagli solo quando servono.
 
+- **OTA updater — fix checkout bloccato da modifiche locali**:
+	- In `backend/src/services/updater.service.ts`, lo script OTA ora esegue auto-stash (`git stash push --include-untracked`) quando il working tree non e pulito, prima di `git checkout -B`.
+	- Evita l'errore: `Your local changes ... would be overwritten by checkout` (tipicamente su lockfile).
+	- Step dipendenze OTA: `npm ci` con fallback a `npm install --no-package-lock` per non sporcare i lockfile locali e prevenire regressioni nei successivi update.
+
 - **Rimozione targetSocOff e scheduleLead**:
 	- Eliminato il concetto di `targetSocOff` (target SoC separato per quando il motore è spento): esiste ora un solo `targetSoc` persisted che si applica in tutti i modi (idle, on, plan).
 	- Rimosso `targetSocOn`/`targetSocOff` da `EngineStatus`, `PersistedEngineRestoreState`, store WS frontend, API `/engine/targets`.
