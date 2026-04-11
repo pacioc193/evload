@@ -38,7 +38,7 @@ describe('computeBalancingAction', () => {
     expect(result.type).toBe('balancing_in_progress')
   })
 
-  test('returns balancing_in_progress when targetSoc is 100% and chargingState is not Complete', () => {
+  test('returns stop_charging when targetSoc is 100% and vehicle reports Stopped', () => {
     const result = computeBalancingAction({
       ...baseInput,
       soc: 100,
@@ -46,7 +46,28 @@ describe('computeBalancingAction', () => {
       balancingState: { balancing: true, balancingStartedAt: new Date(baseInput.nowMs - 60000) },
       chargingState: 'Stopped',
     })
-    expect(result.type).toBe('balancing_in_progress')
+    expect(result.type).toBe('stop_charging')
+  })
+
+  test('returns stop_charging when targetSoc is 100% and vehicle is Sleeping (missed Complete window)', () => {
+    const result = computeBalancingAction({
+      ...baseInput,
+      soc: 100,
+      targetSoc: 100,
+      balancingState: { balancing: false, balancingStartedAt: null },
+      chargingState: 'Sleeping',
+    })
+    expect(result.type).toBe('stop_charging')
+  })
+
+  test('returns stop_charging when targetSoc is 100% and chargingState is undefined (no data)', () => {
+    const result = computeBalancingAction({
+      ...baseInput,
+      soc: 100,
+      targetSoc: 100,
+      balancingState: { balancing: false, balancingStartedAt: null },
+    })
+    expect(result.type).toBe('stop_charging')
   })
 
   test('returns stop_charging when targetSoc is 100% and vehicle reports Complete', () => {
@@ -61,14 +82,14 @@ describe('computeBalancingAction', () => {
     expect((result as { type: string; reason: string }).reason).toContain('100%')
   })
 
-  test('returns balancing_in_progress when targetSoc is 100% and chargingState is undefined', () => {
+  test('returns stop_charging when targetSoc is 100% and chargingState is undefined (no data)', () => {
     const result = computeBalancingAction({
       ...baseInput,
       soc: 100,
       targetSoc: 100,
       balancingState: { balancing: false, balancingStartedAt: null },
     })
-    expect(result.type).toBe('balancing_in_progress')
+    expect(result.type).toBe('stop_charging')
   })
 })
 

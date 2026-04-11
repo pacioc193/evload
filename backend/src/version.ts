@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.6.0'
+export const VERSION = '1.6.1'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.6.1',
+    releasedAt: '2026-04-11',
+    summary: 'Auto-stop charging session when target reached: for targetSoc<100 stops when SoC>=targetSoc (unchanged). For targetSoc=100 stops as soon as the vehicle is no longer actively charging (chargingState!=="Charging"), covering Complete, Sleeping (most common: the car goes to sleep after finishing, skipping the brief Complete window), and Stopped states. Previously, the session stayed open indefinitely at 100% unless the user toggled to OFF. Also: stopEngine no longer sends charge_stop to the proxy if the vehicle is not actively charging — avoids waking a sleeping car when the user moves the toggle to OFF or when an engine auto-stop fires on a sleeping vehicle.',
+  },
   {
     version: '1.6.0',
     releasedAt: '2026-04-10',

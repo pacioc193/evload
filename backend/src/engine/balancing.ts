@@ -30,14 +30,21 @@ export function computeBalancingAction(input: BalancingInput): BalancingAction {
   }
 
   // targetSoc == 100: vehicle manages charging and cell balancing autonomously.
-  // Stop the session when the vehicle explicitly reports charging as complete.
-  if (chargingState === 'Complete') {
-    return { type: 'stop_charging', reason: 'Vehicle reported charging complete (100%)' }
+  // Stop the session as soon as the vehicle is no longer actively charging:
+  //   - 'Complete'  → charging finished (normal end)
+  //   - 'Sleeping'  → car completed and went to sleep (most common: Complete window may be missed)
+  //   - 'Stopped'   → charging stopped for any reason
+  // While 'Charging', keep the session alive (cell balancing still in progress).
+  if (chargingState !== 'Charging') {
+    const reason = chargingState === 'Complete'
+      ? 'Vehicle reported charging complete (100%)'
+      : `Charge ended at SoC 100% (state: ${chargingState ?? 'unknown'})`
+    return { type: 'stop_charging', reason }
   }
 
   return {
     type: 'balancing_in_progress',
-    message: `Vehicle managing charge at SoC: ${soc}%`,
+    message: `Vehicle balancing cells at SoC: ${soc}%`,
   }
 }
 

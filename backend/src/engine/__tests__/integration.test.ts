@@ -542,3 +542,56 @@ describe('initExternalChargeGuard — poll-level stop', () => {
     expect(stopCalls).toHaveLength(0)
   })
 })
+
+// ─── Test: stopEngine — charge_stop only when vehicle is actively charging ────
+
+describe('stopEngine — charge_stop only when actively charging', () => {
+  test('forceOff=true + vehicle NOT charging: does NOT send charge_stop', async () => {
+    const { stopEngine } = await import('../../engine/charging.engine')
+    mockPluggedIn = false  // charging = false
+    mockSendProxyCommand.mockClear()
+
+    await stopEngine({ forceOff: true })
+
+    const stopCalls = mockSendProxyCommand.mock.calls.filter((c: unknown[]) => c[1] === 'charge_stop')
+    expect(stopCalls).toHaveLength(0)
+  })
+
+  test('forceOff=true + vehicle IS charging: sends charge_stop', async () => {
+    const { stopEngine, startEngine } = await import('../../engine/charging.engine')
+    mockPluggedIn = true   // charging = true (from mock: charging = mockPluggedIn)
+    mockSendProxyCommand.mockClear()
+
+    await startEngine(80, 16)
+    mockSendProxyCommand.mockClear()
+
+    await stopEngine({ forceOff: true })
+
+    const stopCalls = mockSendProxyCommand.mock.calls.filter((c: unknown[]) => c[1] === 'charge_stop')
+    expect(stopCalls.length).toBeGreaterThan(0)
+  })
+
+  test('forceOff=false + vehicle IS charging: sends charge_stop (auto-stop)', async () => {
+    const { stopEngine, startEngine } = await import('../../engine/charging.engine')
+    mockPluggedIn = true   // charging = true
+
+    await startEngine(80, 16)
+    mockSendProxyCommand.mockClear()
+
+    await stopEngine({ forceOff: false })
+
+    const stopCalls = mockSendProxyCommand.mock.calls.filter((c: unknown[]) => c[1] === 'charge_stop')
+    expect(stopCalls.length).toBeGreaterThan(0)
+  })
+
+  test('forceOff=false + vehicle NOT charging: does NOT send charge_stop (sleeping car)', async () => {
+    const { stopEngine } = await import('../../engine/charging.engine')
+    mockPluggedIn = false  // charging = false
+    mockSendProxyCommand.mockClear()
+
+    await stopEngine({ forceOff: false })
+
+    const stopCalls = mockSendProxyCommand.mock.calls.filter((c: unknown[]) => c[1] === 'charge_stop')
+    expect(stopCalls).toHaveLength(0)
+  })
+})

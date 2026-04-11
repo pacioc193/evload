@@ -545,9 +545,13 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
   const vStateForStop = getVehicleState()
   const stoppedSessionId = status.sessionId
   if (vid) {
-    const shouldSendCommand = forceOff || vStateForStop.connected
+    // Only send charge_stop if the vehicle is actively charging.
+    // If the vehicle is sleeping, disconnected, or already stopped/complete,
+    // there is nothing to stop — skip the proxy command entirely.
+    const shouldSendCommand = vStateForStop.charging
     if (shouldSendCommand) {
-      const sent = await trySendChargeStop(vid, forceOff ? 'user_requested_stop' : 'engine_stop', stoppedSessionId)
+      const reason = forceOff ? 'user_requested_stop' : 'engine_stop'
+      const sent = await trySendChargeStop(vid, reason, stoppedSessionId)
       if (forceOff) {
         if (sent) {
           clearPendingForceStop()
@@ -556,11 +560,14 @@ export async function stopEngine(options?: { forceOff?: boolean }): Promise<void
         }
       }
     } else {
-      logger.info('⏭️  [CHARGE_STOP] Skipping charge_stop: vehicle not connected (sleeping or unreachable)', {
+      logger.info('⏭️  [CHARGE_STOP] Skipping charge_stop: vehicle not actively charging', {
         vehicleId: vid,
         sessionId: stoppedSessionId,
+        chargingState: vStateForStop.chargingState,
+        connected: vStateForStop.connected,
+        forceOff,
       })
-      pushEngineLog('charge_stop skipped: vehicle not connected')
+      pushEngineLog(`charge_stop skipped: vehicle not charging (state=${vStateForStop.chargingState ?? 'unknown'})`)
     }
   }
 
