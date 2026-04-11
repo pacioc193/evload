@@ -304,6 +304,8 @@ export default function SettingsPage() {
   const [settingsMsg, setSettingsMsg] = useState('')
   const [settingsMsgPanel, setSettingsMsgPanel] = useState('')
   const [proxyWakeBusy, setProxyWakeBusy] = useState(false)
+  const [visibleHistoryCount, setVisibleHistoryCount] = useState(5)
+  const [expandedHistoryEntries, setExpandedHistoryEntries] = useState<Record<string, boolean>>({})
   const [expandedPanels, setExpandedPanels] = useState<Record<PanelKey, boolean>>(() => readExpandedPanels())
 
   // OTA Update
@@ -610,6 +612,13 @@ export default function SettingsPage() {
 
   const togglePanel = (key: PanelKey) => {
     setExpandedPanels((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const toggleHistoryEntry = (entryKey: string) => {
+    setExpandedHistoryEntries((prev) => ({
+      ...prev,
+      [entryKey]: !prev[entryKey],
+    }))
   }
 
   const handleOtaFetch = async () => {
@@ -1324,22 +1333,72 @@ export default function SettingsPage() {
           </div>
 
           <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4">
-            <div className="text-xs uppercase tracking-wider text-evload-muted font-semibold mb-3">Version History</div>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="text-xs uppercase tracking-wider text-evload-muted font-semibold">Version History</div>
+              <div className="text-[11px] text-evload-muted">
+                {(versionInfo?.history?.length ?? 0)} releases
+              </div>
+            </div>
             {(versionInfo?.history?.length ?? 0) === 0 ? (
               <div className="text-sm text-evload-muted">No tracked releases yet.</div>
             ) : (
               <div className="space-y-2">
-                {versionInfo?.history.map((entry) => (
-                  <div key={`${entry.version}-${entry.releasedAt}`} className="rounded-md border border-evload-border bg-evload-surface px-3 py-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-semibold text-evload-text">{entry.version}</span>
-                      <span className="text-xs text-evload-muted">{new Date(entry.releasedAt).toLocaleDateString()}</span>
+                {versionInfo?.history.slice(0, visibleHistoryCount).map((entry) => {
+                  const entryKey = `${entry.version}-${entry.releasedAt}`
+                  const expanded = expandedHistoryEntries[entryKey] === true
+                  const summaryPreview = entry.summary.length > 180
+                    ? `${entry.summary.slice(0, 180)}...`
+                    : entry.summary
+
+                  return (
+                    <div key={entryKey} className="rounded-md border border-evload-border bg-evload-surface px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-semibold text-evload-text">{entry.version}</span>
+                        <span className="text-xs text-evload-muted">{new Date(entry.releasedAt).toLocaleDateString()}</span>
+                      </div>
+                      <div className="text-xs text-evload-muted mt-1">{expanded ? entry.summary : summaryPreview}</div>
+                      {entry.summary.length > 180 && (
+                        <button
+                          type="button"
+                          onClick={() => toggleHistoryEntry(entryKey)}
+                          className="mt-2 text-[11px] font-semibold text-evload-accent hover:text-red-400 transition-colors"
+                        >
+                          {expanded ? 'Show less' : 'Read more'}
+                        </button>
+                      )}
                     </div>
-                    <div className="text-xs text-evload-muted mt-1">{entry.summary}</div>
-                  </div>
-                ))}
+                  )
+                })}
+
+                {(versionInfo?.history.length ?? 0) > visibleHistoryCount && (
+                  <button
+                    type="button"
+                    onClick={() => setVisibleHistoryCount((prev) => prev + 5)}
+                    className="w-full rounded-md border border-evload-border bg-evload-bg px-3 py-2 text-xs font-semibold text-evload-text hover:bg-evload-border/40 transition-colors"
+                  >
+                    Show 5 more releases
+                  </button>
+                )}
+
+                {visibleHistoryCount > 5 && (
+                  <button
+                    type="button"
+                    onClick={() => setVisibleHistoryCount(5)}
+                    className="w-full text-[11px] font-semibold text-evload-muted hover:text-evload-text transition-colors"
+                  >
+                    Collapse history
+                  </button>
+                )}
               </div>
             )}
+          </div>
+
+          <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-4">
+            <div className="text-xs uppercase tracking-wider text-evload-muted font-semibold mb-2">Versioning Tips</div>
+            <div className="text-xs text-evload-muted space-y-1">
+              <p>Use Current vs Latest for quick health checks.</p>
+              <p>Open release notes only when investigating a behavior change.</p>
+            </div>
           </div>
 
           {/* ── OTA Update ────────────────────────────────────────────────── */}

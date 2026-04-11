@@ -30,6 +30,12 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 	- Il pulsante richiama `POST /api/engine/wake` (API `wakeVehicle`) e forza l'apertura immediata della finestra `vehicle_data` lato backend (`requestWakeMode(true)`).
 	- Utile per attivare manualmente il polling completo del proxy senza attendere trigger automatici.
 
+- **Settings Versioning — UX più efficace su molte release**:
+	- Storico versioni ora mostrato in forma compatta: default alle release più recenti (5 voci).
+	- Aggiunta espansione progressiva con pulsante `Show 5 more releases` e `Collapse history`.
+	- Ogni release lunga ha toggle `Read more / Show less` per evitare blocchi di testo troppo estesi.
+	- Risultato: pagina Settings più leggibile, meno scroll e accesso completo ai dettagli solo quando servono.
+
 - **Rimozione targetSocOff e scheduleLead**:
 	- Eliminato il concetto di `targetSocOff` (target SoC separato per quando il motore è spento): esiste ora un solo `targetSoc` persisted che si applica in tutti i modi (idle, on, plan).
 	- Rimosso `targetSocOn`/`targetSocOff` da `EngineStatus`, `PersistedEngineRestoreState`, store WS frontend, API `/engine/targets`.
