@@ -981,6 +981,7 @@ async function runEngineStep(): Promise<void> {
       actualAmps: status.currentAmps,
       balancingState: { balancing: status.balancing, balancingStartedAt: status.balancingStartedAt },
       nowMs: Date.now(),
+      chargingState: vState.chargingState,
     })
 
     switch (action.type) {

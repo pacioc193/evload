@@ -27,7 +27,41 @@ describe('computeBalancingAction', () => {
     expect((result as { type: string; reason: string }).reason).toContain('80%')
   })
 
-  test('returns balancing_in_progress when targetSoc is 100% (vehicle manages charging)', () => {
+  test('returns balancing_in_progress when targetSoc is 100% and vehicle is still charging', () => {
+    const result = computeBalancingAction({
+      ...baseInput,
+      soc: 100,
+      targetSoc: 100,
+      balancingState: { balancing: false, balancingStartedAt: null },
+      chargingState: 'Charging',
+    })
+    expect(result.type).toBe('balancing_in_progress')
+  })
+
+  test('returns balancing_in_progress when targetSoc is 100% and chargingState is not Complete', () => {
+    const result = computeBalancingAction({
+      ...baseInput,
+      soc: 100,
+      targetSoc: 100,
+      balancingState: { balancing: true, balancingStartedAt: new Date(baseInput.nowMs - 60000) },
+      chargingState: 'Stopped',
+    })
+    expect(result.type).toBe('balancing_in_progress')
+  })
+
+  test('returns stop_charging when targetSoc is 100% and vehicle reports Complete', () => {
+    const result = computeBalancingAction({
+      ...baseInput,
+      soc: 100,
+      targetSoc: 100,
+      balancingState: { balancing: false, balancingStartedAt: null },
+      chargingState: 'Complete',
+    })
+    expect(result.type).toBe('stop_charging')
+    expect((result as { type: string; reason: string }).reason).toContain('100%')
+  })
+
+  test('returns balancing_in_progress when targetSoc is 100% and chargingState is undefined', () => {
     const result = computeBalancingAction({
       ...baseInput,
       soc: 100,
@@ -35,17 +69,6 @@ describe('computeBalancingAction', () => {
       balancingState: { balancing: false, balancingStartedAt: null },
     })
     expect(result.type).toBe('balancing_in_progress')
-  })
-
-  test('never stops charging when targetSoc is 100%', () => {
-    const result = computeBalancingAction({
-      ...baseInput,
-      soc: 100,
-      targetSoc: 100,
-      balancingState: { balancing: true, balancingStartedAt: new Date(baseInput.nowMs - 60000) },
-    })
-    expect(result.type).toBe('balancing_in_progress')
-    expect(result.type).not.toBe('stop_charging')
   })
 })
 

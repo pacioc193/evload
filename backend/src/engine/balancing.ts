@@ -9,6 +9,8 @@ export interface BalancingInput {
   actualAmps: number
   balancingState: BalancingState
   nowMs: number
+  /** Vehicle charging_state as reported by proxy (e.g. 'Charging', 'Complete', 'Stopped', ...) */
+  chargingState?: string | null
 }
 
 export type BalancingAction =
@@ -17,7 +19,7 @@ export type BalancingAction =
   | { type: 'stop_charging'; reason: string }
 
 export function computeBalancingAction(input: BalancingInput): BalancingAction {
-  const { soc, targetSoc } = input
+  const { soc, targetSoc, chargingState } = input
 
   if (soc < targetSoc) {
     return { type: 'continue_charging' }
@@ -27,7 +29,12 @@ export function computeBalancingAction(input: BalancingInput): BalancingAction {
     return { type: 'stop_charging', reason: `Target SoC ${targetSoc}% reached` }
   }
 
-  // targetSoc == 100: vehicle manages charging and cell balancing autonomously
+  // targetSoc == 100: vehicle manages charging and cell balancing autonomously.
+  // Stop the session when the vehicle explicitly reports charging as complete.
+  if (chargingState === 'Complete') {
+    return { type: 'stop_charging', reason: 'Vehicle reported charging complete (100%)' }
+  }
+
   return {
     type: 'balancing_in_progress',
     message: `Vehicle managing charge at SoC: ${soc}%`,
