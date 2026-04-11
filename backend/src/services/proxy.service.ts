@@ -912,10 +912,6 @@ export function getProxyHealthState(): ProxyHealthState {
   }
 }
 
-export function onUserPresenceChange(callback: (presence: UserPresence) => void): void {
-  void callback
-}
-
 export async function requestWakeMode(sendWakeCommand = false): Promise<void> {
   if (sendWakeCommand) {
     try {

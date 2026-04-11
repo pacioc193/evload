@@ -18,20 +18,13 @@ async function startEngineWithWake(scheduleId: number, vehicleId: string, target
   await startEngine(targetSoc, targetAmps, true)
 }
 
-export async function getScheduleNextStartMs(now: Date = new Date()): Promise<number | null> {
-  const next = await resolveNextPlannedCharge(now)
-  if (!next) return null
-  return next.computedStartAt.getTime() - now.getTime()
-}
-
 async function runSchedulerTick(): Promise<void> {
   const now = new Date()
   const cfg = getConfig()
-  const chargeSchedulesEnabled = getEngineStatus().mode !== 'off'
 
   // ── Pre-wake: send wake_up command X minutes before a scheduled charge ───
   const planWakeBeforeMs = (cfg.charging.planWakeBeforeMinutes ?? 0) * 60 * 1000
-  if (planWakeBeforeMs > 0 && chargeSchedulesEnabled) {
+  if (planWakeBeforeMs > 0) {
     const wakeWindowStart = now
     const wakeWindowEnd = new Date(now.getTime() + planWakeBeforeMs)
     const soonCharges = await prisma.scheduledCharge.findMany({
@@ -58,7 +51,6 @@ async function runSchedulerTick(): Promise<void> {
   })
 
   for (const sc of pendingStartAt) {
-    if (!chargeSchedulesEnabled) continue
     await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
     logger.info(`Executing start_at charge id=${sc.id} targetSoc=${sc.targetSoc}`)
     if (!isFailsafeActive() && !getEngineStatus().running) {
@@ -79,7 +71,6 @@ async function runSchedulerTick(): Promise<void> {
   })
 
   for (const sc of pendingWeekly) {
-    if (!chargeSchedulesEnabled) continue
     const currentScheduledAt = sc.scheduledAt ?? now
     const nextWeeklyOccurrence = new Date(currentScheduledAt.getTime() + (7 * 24 * 60 * 60 * 1000))
     await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { scheduledAt: nextWeeklyOccurrence } })
@@ -104,7 +95,6 @@ async function runSchedulerTick(): Promise<void> {
   })
 
   for (const sc of pendingStartEndStart) {
-    if (!chargeSchedulesEnabled) continue
     logger.info(`Executing start_end charge start id=${sc.id} targetSoc=${sc.targetSoc}`)
     if (!isFailsafeActive() && !getEngineStatus().running) {
       try {
@@ -133,7 +123,6 @@ async function runSchedulerTick(): Promise<void> {
   const chargerVoltage = vState.chargerVoltage ?? 230
 
   for (const sc of pendingFinishBy) {
-    if (!chargeSchedulesEnabled) continue
     if (!sc.finishBy) continue
     const amps = sc.targetAmps ?? cfg.charging.defaultAmps
     const powerKw = (amps * chargerVoltage) / 1000

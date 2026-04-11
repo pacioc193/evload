@@ -5,7 +5,7 @@ import { prisma } from '../prisma'
 import { getVehicleState, sendProxyCommand, requestWakeMode, vehicleEvents, proxyEvents } from '../services/proxy.service'
 import { getHaState } from '../services/ha.service'
 import { isFailsafeActive, getFailsafeType } from '../services/failsafe.service'
-import { notificationEvents, dispatchTelegramNotificationEvent } from '../services/notification-rules.service'
+import { dispatchTelegramNotificationEvent } from '../services/notification-rules.service'
 import { computeBalancingAction, shouldAdjustAmps, clampAmps } from './balancing'
 
 export const engineEvents = new EventEmitter()

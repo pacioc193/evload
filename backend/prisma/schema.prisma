@@ -22,15 +22,6 @@ model AppConfig {
   // JWT secret key for signing tokens (32+ bytes hex string)
   jwt_secret          String?
   
-  // Home Assistant OAuth Client ID
-  ha_client_id        String?
-  
-  // Home Assistant OAuth Client Secret
-  ha_client_secret    String?
-  
-  // Home Assistant access token (legacy, use ha_token_obj instead)
-  ha_token            String?
-  
   // Home Assistant token object (JSON) with structure:
   // { access_token, refresh_token, expires_in, issued_at_ms }
   ha_token_obj        String?
@@ -64,10 +55,6 @@ model AppConfig {
 
   // Timestamp of the last successful backup
   last_backup_at        DateTime?
-
-  // Legacy key-value storage (for backward compatibility)
-  key          String?  @unique
-  value        String?
 }
 
 model ChargingSession {

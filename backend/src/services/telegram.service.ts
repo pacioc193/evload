@@ -22,8 +22,6 @@ export function registerTelegramCommand(command: string, handler: CommandHandler
 
 /**
  * Load the bot token from the database into the in-memory cache.
- * Falls back to TELEGRAM_BOT_TOKEN env var for backward compatibility.
- * If a token is found in env but not in DB, it is migrated to the DB.
  */
 export async function loadBotTokenFromDB(): Promise<void> {
   try {
@@ -31,26 +29,9 @@ export async function loadBotTokenFromDB(): Promise<void> {
     if (config?.telegram_bot_token) {
       cachedBotToken = config.telegram_bot_token
       logger.debug('Telegram bot token loaded from database')
-      return
     }
   } catch (err) {
     logger.error('Failed to load Telegram bot token from database', { err })
-  }
-
-  // Backward-compat: migrate token from env var to DB
-  const envToken = process.env.TELEGRAM_BOT_TOKEN
-  if (envToken) {
-    cachedBotToken = envToken
-    try {
-      await prisma.appConfig.upsert({
-        where: { id: 1 },
-        update: { telegram_bot_token: envToken },
-        create: { id: 1, telegram_bot_token: envToken },
-      })
-      logger.info('Telegram bot token migrated from TELEGRAM_BOT_TOKEN env to database')
-    } catch (err) {
-      logger.error('Failed to persist migrated Telegram token to database', { err })
-    }
   }
 }
 
@@ -90,7 +71,7 @@ export function initTelegram(): void {
     return
   }
 
-  if (bot && (bot as any).token !== token) {
+  if (bot && cachedBotToken !== token) {
     logger.info('Telegram bot token changed, re-initializing...')
     bot.stopPolling().catch(() => {})
     bot = null
