@@ -5,6 +5,10 @@ import { prisma } from '../prisma'
 
 let bot: TelegramBot | null = null
 
+// Token that the currently running bot was initialized with.
+// Kept separate from cachedBotToken so we can detect token changes.
+let activeBotToken: string | undefined = undefined
+
 // In-memory cache for the bot token, populated from DB at startup
 let cachedBotToken: string | undefined = undefined
 
@@ -72,14 +76,16 @@ export function initTelegram(): void {
     return
   }
 
-  if (bot && cachedBotToken !== token) {
+  if (bot && activeBotToken !== token) {
     logger.info('Telegram bot token changed, re-initializing...')
     bot.stopPolling().catch(() => {})
     bot = null
+    activeBotToken = undefined
   }
 
   if (!bot) {
     bot = new TelegramBot(token, { polling: true })
+    activeBotToken = token
     logger.info('Telegram bot started')
 
     bot.on('message', (msg) => {
@@ -183,6 +189,7 @@ export function stopTelegram(): void {
   if (bot) {
     bot.stopPolling().catch(() => {})
     bot = null
+    activeBotToken = undefined
     logger.info('Telegram bot stopped')
   }
 }

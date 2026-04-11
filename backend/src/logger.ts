@@ -61,6 +61,33 @@ export const logger = winston.createLogger({
   format: winston.format.combine(
     winston.format.timestamp(),
     winston.format.errors({ stack: true }),
+    // Serialize Error objects nested inside metadata (e.g. `logger.error('msg', { err })`)
+    // so they appear as { message, name, stack } instead of {}
+    winston.format((info) => {
+      const serializeErrors = (value: unknown): unknown => {
+        if (value instanceof Error) {
+          return {
+            name: value.name,
+            message: value.message,
+            stack: value.stack,
+            // Include any extra enumerable properties on the error object
+            ...Object.fromEntries(Object.entries(value as unknown as Record<string, unknown>)),
+          }
+        }
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          return Object.fromEntries(
+            Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, serializeErrors(v)])
+          )
+        }
+        if (Array.isArray(value)) {
+          return value.map(serializeErrors)
+        }
+        return value
+      }
+      const { message, level, timestamp, [Symbol.for('level') as unknown as string]: _lvl, ...meta } = info as Record<string, unknown>
+      const serializedMeta = serializeErrors(meta) as Record<string, unknown>
+      return { ...info, ...serializedMeta }
+    })(),
     winston.format.json()
   ),
   transports: [
