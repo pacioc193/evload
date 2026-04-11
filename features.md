@@ -3,6 +3,22 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Aggiornamenti Recenti (2026-04-11) — v1.6.6
+
+- **Smart finish-by scheduler con wake automatico e margine di sicurezza**:
+  - Quando un piano `finish_by`/`finish_by_weekly` non ha dati SoC (veicolo in sleep), lo scheduler sveglia automaticamente il veicolo, attende i dati live, poi calcola la finestra di ricarica.
+  - Calcolo con **tensione nominale configurabile** (default 220 V, `nominalVoltageV`), non più tensione live del caricatore (inaffidabile se il veicolo dorme).
+  - **Margine di sicurezza** (default 10%, `finishBySafetyMarginPct`) aggiunto alla durata stimata: la ricarica parte prima per assorbire rampa di potenza e inefficienze.
+  - Due nuovi eventi Telegram:
+    - `plan_finish_by_wake`: emesso al momento della sveglia per acquisizione SoC. Placeholder: `{{planName}}`, `{{targetSoc}}`, `{{finishBy}}`.
+    - `plan_finish_by_scheduled`: emesso una volta sola quando viene calcolato l'orario di avvio. Placeholder: `{{chargeStartsAt_time}}`, `{{currentSoc}}`, `{{estimatedChargeHours}}`, `{{safetyMarginPct}}`.
+  - Nuove impostazioni Settings → Charging → Plan Mode:
+    - **Nominal Voltage** (V): tensione nominale per il calcolo.
+    - **Finish-by Safety Margin** (%): margine aggiunto alla durata stimata.
+  - `resolveNextPlannedCharge()` applica lo stesso margine di sicurezza nel widget Dashboard "Prossima ricarica".
+  - Logging verboso con tag `⏰[FINISH_BY]`, `⏰[FINISH_BY_WAKE]` in linea con le convenzioni del codebase.
+  - Versione 1.6.6 rilasciata: `version.ts`, tutti i `package.json` sincronizzati.
+
 ## Aggiornamenti Recenti (2026-04-11) — v1.6.5
 
 - **Release metadata 1.6.5 + first tag prep**:

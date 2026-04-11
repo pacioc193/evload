@@ -169,6 +169,8 @@ export interface AppSettings {
   defaultAmps: number
   startAmps: number
   planWakeBeforeMinutes: number
+  nominalVoltageV: number
+  finishBySafetyMarginPct: number
   maxAmps: number
   minAmps: number
   stopChargeOnManualStart: boolean

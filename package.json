@@ -1,6 +1,6 @@
 {
   "name": "evload",
-  "version": "1.6.5",
+  "version": "1.6.6",
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",

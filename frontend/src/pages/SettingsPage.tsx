@@ -645,7 +645,7 @@ export default function SettingsPage() {
   }
 
   const numberFields = new Set<keyof AppSettings>([
-    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'planWakeBeforeMinutes', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs', 'chargeStartGraceSec',
+    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'planWakeBeforeMinutes', 'nominalVoltageV', 'finishBySafetyMarginPct', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs', 'chargeStartGraceSec',
     'chargingPollIntervalMs', 'windowPollIntervalMs', 'bodyPollIntervalMs', 'vehicleDataWindowMs',
   ])
 
@@ -1339,6 +1339,22 @@ export default function SettingsPage() {
                     type="number"
                     unit="min"
                     description="Minutes before a planned charge to send a wake-up command to the vehicle. Set to 0 to disable."
+                  />
+                  <Field
+                    label="Nominal Voltage"
+                    value={settings.nominalVoltageV}
+                    onChange={upd('nominalVoltageV')}
+                    type="number"
+                    unit="V"
+                    description="Nominal AC voltage used for finish-by charging window calculations when the vehicle is asleep and live charger voltage is unavailable. Typical: 220 V (EU domestic), 230 V (EU standard)."
+                  />
+                  <Field
+                    label="Finish-by Safety Margin"
+                    value={settings.finishBySafetyMarginPct}
+                    onChange={upd('finishBySafetyMarginPct')}
+                    type="number"
+                    unit="%"
+                    description="Extra safety margin added to the estimated charging duration for finish-by plans. E.g. 10% means charging starts 10% earlier than the raw estimate, absorbing ramp-up time and inefficiencies."
                   />
                 </div>
               </SectionCard>

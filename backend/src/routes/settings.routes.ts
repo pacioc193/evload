@@ -52,6 +52,8 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     defaultAmps: cfg.charging.defaultAmps,
     startAmps: cfg.charging.startAmps,
     planWakeBeforeMinutes: cfg.charging.planWakeBeforeMinutes,
+    nominalVoltageV: cfg.charging.nominalVoltageV,
+    finishBySafetyMarginPct: cfg.charging.finishBySafetyMarginPct,
     maxAmps: cfg.charging.maxAmps,
     minAmps: cfg.charging.minAmps,
     stopChargeOnManualStart: cfg.charging.stopChargeOnManualStart,
@@ -88,6 +90,8 @@ router.patch('/', limiter, requireAuth, async (req, res) => {
     defaultAmps: number
     startAmps: number
     planWakeBeforeMinutes: number
+    nominalVoltageV: number
+    finishBySafetyMarginPct: number
     maxAmps: number
     minAmps: number
     stopChargeOnManualStart: boolean
@@ -177,6 +181,8 @@ router.patch('/', limiter, requireAuth, async (req, res) => {
   if (incoming.defaultAmps !== undefined) charging['defaultAmps'] = incoming.defaultAmps
   if (incoming.startAmps !== undefined) charging['startAmps'] = incoming.startAmps
   if (incoming.planWakeBeforeMinutes !== undefined) charging['planWakeBeforeMinutes'] = incoming.planWakeBeforeMinutes
+  if (incoming.nominalVoltageV !== undefined) charging['nominalVoltageV'] = incoming.nominalVoltageV
+  if (incoming.finishBySafetyMarginPct !== undefined) charging['finishBySafetyMarginPct'] = incoming.finishBySafetyMarginPct
   if (incoming.maxAmps !== undefined) charging['maxAmps'] = incoming.maxAmps
   if (incoming.minAmps !== undefined) charging['minAmps'] = incoming.minAmps
   if (incoming.stopChargeOnManualStart !== undefined) charging['stopChargeOnManualStart'] = incoming.stopChargeOnManualStart

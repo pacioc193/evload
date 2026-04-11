@@ -19,6 +19,7 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Version bump 1.6.6**: Smart finish-by scheduler — vehicle auto-wake when SOC data unavailable, nominal voltage and configurable safety margin for charging window calculation, two new Telegram notification events
 - **Version bump 1.6.5**: release metadata aligned across backend source-of-truth (`backend/src/version.ts`) and all package manifests, prepared for first Git tag/release flow
 - **Versioning fallback for first tag**: when `releases/latest` is not available yet, backend now falls back to GitHub `tags` API, so the UI can still detect updates from tag-only releases
 - **VIN anonimizzazione nei log**: TuVIN dell'auto nei log backend viene anonimizzato, mostrando solo le ultime 4 cifre per privacy
