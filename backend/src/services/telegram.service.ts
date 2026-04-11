@@ -145,21 +145,20 @@ async function handleCommand(chatId: string, text: string): Promise<void> {
 /**
  * Sanitize a Telegram error before logging to prevent the bot token
  * (which appears in request URIs) from leaking into log files.
+ * Extracts only safe fields and redacts any occurrence of the token.
  */
 function sanitizeTelegramError(err: unknown): unknown {
-  if (!err || typeof err !== 'object') return err
   const token = getBotToken()
-  if (!token) return err
-  try {
-    const sanitized = JSON.parse(JSON.stringify(err, (_key, value) => {
-      if (typeof value === 'string' && value.includes(token)) {
-        return value.replaceAll(token, '***REDACTED***')
-      }
-      return value
-    }))
-    return sanitized
-  } catch {
-    return err
+  if (!err || typeof err !== 'object') return err
+  const redact = (s: string): string => (token ? s.replaceAll(token, '***REDACTED***') : s)
+  const e = err as Record<string, unknown>
+  const resp = e.response as Record<string, unknown> | undefined
+  return {
+    code: e.code,
+    name: e.name,
+    message: typeof e.message === 'string' ? redact(e.message) : e.message,
+    statusCode: resp?.statusCode,
+    description: (resp?.body as Record<string, unknown> | undefined)?.description,
   }
 }
 
