@@ -33,6 +33,7 @@ import {
   getOtaLogs,
   type UpdateStatusResponse,
   type CommitInfo,
+  type OtaGuards,
 } from '../api/index'
 import { changePassword } from '../api/auth'
 import { Settings, ExternalLink, Save, LogOut, ToggleLeft, ToggleRight, ChevronDown, ChevronRight, Lock, FileDown, FileText, GitBranch, UploadCloud, RefreshCw, Trash2, FolderOpen, GitCommit, ArrowDown, RotateCcw, Terminal, CheckCircle, XCircle, Loader2, Download, Clock } from 'lucide-react'
@@ -314,6 +315,9 @@ export default function SettingsPage() {
   const [otaLogs, setOtaLogs] = useState<string>('')
   const [otaLogOffset, setOtaLogOffset] = useState<number>(0)
   const [otaFetching, setOtaFetching] = useState(false)
+  const [otaStartError, setOtaStartError] = useState('')
+  const [otaGuardReasons, setOtaGuardReasons] = useState<string[]>([])
+  const [otaForceStart, setOtaForceStart] = useState(false)
   const logBoxRef = useRef<HTMLPreElement>(null)
   
   // Security / Password Change
@@ -633,13 +637,39 @@ export default function SettingsPage() {
 
   const handleOtaStart = async () => {
     if (!otaBranch) return
+    setOtaStartError('')
+    setOtaGuardReasons([])
     setOtaLogs('')
     setOtaLogOffset(0)
     try {
-      await startOtaUpdate(otaBranch)
+      await startOtaUpdate(otaBranch, otaForceStart)
       await refreshOtaStatus()
     } catch (err) {
+      if (axios.isAxiosError(err)) {
+        const status = err.response?.status
+        const payload = err.response?.data as {
+          error?: string
+          reasons?: string[]
+          otaGuards?: OtaGuards
+        } | undefined
+        if (status === 409) {
+          setOtaStartError(payload?.error ?? 'OTA blocked by safety guards')
+          setOtaGuardReasons(Array.isArray(payload?.reasons) ? payload.reasons : [])
+          if (payload?.otaGuards) {
+            setOtaStatus((prev) => prev ? { ...prev, otaGuards: payload.otaGuards as OtaGuards } : prev)
+          }
+          flog.warn('OTA', 'Start blocked by safety guards', {
+            branch: otaBranch,
+            reasons: payload?.reasons ?? [],
+            forced: otaForceStart,
+          })
+          return
+        }
+      }
       flog.error('OTA', 'Failed to start update', { error: String(err) })
+      setOtaStartError('Failed to start OTA update')
+    } finally {
+      await refreshOtaStatus()
     }
   }
 
@@ -769,6 +799,8 @@ export default function SettingsPage() {
   const dataWindowRemainSec = dataWindowExpiresAt != null
     ? Math.max(0, Math.round((dataWindowExpiresAt - Date.now()) / 1000))
     : null
+  const otaGuards = otaStatus?.otaGuards
+  const otaBlockedByGuards = otaGuards?.blocked ?? false
 
   const tokenRemainingText = haTokenStatus?.secondsRemaining == null
     ? 'Unknown'
@@ -1472,6 +1504,15 @@ export default function SettingsPage() {
                   : <><UploadCloud size={14} /> Start Update</>
                 }
               </button>
+              <label className="flex items-center gap-2 rounded-lg border border-evload-border bg-evload-surface px-3 py-2 text-xs text-evload-muted">
+                <input
+                  type="checkbox"
+                  checked={otaForceStart}
+                  onChange={(e) => setOtaForceStart(e.target.checked)}
+                  disabled={otaStatus?.state === 'running'}
+                />
+                Force start (bypass guards)
+              </label>
             </div>
 
             {/* Engine-running warning */}
@@ -1479,6 +1520,50 @@ export default function SettingsPage() {
               <div className="flex items-center gap-2 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400">
                 <span>⚠️</span>
                 <span>A charging session is active. The update will interrupt it when the service restarts.</span>
+              </div>
+            )}
+
+            {/* Guard details */}
+            {otaGuards && (
+              <div className={clsx(
+                'rounded-lg border px-3 py-3 text-xs space-y-2',
+                otaBlockedByGuards
+                  ? 'border-red-500/40 bg-red-500/10'
+                  : 'border-green-500/40 bg-green-500/10'
+              )}>
+                <div className={clsx('font-semibold', otaBlockedByGuards ? 'text-red-300' : 'text-green-300')}>
+                  Runtime safety guards: {otaBlockedByGuards ? 'BLOCKING OTA' : 'OK'}
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-1 text-evload-muted">
+                  <div>Engine running: {otaGuards.engineRunning ? 'yes' : 'no'}</div>
+                  <div>Engine mode: {otaGuards.engineMode}</div>
+                  <div>Session active: {otaGuards.sessionActive ? 'yes' : 'no'}</div>
+                  <div>Vehicle charging: {otaGuards.vehicleCharging ? 'yes' : 'no'}</div>
+                  <div>Charging state: {otaGuards.chargingState ?? 'unknown'}</div>
+                  <div>Proxy connected: {otaGuards.proxyConnected ? 'yes' : 'no'}</div>
+                  <div>Failsafe active: {otaGuards.failsafeActive ? 'yes' : 'no'}</div>
+                  <div>Failsafe reason: {otaGuards.failsafeReason ?? 'none'}</div>
+                </div>
+                {otaGuards.reasons.length > 0 && (
+                  <div className="rounded-md border border-red-500/30 bg-black/20 px-2 py-2 text-red-200">
+                    <div className="font-semibold mb-1">Blocking reasons:</div>
+                    <ul className="list-disc list-inside space-y-0.5">
+                      {otaGuards.reasons.map((r) => <li key={r}>{r}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {otaStartError && (
+              <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                <div className="font-semibold">Start update failed</div>
+                <div>{otaStartError}</div>
+                {otaGuardReasons.length > 0 && (
+                  <ul className="mt-1 list-disc list-inside space-y-0.5">
+                    {otaGuardReasons.map((r) => <li key={r}>{r}</li>)}
+                  </ul>
+                )}
               </div>
             )}
 

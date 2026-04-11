@@ -474,6 +474,19 @@ export interface CommitInfo {
   date: string
 }
 
+export interface OtaGuards {
+  blocked: boolean
+  reasons: string[]
+  engineRunning: boolean
+  engineMode: 'off' | 'plan' | 'on'
+  sessionActive: boolean
+  vehicleCharging: boolean
+  chargingState: string | null
+  proxyConnected: boolean
+  failsafeActive: boolean
+  failsafeReason: string | null
+}
+
 export interface UpdateStatusResponse {
   state: 'idle' | 'running' | 'success' | 'error'
   branch: string | null
@@ -486,6 +499,7 @@ export interface UpdateStatusResponse {
   localCommit: CommitInfo | null
   remoteCommit: CommitInfo | null
   behindCount: number
+  otaGuards: OtaGuards
 }
 
 export async function getUpdateStatus(branch?: string) {
@@ -498,9 +512,9 @@ export async function triggerFetch(branch?: string) {
   return res.data as { success: boolean; localCommit: CommitInfo | null; remoteCommit: CommitInfo | null; behindCount: number }
 }
 
-export async function startOtaUpdate(branch: string) {
-  const res = await api.post('/update/start', { branch })
-  return res.data as { success: boolean; branch: string }
+export async function startOtaUpdate(branch: string, force = false) {
+  const res = await api.post('/update/start', { branch, force })
+  return res.data as { success: boolean; branch: string; forced?: boolean }
 }
 
 export async function getOtaLogs(from = 0) {
