@@ -102,6 +102,11 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 	- Il polling log continua non solo in stato `running`, ma anche quando il pannello è pinned, evitando buchi durante transizioni stato/backend restart.
 	- Risultato: se OTA continua in background, l'utente continua a vedere il pannello e il tail log senza sparizioni improvvise.
 
+- **OTA fallback per branch locali non pushati**:
+	- In `backend/src/services/updater.service.ts`, lo step fetch non fallisce più subito quando `origin/<branch>` non esiste.
+	- Nuovo comportamento: se il branch è presente localmente, OTA fa checkout locale e continua; se esiste un upstream configurato prova `git pull --ff-only`, altrimenti mantiene HEAD locale e stampa istruzioni per `git push -u origin <branch>`.
+	- Se il branch non esiste né su origin né localmente, OTA termina con errore esplicito.
+
 ## Aggiornamenti Recenti (2026-04-10) — v1.5.5
 
 - **Docker — fix persistenza DB su update/rebuild**:
