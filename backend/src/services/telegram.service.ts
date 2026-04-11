@@ -153,10 +153,10 @@ function sanitizeTelegramError(err: unknown): unknown {
   if (!err || typeof err !== 'object') return err
   const redact = (s: string): string => {
     if (!token) return s
-    let result = s.replaceAll(token, '***REDACTED***')
+    let result = s.split(token).join('***REDACTED***')
     const encodedToken = encodeURIComponent(token)
     if (encodedToken !== token) {
-      result = result.replaceAll(encodedToken, '***REDACTED***')
+      result = result.split(encodedToken).join('***REDACTED***')
     }
     return result
   }
