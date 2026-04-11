@@ -3,6 +3,46 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Aggiornamenti Recenti (2026-04-11) — v1.6.5
+
+- **Unified logging system — single log file**:
+	- Rimossi dual transports (`error.log` + `combined.log`) dal logger.
+	- Backend ora scrive unicamente su file `logs/log` (maxsize 50MB, maxFiles 5, formato JSON).
+	- Semantica semplificata: non esiste più distinzione tra error e combined.
+	- API `/api/settings/logs/backend` semplificata: rimuove il parametro `type` (era "error"/"combined"), serve direttamente il file `log`.
+	- Frontend: `downloadBackendLog()` non richiede più il tipo, scarica un unico file `evload-backend.log`.
+
+- **Schedule panel — complete mobile-first redesign**:
+	- Refactor UI da desktop-first a mobile-first responsive.
+	- Sticky header con pulsante "New" gradiente.
+	- Collapsible form per aggiungere/modificare schedule (toggle `showForm`).
+	- Integrazione mode tabs (Charger/Climate) direttamente nel form.
+	- Card-based list items con delete on hover.
+	- Responsive grid: verticale su mobile (stacked), 2-colonne su desktop.
+	- Day selector semplificato a bottoni single-letter (L/M/M/G/V/S/D).
+	- Estrazione di `renderScheduleItem()` per renderizzazione coerente.
+
+- **Vehicle defrost command — fixed to proxy API spec**:
+	- Bottone defrost ora chiama `sendVehicleCommand('auto_conditioning_start', { wait: true })` verso proxy.
+	- Precedente: `sendVehicleCommand('defrost_max', { on: true })` (incompatibile con spec Tesla proxy).
+	- Allineamento con altri vehicle command per coerenza API.
+
+- **OTA error visibility — detailed error messages and timeout diagnostics**:
+	- Backend (`updater.service.ts`): 
+		- Enhanced error messages con context: "Update already in progress on branch X", "Failed to write update script to PATH: ERROR", ecc.
+		- Added spawn error handling con try-catch, file descriptor cleanup, e logging di PID/script path.
+		- Detailed fallback error reason quando spawn fallisce.
+	- Frontend OTA handler (`SettingsPage.tsx` `handleOtaStart`):
+		- Improved error classification: distingue guard-blocked (409 con `otaGuards`) vs altri 409 errors (already running, file errors) vs network errors.
+		- Enhanced logging con `flog.info('OTA', 'Starting...', { branch, forced })` e detailed error logs.
+		- Error messages include status code e reason dal backend.
+	- Frontend OTA UI:
+		- Log viewer status indicator: "⏳ Process starting... (waiting for output)" quando update è running ma no logs ricevuti.
+		- Live indicator con pulse ("🟢 Live") quando logs stream in tempo reale.
+		- Timeout warning dopo 30 secondi di no output: "⚠️ No output received for 30+ seconds. Check backend logs for details".
+		- Empty state message: "Loading output from server..." vs "No logs".
+	- State tracking: `otaStartTime`, `otaNoOutputWarning` per monitorare timeout di output.
+
 ## Aggiornamenti Recenti (2026-04-10) — v1.5.5
 
 - **Docker — fix persistenza DB su update/rebuild**:

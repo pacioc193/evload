@@ -19,6 +19,14 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Unified logging system**: removed dual error/combined logs, now single unified `log` file with JSON format; API and UI simplified
+- **Schedule panel mobile redesign**: complete rewrite with sticky header, collapsible form, card-based items, responsive grid (mobile-first)
+- **Vehicle defrost fixed**: corrected from `defrost_max` to `auto_conditioning_start` with `wait: true` for Tesla proxy spec compliance
+- **OTA error visibility enhanced**: 
+  - Backend provides detailed error messages per failure scenario (guards, already running, file errors)
+  - Frontend distinguishes error types and shows guard-by-guard blocking reasons
+  - UI shows live status ("Process starting...", "Live", timeout warnings after 30s of no output)
+  - Log viewer displays detailed error context for debugging OTA failures
 - **Docker DB persistence guard**: `docker-compose.yml` now sets a safe default `DATABASE_URL=file:/app/backend/data/db.sqlite` when env is missing, so AppConfig and target SoC preferences survive container rebuild/update on the named volume
 - **Native/Raspberry DB persistence guard**: backend runtime and Prisma CLI now default to `file:./data/evload.db` in production when `DATABASE_URL` is not set, and native systemd services explicitly set that path; this prevents `AppConfig` resets (target SoC returning to 80) after updates
 - **targetSoc persistence fix (plan vs preference)**: `engine_restore_state` now persists `preferredTargetSoc` separately from the currently armed plan target, so a scheduled/manual plan at 80 no longer overwrites the user's persisted target preference
