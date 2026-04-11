@@ -318,6 +318,8 @@ export default function SettingsPage() {
   const [otaStartError, setOtaStartError] = useState('')
   const [otaGuardReasons, setOtaGuardReasons] = useState<string[]>([])
   const [otaForceStart, setOtaForceStart] = useState(false)
+  const [otaStartTime, setOtaStartTime] = useState<number | null>(null)
+  const [otaNoOutputWarning, setOtaNoOutputWarning] = useState(false)
   const logBoxRef = useRef<HTMLPreElement>(null)
   
   // Security / Password Change
@@ -522,6 +524,19 @@ export default function SettingsPage() {
     }
   }, [otaLogs])
 
+  // Monitor for timeout: if OTA running for 30+ seconds with no output, warn user
+  useEffect(() => {
+    if (otaStatus?.state !== 'running' || !otaStartTime) {
+      setOtaNoOutputWarning(false)
+      return
+    }
+    const elapsed = Date.now() - otaStartTime
+    if (elapsed > 30_000 && otaLogs.length === 0) {
+      setOtaNoOutputWarning(true)
+      flog.warn('OTA', 'Timeout: no output received after 30 seconds')
+    }
+  }, [otaStatus?.state, otaStartTime, otaLogs.length])
+
   const handleSave = async () => {
     setSaving(true)
     setConfigMessage('')
@@ -641,33 +656,56 @@ export default function SettingsPage() {
     setOtaGuardReasons([])
     setOtaLogs('')
     setOtaLogOffset(0)
+    setOtaStartTime(Date.now())
+    setOtaNoOutputWarning(false)
     try {
+      flog.info('OTA', 'Starting OTA update', { branch: otaBranch, forced: otaForceStart })
       await startOtaUpdate(otaBranch, otaForceStart)
       await refreshOtaStatus()
     } catch (err) {
+      setOtaStartTime(null)
       if (axios.isAxiosError(err)) {
         const status = err.response?.status
         const payload = err.response?.data as {
           error?: string
           reasons?: string[]
           otaGuards?: OtaGuards
+          hint?: string
         } | undefined
         if (status === 409) {
-          setOtaStartError(payload?.error ?? 'OTA blocked by safety guards')
-          setOtaGuardReasons(Array.isArray(payload?.reasons) ? payload.reasons : [])
+          // Distinguish between guard-blocked and other 409 errors
           if (payload?.otaGuards) {
-            setOtaStatus((prev) => prev ? { ...prev, otaGuards: payload.otaGuards as OtaGuards } : prev)
+            // Guard-blocked OTA
+            setOtaStartError(payload?.error ?? 'OTA blocked by safety guards')
+            setOtaGuardReasons(Array.isArray(payload?.reasons) ? payload.reasons : [])
+            if (payload?.otaGuards) {
+              setOtaStatus((prev) => prev ? { ...prev, otaGuards: payload.otaGuards as OtaGuards } : prev)
+            }
+            flog.warn('OTA', 'Start blocked by safety guards', {
+              branch: otaBranch,
+              reasons: payload?.reasons ?? [],
+              forced: otaForceStart,
+            })
+            return
+          } else {
+            // Other 409 errors (already running, file locked, etc)
+            setOtaStartError(payload?.error ?? 'OTA update cannot start')
+            if (payload?.hint) {
+              setOtaStartError((prev) => `${prev}\n${payload.hint}`)
+            }
+            flog.warn('OTA', 'Update failed to start', { error: payload?.error, hint: payload?.hint })
+            return
           }
-          flog.warn('OTA', 'Start blocked by safety guards', {
-            branch: otaBranch,
-            reasons: payload?.reasons ?? [],
-            forced: otaForceStart,
-          })
-          return
         }
+        // Other HTTP errors (500, 401, etc)
+        setOtaStartError(`Error: ${status} - ${payload?.error || err.message}`)
+        flog.error('OTA', 'HTTP error on start', { status, error: payload?.error || err.message })
+      } else {
+        // Network or other errors
+        const msg = err instanceof Error ? err.message : String(err)
+        setOtaStartError(`Connection failed: ${msg}`)
+        flog.error('OTA', 'Failed to start update', { error: msg })
       }
-      flog.error('OTA', 'Failed to start update', { error: String(err) })
-      setOtaStartError('Failed to start OTA update')
     } finally {
       await refreshOtaStatus()
     }
@@ -1587,18 +1625,51 @@ export default function SettingsPage() {
             )}
 
             {/* Live log viewer */}
-            {otaLogs && (
-              <div className="space-y-1">
-                <div className="flex items-center gap-1.5 text-xs text-evload-muted">
-                  <Terminal size={12} />
-                  Log di build
+            {(otaLogs || otaStatus?.state === 'running') && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5 text-xs text-evload-muted">
+                    <Terminal size={12} />
+                    Log di build
+                  </div>
+                  {otaStatus?.state === 'running' && otaLogs.length === 0 && (
+                    <div className="text-xs text-yellow-400">
+                      ⏳ Process starting... (waiting for output)
+                    </div>
+                  )}
+                  {otaStatus?.state === 'running' && otaLogs.length > 0 && (
+                    <div className="text-xs text-green-400 flex items-center gap-1">
+                      <span className="inline-block w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                      Live
+                    </div>
+                  )}
                 </div>
-                <pre
-                  ref={logBoxRef}
-                  className="max-h-72 overflow-y-auto rounded-lg border border-evload-border bg-black/60 p-3 text-[11px] leading-relaxed text-green-300 font-mono whitespace-pre-wrap"
-                >
-                  {otaLogs}
-                </pre>
+                {otaNoOutputWarning && (
+                  <div className="rounded-lg border border-orange-500/40 bg-orange-500/10 p-2 text-xs text-orange-300">
+                    ⚠️ No output received for 30+ seconds. This may indicate a system issue. Check backend logs for details.
+                  </div>
+                )}
+                {otaLogs ? (
+                  <pre
+                    ref={logBoxRef}
+                    className="max-h-72 overflow-y-auto rounded-lg border border-evload-border bg-black/60 p-3 text-[11px] leading-relaxed text-green-300 font-mono whitespace-pre-wrap"
+                  >
+                    {otaLogs}
+                  </pre>
+                ) : (
+                  <div className="max-h-72 rounded-lg border border-evload-border bg-black/60 p-3 text-[11px] text-green-300/50 flex items-center justify-center min-h-40">
+                    {otaStatus?.state === 'running' ? 'Loading output from server...' : 'No logs'}
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-xs text-evload-muted">
+                  <button
+                    type="button"
+                    onClick={() => setActiveLog('backend')}
+                    className="hover:text-evload-text transition-colors"
+                  >
+                    View full backend logs →
+                  </button>
+                </div>
               </div>
             )}
           </div>
