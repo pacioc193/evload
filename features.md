@@ -3,6 +3,53 @@
 Usa questo file come backlog incrementale e protocollo di verifica.
 L'agente deve processare UNA feature alla volta, con verifica letterale, senza inferenze.
 
+## Recent Updates (2026-04-11)
+
+- Settings panel stability fix for demo workflow: switching `demo` now applies immediately at runtime (start/stop simulator) with immediate proxy repoll, reducing stale runtime errors after mode toggles.
+- Demo proxy enforcement: when `demo=true`, backend forces proxy URL to `http://127.0.0.1:8080` and provides default demo vehicle identity when missing.
+- Simulator parity update: added `body_controller_state` endpoint and additional command coverage (`charge_port_door_open` / `charge_port_door_close`) to align with current engine/proxy logic.
+- README documentation improved with a dedicated step-by-step section: "How To Use Engine Demo Mode" (UI flow + YAML alternative + rollback tip to real mode).
+- SOC ring drag safety fix: target selector now remains stable at the 100% seam and no longer wraps unexpectedly to 0% when dragging near the top boundary.
+- Dashboard space optimization and visual bug fix: corrected SOC ring coloring (solid actual arc + dashed target arc), increased ring size, and adjusted cockpit spacing to maximize SoC chart readability.
+- Control hierarchy update: moved `Off/Plan/On` selector above `Car/Engine/Cable`, moved `Reason` directly below `Proxy`, and relocated range blocks away from the ring to avoid shrinking the SOC graph.
+- Dashboard SOC control reworked: removed linear target bar and introduced a ring-based draggable target control around the SOC widget (solid arc for actual SoC, dashed arc for target zone, direct ring knob interaction).
+- Charge Cockpit cleanup: moved `Current range` and `Range at target` below the SOC object and removed duplicated vehicle/engine status lines to reduce repeated information blocks.
+- Charge Cockpit layout refinement: KPI tiles moved to a dedicated row above the entire cockpit content (including SoC), improving visual hierarchy and reducing right-column-only emphasis.
+- Target SoC presentation refined in the SoC widget: added an in-circle sublabel (`Target xx%`) directly under the SoC label for immediate actual-vs-target readability.
+- Dashboard micro-UX polish pass completed: target SoC is now rendered directly inside the cockpit SoC bar; cable status moved into the main car/engine status cluster; right column order changed to **Power Snapshot** first, then **Plan Timeline**.
+- Power Snapshot visualization updated from horizontal split bar to a donut chart (Home vs EV) with explicit percentage rows for quick interpretation.
+- Dashboard KPI tiles now enforce no-wrap labels/values and tighter text fallbacks to keep vertical alignment stable on wide desktop layouts.
+- Dashboard now uses a completely different information layout with three modern operational blocks: **Charge Cockpit**, **Plan Timeline**, and **Power Snapshot**.
+- Removed the **Engine Live Log** section from Dashboard to reduce noise and prioritize actionable metrics.
+- Full UI redesign pass applied across all main tabs (Dashboard, Climate, Garage, Statistics, Notifications, Settings) plus shared Layout shell, with stronger visual hierarchy, premium card depth, and improved mobile spacing.
+- Introduced a shared style primitive set in frontend CSS (`ev-hero`, `ev-card`, `ev-card-strong`, `ev-input`, `ev-btn-primary`, `ev-btn-ghost`) to enforce consistent modern UI/UX patterns across pages.
+- Dashboard UX refresh: modernized visual language (premium cards, richer typography, atmospheric gradient background), improved responsive spacing and readability on smartphone screens.
+- Dashboard mode pills now use a planner-consistent accent background effect to keep UI language coherent across Schedule and Dashboard.
+- Added a dedicated "Finish-by Wake & Sync" status panel on Dashboard to make finish-by runtime progression explicit (wake requested, waiting SoC, SoC available, computed schedule).
+- Planner scheduler now exposes four explicit charge modes with corrected wording: **Start at**, **End at**, **Time range**, and **Finish by**.
+- Added real backend support for `end_at` and `end_at_weekly` charge schedules (stop charging when end time is reached).
+- Schedule cards now render `End at` and `Finish by` distinctly, including weekly variants.
+- Planner option hints now use the same `?` popover tooltip style as Settings for consistent UX.
+- Fixed duplicate unit rendering in Settings Plan Mode (`Pre-wake` now displays `min` only once).
+- Planner GUI copy is now fully English (including labels and action text).
+- Added dedicated backend scheduler tests for charge modes: `start_at`, `end_at`, `start_end`, `finish_by`, including weekly roll-forward checks and `resolveNextPlannedCharge()` selection behavior.
+
+## Aggiornamenti Recenti (2026-04-11) — v1.6.6
+
+- **Smart finish-by scheduler con wake automatico e margine di sicurezza**:
+  - Quando un piano `finish_by`/`finish_by_weekly` non ha dati SoC (veicolo in sleep), lo scheduler sveglia automaticamente il veicolo, attende i dati live, poi calcola la finestra di ricarica.
+  - Calcolo con **tensione nominale configurabile** (default 220 V, `nominalVoltageV`), non più tensione live del caricatore (inaffidabile se il veicolo dorme).
+  - **Margine di sicurezza** (default 10%, `finishBySafetyMarginPct`) aggiunto alla durata stimata: la ricarica parte prima per assorbire rampa di potenza e inefficienze.
+  - Due nuovi eventi Telegram:
+    - `plan_finish_by_wake`: emesso al momento della sveglia per acquisizione SoC. Placeholder: `{{planName}}`, `{{targetSoc}}`, `{{finishBy}}`.
+    - `plan_finish_by_scheduled`: emesso una volta sola quando viene calcolato l'orario di avvio. Placeholder: `{{chargeStartsAt_time}}`, `{{currentSoc}}`, `{{estimatedChargeHours}}`, `{{safetyMarginPct}}`.
+  - Nuove impostazioni Settings → Charging → Plan Mode:
+    - **Nominal Voltage** (V): tensione nominale per il calcolo.
+    - **Finish-by Safety Margin** (%): margine aggiunto alla durata stimata.
+  - `resolveNextPlannedCharge()` applica lo stesso margine di sicurezza nel widget Dashboard "Prossima ricarica".
+  - Logging verboso con tag `⏰[FINISH_BY]`, `⏰[FINISH_BY_WAKE]` in linea con le convenzioni del codebase.
+  - Versione 1.6.6 rilasciata: `version.ts`, tutti i `package.json` sincronizzati.
+
 ## Aggiornamenti Recenti (2026-04-11) — v1.6.5
 
 - **Release metadata 1.6.5 + first tag prep**:
@@ -85,6 +132,11 @@ L'agente deve processare UNA feature alla volta, con verifica letterale, senza i
 	- In `SettingsPage`, il viewer log OTA ora resta visibile dopo `Start Update` (stato pinned).
 	- Il polling log continua non solo in stato `running`, ma anche quando il pannello è pinned, evitando buchi durante transizioni stato/backend restart.
 	- Risultato: se OTA continua in background, l'utente continua a vedere il pannello e il tail log senza sparizioni improvvise.
+
+- **OTA fallback per branch locali non pushati**:
+	- In `backend/src/services/updater.service.ts`, lo step fetch non fallisce più subito quando `origin/<branch>` non esiste.
+	- Nuovo comportamento: se il branch è presente localmente, OTA fa checkout locale e continua; se esiste un upstream configurato prova `git pull --ff-only`, altrimenti mantiene HEAD locale e stampa istruzioni per `git push -u origin <branch>`.
+	- Se il branch non esiste né su origin né localmente, OTA termina con errore esplicito.
 
 ## Aggiornamenti Recenti (2026-04-10) — v1.5.5
 

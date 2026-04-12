@@ -1,28 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Sora:wght@600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --ev-bg: #ffffff;
-    --ev-surface: #f3f3f7;
-    --ev-border: #dadbe3;
-    --ev-text: #26263a;
-    --ev-muted: #7e7e90;
+    --ev-bg: #f7f5ef;
+    --ev-surface: #fffdf7;
+    --ev-border: #e6dccb;
+    --ev-text: #1f2a2f;
+    --ev-muted: #6e7b84;
     --ev-accent: #e31937;
   }
 
   .dark {
-    --ev-bg: #0f0f0f;
-    --ev-surface: #1a1a1a;
-    --ev-border: #2a2a2a;
-    --ev-text: #f0f0f0;
-    --ev-muted: #888888;
+    --ev-bg: #10171d;
+    --ev-surface: #16212a;
+    --ev-border: #273847;
+    --ev-text: #ecf6ff;
+    --ev-muted: #9bb1c2;
     --ev-accent: #e31937;
+  }
+}
+
+@layer components {
+  .ev-page {
+    @apply space-y-6;
+  }
+
+  .ev-hero {
+    @apply relative overflow-hidden rounded-[2rem] border border-evload-border bg-evload-surface px-5 py-5 sm:px-6 sm:py-6 shadow-[0_20px_60px_rgba(4,10,24,0.14)];
+  }
+
+  .ev-card {
+    @apply rounded-2xl border border-evload-border bg-evload-surface p-4 shadow-[0_16px_36px_rgba(0,0,0,0.08)];
+  }
+
+  .ev-card-strong {
+    @apply rounded-3xl border border-evload-border bg-evload-surface p-5 shadow-[0_22px_50px_rgba(0,0,0,0.1)];
+  }
+
+  .ev-input {
+    @apply w-full rounded-xl border border-evload-border bg-evload-bg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent;
+  }
+
+  .ev-btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-evload-accent to-red-700 px-4 py-2 text-sm font-semibold text-white shadow-[0_14px_30px_rgba(227,25,55,0.35)] transition-all hover:brightness-110 disabled:opacity-50;
+  }
+
+  .ev-btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-evload-border bg-evload-bg px-4 py-2 text-sm font-semibold text-evload-text transition-all hover:bg-evload-border;
   }
 }
 
 body {
   @apply bg-evload-bg text-evload-text transition-colors duration-200;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Manrope', 'Segoe UI', sans-serif;
+  min-height: 100vh;
+  background-image:
+    radial-gradient(circle at 10% 0%, rgba(227, 25, 55, 0.14), transparent 30%),
+    radial-gradient(circle at 95% 10%, rgba(253, 186, 116, 0.2), transparent 34%),
+    radial-gradient(circle at 50% 100%, rgba(56, 189, 248, 0.1), transparent 35%);
+}
+
+h1,
+h2,
+h3 {
+  font-family: 'Sora', 'Manrope', 'Segoe UI', sans-serif;
 }

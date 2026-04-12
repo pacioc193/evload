@@ -6,11 +6,13 @@ import {
   setPlanMode,
   wakeVehicle,
   getNextPlannedCharge,
+  getSchedulerRuntimeStatus,
   getEngineTargetSocPreferences,
   patchEngineTargetSocPreference,
   NextPlannedCharge,
+  SchedulerRuntimeStatus,
 } from '../api/index'
-import { WifiOff, Car, Clock3, Home, Zap as ZapIcon, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
+import { WifiOff, Car, Home, Zap as ZapIcon, ChevronDown, ChevronRight, AlertTriangle, Sparkles, Bot } from 'lucide-react'
 import { clsx } from 'clsx'
 import { flog } from '../utils/frontendLogger'
 
@@ -80,10 +82,12 @@ function computeTimeToTargetH(params: {
   return { hours: null, error: null }
 }
 
-function EvccSocBar({
+function SocRingControl({
   actualSoc,
   targetSoc,
   carLimitSoc,
+  currentRangeKm,
+  targetRangeKm,
   charging,
   readonly,
   onTargetChange,
@@ -92,6 +96,8 @@ function EvccSocBar({
   actualSoc: number
   targetSoc: number
   carLimitSoc: number | null
+  currentRangeKm: number | null
+  targetRangeKm: number | null
   charging: boolean
   readonly: boolean
   onTargetChange: (value: number) => void
@@ -100,14 +106,32 @@ function EvccSocBar({
   const safeActual = Math.max(0, Math.min(100, actualSoc))
   const safeTarget = Math.max(0, Math.min(100, targetSoc))
   const safeCarLimit = carLimitSoc == null ? null : Math.max(0, Math.min(100, carLimitSoc))
-  const plannedStart = Math.min(safeActual, safeTarget)
-  const plannedWidth = Math.max(safeActual, safeTarget) - plannedStart
-  const sliderRef = useRef<HTMLDivElement>(null)
+  const ringRef = useRef<HTMLDivElement>(null)
+  const lastDragValueRef = useRef<number>(safeTarget)
+  const ringSize = 280
+  const ringRadius = 115
+  const ringStroke = 18
+  const ringCenter = ringSize / 2
+  const circumference = 2 * Math.PI * ringRadius
 
-  const resolveRatio = (clientX: number): number | null => {
-    if (!sliderRef.current) return null
-    const rect = sliderRef.current.getBoundingClientRect()
-    const nextValue = Math.round(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * 100)
+  const resolveByPointer = (clientX: number, clientY: number): number | null => {
+    if (!ringRef.current) return null
+    const rect = ringRef.current.getBoundingClientRect()
+    const x = clientX - rect.left
+    const y = clientY - rect.top
+    const dx = x - rect.width / 2
+    const dy = y - rect.height / 2
+    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI
+    const normalized = (angleDeg + 450) % 360
+    let nextValue = Math.round((normalized / 360) * 100)
+
+    // Keep target stable at the seam to avoid accidental wrap 100 -> 0.
+    if (lastDragValueRef.current >= 95 && nextValue <= 5) {
+      nextValue = 100
+    }
+
+    nextValue = Math.max(1, Math.min(100, nextValue))
+    lastDragValueRef.current = nextValue
     onTargetChange(nextValue)
     return nextValue
   }
@@ -116,33 +140,73 @@ function EvccSocBar({
     if (readonly) return
     e.preventDefault() // prevent page scroll on touch
     e.currentTarget.setPointerCapture(e.pointerId) // route all future pointer events here even if finger/cursor leaves
-    resolveRatio(e.clientX)
+    resolveByPointer(e.clientX, e.clientY)
   }
 
   const handlePointerMove: React.PointerEventHandler<HTMLDivElement> = (e) => {
     if (readonly) return
     if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
-    resolveRatio(e.clientX)
+    resolveByPointer(e.clientX, e.clientY)
   }
 
   const handlePointerUp: React.PointerEventHandler<HTMLDivElement> = (e) => {
     if (readonly) return
     if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
     e.currentTarget.releasePointerCapture(e.pointerId)
-    const nextValue = resolveRatio(e.clientX)
+    const nextValue = resolveByPointer(e.clientX, e.clientY)
     if (nextValue != null) {
       onTargetCommit?.(nextValue)
     }
   }
 
+  const arcStartPct = Math.min(safeActual, safeTarget)
+  const arcEndPct = Math.max(safeActual, safeTarget)
+  const actualLength = (safeActual / 100) * circumference
+  const targetArcSpanPct = Math.max(0, arcEndPct - arcStartPct)
+  const targetAngleRad = ((safeTarget / 100) * 360 - 90) * (Math.PI / 180)
+  const knobX = ringCenter + ringRadius * Math.cos(targetAngleRad)
+  const knobY = ringCenter + ringRadius * Math.sin(targetAngleRad)
+
+  const polarPoint = (angleDeg: number) => {
+    const angleRad = (angleDeg * Math.PI) / 180
+    return {
+      x: ringCenter + ringRadius * Math.cos(angleRad),
+      y: ringCenter + ringRadius * Math.sin(angleRad),
+    }
+  }
+
+  const describeArc = (startPct: number, endPct: number) => {
+    const startAngle = (startPct / 100) * 360 - 90
+    const endAngle = (endPct / 100) * 360 - 90
+    const start = polarPoint(startAngle)
+    const end = polarPoint(endAngle)
+    const largeArcFlag = endPct - startPct > 50 ? 1 : 0
+    return `M ${start.x} ${start.y} A ${ringRadius} ${ringRadius} 0 ${largeArcFlag} 1 ${end.x} ${end.y}`
+  }
+
+  const targetArcPath = targetArcSpanPct > 0 ? describeArc(arcStartPct, arcEndPct) : null
+  const carLimitAngle = safeCarLimit != null ? (safeCarLimit / 100) * 360 - 90 : null
+  const carLimitInner = carLimitAngle != null
+    ? {
+        x: ringCenter + (ringRadius - ringStroke / 2 - 6) * Math.cos((carLimitAngle * Math.PI) / 180),
+        y: ringCenter + (ringRadius - ringStroke / 2 - 6) * Math.sin((carLimitAngle * Math.PI) / 180),
+      }
+    : null
+  const carLimitOuter = carLimitAngle != null
+    ? {
+        x: ringCenter + (ringRadius + ringStroke / 2 + 6) * Math.cos((carLimitAngle * Math.PI) / 180),
+        y: ringCenter + (ringRadius + ringStroke / 2 + 6) * Math.sin((carLimitAngle * Math.PI) / 180),
+      }
+    : null
+
   return (
     <div
-      ref={sliderRef}
+      ref={ringRef}
       className={clsx(
-        'relative h-8 rounded-lg bg-evload-bg border border-evload-border overflow-visible select-none',
+        'relative select-none',
         readonly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
       )}
-      style={{ touchAction: 'none' }}
+      style={{ width: `${ringSize}px`, height: `${ringSize}px`, touchAction: 'none' }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -154,28 +218,82 @@ function EvccSocBar({
       aria-label="Target SoC"
       aria-readonly={readonly}
     >
-      <div
-        className={clsx('absolute top-0 left-0 h-full bg-evload-success transition-all', charging && 'animate-pulse')}
-        style={{ width: `${safeActual}%` }}
-      />
-      {plannedWidth > 0 && (
-        <div
-          className="absolute top-0 h-full border-l border-r border-evload-success/60 bg-[repeating-linear-gradient(135deg,rgba(34,197,94,0.1)_0_8px,rgba(34,197,94,0.2)_8px_16px)]"
-          style={{ left: `${plannedStart}%`, width: `${plannedWidth}%` }}
+      <svg
+        viewBox={`0 0 ${ringSize} ${ringSize}`}
+        className="h-full w-full transition-all"
+        style={charging ? { filter: 'drop-shadow(0 0 8px rgba(34,197,94,0.45))' } : undefined}
+      >
+        <defs>
+          <pattern
+            id="soc-delta-hatch"
+            patternUnits="userSpaceOnUse"
+            width="10"
+            height="10"
+            patternTransform="rotate(-45 0 0)"
+          >
+            <rect width="10" height="10" fill="rgb(34,197,94)" fillOpacity="0.85" />
+            <line x1="5" y1="0" x2="5" y2="10" stroke="rgba(255,255,255,0.55)" strokeWidth="3" />
+          </pattern>
+        </defs>
+        <circle
+          cx={ringCenter}
+          cy={ringCenter}
+          r={ringRadius}
+          fill="none"
+          stroke="rgba(127,127,127,0.24)"
+          strokeWidth={ringStroke}
         />
-      )}
+        <circle
+          cx={ringCenter}
+          cy={ringCenter}
+          r={ringRadius}
+          fill="none"
+          stroke="rgb(34, 197, 94)"
+          strokeWidth={ringStroke}
+          strokeDasharray={`${actualLength} ${circumference}`}
+          strokeDashoffset="0"
+          strokeLinecap="round"
+          transform={`rotate(-90 ${ringCenter} ${ringCenter})`}
+          className={clsx(charging && 'animate-pulse')}
+        />
+        {targetArcPath && safeActual < safeTarget && (
+          <path
+            d={targetArcPath}
+            fill="none"
+            stroke="url(#soc-delta-hatch)"
+            strokeWidth={ringStroke}
+            strokeLinecap="butt"
+          />
+        )}
+        {carLimitInner != null && carLimitOuter != null && (
+          <line
+            x1={carLimitInner.x}
+            y1={carLimitInner.y}
+            x2={carLimitOuter.x}
+            y2={carLimitOuter.y}
+            stroke="rgb(251, 191, 36)"
+            strokeWidth={5}
+            strokeLinecap="round"
+          />
+        )}
+      </svg>
+
+      <div className="pointer-events-none absolute inset-0 m-[34px] flex flex-col items-center justify-center rounded-full border border-evload-border/60 bg-evload-bg shadow-[inset_0_2px_8px_rgba(0,0,0,0.18)]">
+        <div className="text-5xl font-black text-evload-text leading-none tracking-tight">{safeActual}%</div>
+        <div className="mt-1.5 text-[10px] uppercase tracking-[0.22em] text-evload-muted font-semibold">State Of Charge</div>
+        <div className="mt-3 rounded-full border border-evload-border/80 bg-evload-surface/90 px-3 py-0.5 text-[12px] font-bold text-evload-text shadow-sm">
+          Target {safeTarget}%
+        </div>
+        <div className="mt-2.5 text-[10px] text-evload-muted/80 text-center px-3 leading-relaxed">
+          {currentRangeKm != null ? `${Math.round(currentRangeKm)} km` : '—'} now&nbsp;·&nbsp;{targetRangeKm != null ? `${targetRangeKm} km` : '—'} target
+        </div>
+      </div>
+
       <div
-        className="absolute -top-3 h-14 w-4 rounded-full bg-evload-success shadow-lg border border-evload-bg"
-        style={{ left: `calc(${safeTarget}% - 8px)` }}
+        className="absolute h-7 w-7 rounded-full border-2 border-evload-bg bg-evload-success shadow-[0_0_0_3px_rgba(34,197,94,0.4)]"
+        style={{ left: `${knobX - 14}px`, top: `${knobY - 14}px` }}
         title={`Target ${safeTarget}%`}
       />
-      {safeCarLimit != null && (
-        <div
-          className="absolute top-0 h-full w-[2px] bg-amber-400"
-          style={{ left: `calc(${safeCarLimit}% - 1px)` }}
-          title={`Car limit ${safeCarLimit}%`}
-        />
-      )}
     </div>
   )
 }
@@ -191,15 +309,107 @@ function ModePill({ active, label, onClick, disabled }: {
       onClick={onClick}
       disabled={disabled}
       className={clsx(
-        'px-3 py-1.5 rounded-full text-sm font-medium transition-colors disabled:opacity-60',
+        'px-3 py-1.5 rounded-full text-sm font-semibold transition-all disabled:opacity-60',
         active
-          ? 'bg-evload-border text-evload-text shadow-sm'
+          ? 'bg-gradient-to-r from-evload-accent to-red-700 text-white shadow-[0_12px_28px_rgba(227,25,55,0.35)]'
           : 'text-evload-muted hover:bg-evload-border/50 hover:text-evload-text'
       )}
     >
       {label}
     </button>
   )
+}
+
+type FinishByWakeTone = 'idle' | 'waking' | 'ready' | 'scheduled'
+
+function deriveFinishByWakeStatus(params: {
+  nextCharge: NextPlannedCharge | null
+  schedulerRuntime: SchedulerRuntimeStatus | null
+  debugLog: string[]
+  waking: boolean
+  isVehicleSleeping: boolean
+}): {
+  tone: FinishByWakeTone
+  title: string
+  detail: string
+} {
+  const { nextCharge, schedulerRuntime, debugLog, waking, isVehicleSleeping } = params
+  const isFinishByPlan = nextCharge?.scheduleType === 'finish_by' || nextCharge?.scheduleType === 'finish_by_weekly'
+
+  if (!isFinishByPlan) {
+    return {
+      tone: 'idle',
+      title: 'Finish-by wake monitor idle',
+      detail: 'No active finish-by plan in queue.',
+    }
+  }
+
+  if (waking) {
+    return {
+      tone: 'waking',
+      title: 'Waking vehicle for finish-by',
+      detail: 'Wake command sent, waiting for live SoC from vehicle_data.',
+    }
+  }
+
+  if ((schedulerRuntime?.finishByWakePendingCount ?? 0) > 0) {
+    return {
+      tone: 'waking',
+      title: 'Waiting SoC after wake',
+      detail: 'Scheduler wake cycle active: collecting live SoC before computing the start window.',
+    }
+  }
+
+  if ((schedulerRuntime?.finishByScheduledNotifiedCount ?? 0) > 0) {
+    return {
+      tone: 'scheduled',
+      title: 'Finish-by window scheduled',
+      detail: 'Start time computed and confirmed by scheduler runtime state.',
+    }
+  }
+
+  const latestRelevant = [...debugLog].reverse().find((line) =>
+    line.includes('[FINISH_BY_WAKE]') || line.includes('[FINISH_BY]')
+  )
+  const latest = latestRelevant?.toLowerCase() ?? ''
+
+  if (latest.includes('waiting for soc data') || latest.includes('has no soc data')) {
+    return {
+      tone: 'waking',
+      title: 'Waiting SoC after wake',
+      detail: 'Finish-by planner requested wake-up and is waiting telemetry.',
+    }
+  }
+
+  if (latest.includes('soc now available')) {
+    return {
+      tone: 'ready',
+      title: 'Vehicle data received',
+      detail: 'Live SoC acquired, computing charging window with safety margin.',
+    }
+  }
+
+  if (latest.includes('charging start scheduled for') || latest.includes('computedstart')) {
+    return {
+      tone: 'scheduled',
+      title: 'Finish-by window scheduled',
+      detail: 'Start time computed and queued according to target SoC and finish deadline.',
+    }
+  }
+
+  if (isVehicleSleeping) {
+    return {
+      tone: 'waking',
+      title: 'Vehicle sleeping',
+      detail: 'Finish-by plan will wake the vehicle when SoC is required for calculation.',
+    }
+  }
+
+  return {
+    tone: 'ready',
+    title: 'Finish-by tracking active',
+    detail: 'Waiting next scheduler tick to refresh plan timing.',
+  }
 }
 
 function FlowStatRow({ icon, label, value, accentClass }: {
@@ -272,6 +482,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false)
   const [waking, setWaking] = useState(false)
   const [nextCharge, setNextCharge] = useState<NextPlannedCharge | null>(null)
+  const [schedulerRuntime, setSchedulerRuntime] = useState<SchedulerRuntimeStatus | null>(null)
   const [vehicleDetailsExpanded, setVehicleDetailsExpanded] = useState(() => readStoredBoolean(VEHICLE_DETAILS_PANEL_STORAGE_KEY, false))
   const meterEnergySamplesRef = useRef<MeterEnergySample[]>([])
 
@@ -304,7 +515,13 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!wsConnected) return
     const poll = () => {
-      getNextPlannedCharge().then(setNextCharge).catch(() => setNextCharge(null))
+      Promise.all([
+        getNextPlannedCharge().catch(() => null),
+        getSchedulerRuntimeStatus().catch(() => null),
+      ]).then(([next, runtime]) => {
+        setNextCharge(next)
+        setSchedulerRuntime(runtime)
+      })
     }
     poll()
     const interval = setInterval(poll, 15000)
@@ -482,6 +699,14 @@ export default function DashboardPage() {
     ? (shouldUseCarEta ? timeToTarget.hours : (etaByEvloadAverageHours ?? timeToTarget.hours))
     : (etaWhenNotChargingHours ?? timeToTarget.hours)
   const etaToChargeEnd = formatHoursToEta(etaHours)
+  const etaEndTime =
+    etaHours != null && etaHours > 0 && Number.isFinite(etaHours)
+      ? new Date(Date.now() + etaHours * 3_600_000).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        })
+      : null
   const etaSourceLabel = vehicle?.charging
     ? (shouldUseCarEta ? 'Source: vehicle ETA (hardware-limited)' : 'Source: evload average charging power')
     : (isPlanMode && nextCharge?.targetAmps ? 'Source: planned amps x 220V' : 'Source: max current x 220V')
@@ -505,10 +730,6 @@ export default function DashboardPage() {
     paused: 'Paused',
   }
   const enginePhaseLabel = engine?.phase ? (enginePhaseLabelMap[engine.phase] ?? engine.phase) : 'Idle'
-  const engineMessageLabel = engine?.message
-    ? engine.message.charAt(0).toUpperCase() + engine.message.slice(1)
-    : 'Idle'
-
   const applyMode = async (mode: ChargeMode) => {
     if (mode === 'plan' && timeToTarget.error) return
     setChargeMode(mode)
@@ -554,6 +775,13 @@ export default function DashboardPage() {
   const vehicleInGarage = vehicle?.connected ?? false
   const isVehicleSleeping = vehicle?.vehicleSleepStatus === 'VEHICLE_SLEEP_STATUS_ASLEEP' || vehicle?.chargingState === 'Sleeping'
   const carStatusLabel = isVehicleSleeping ? 'Sleeping' : vehicleInGarage ? 'In garage' : 'Not in garage / unreachable'
+  const finishByWakeStatus = deriveFinishByWakeStatus({
+    nextCharge,
+    schedulerRuntime,
+    debugLog: engine?.debugLog ?? [],
+    waking,
+    isVehicleSleeping,
+  })
   const statusReason = vehicle?.error ?? proxy?.error ?? vehicle?.reason ?? null
   const controlsDisabled = loading || !!failsafe?.active
 
@@ -610,7 +838,45 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-4 pb-8">
+    <div className="max-w-6xl mx-auto space-y-5 pb-10">
+      <div className="relative overflow-hidden rounded-[2rem] border border-evload-border bg-evload-surface/85 px-5 py-5 sm:px-6 sm:py-6 shadow-[0_20px_60px_rgba(4,10,24,0.18)]">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-44 w-44 rounded-full bg-red-500/25 blur-3xl" />
+        <div className="pointer-events-none absolute -left-20 -bottom-20 h-52 w-52 rounded-full bg-orange-300/25 blur-3xl" />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-evload-border bg-evload-bg/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-evload-muted">
+              <Sparkles size={12} className="text-evload-accent" />
+              Live Smart Charging
+            </div>
+            <h1 className="mt-3 text-2xl font-black tracking-tight text-evload-text sm:text-3xl">Dashboard</h1>
+            <p className="mt-1 text-sm text-evload-muted">Fast operational control, clear planner status, and mobile-optimized UX.</p>
+          </div>
+          <div className="sm:min-w-[420px] space-y-2">
+            <div className="rounded-full border border-evload-border bg-evload-bg p-1 flex items-center justify-between">
+              <ModePill active={chargeMode === 'off'} label="Off" onClick={() => applyMode('off')} disabled={controlsDisabled} />
+              <ModePill active={chargeMode === 'plan'} label="Plan" onClick={() => applyMode('plan')} disabled={controlsDisabled} />
+              <ModePill active={chargeMode === 'on'} label="On" onClick={() => applyMode('on')} disabled={controlsDisabled} />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-2xl border border-evload-border bg-evload-bg/80 px-3 py-2">
+                <div className="text-[11px] uppercase tracking-wide text-evload-muted">Car</div>
+                <div className="mt-1 text-sm font-semibold text-evload-text">{carStatusLabel}</div>
+              </div>
+              <div className="rounded-2xl border border-evload-border bg-evload-bg/80 px-3 py-2">
+                <div className="text-[11px] uppercase tracking-wide text-evload-muted">Engine</div>
+                <div className="mt-1 text-sm font-semibold text-evload-text">{enginePhaseLabel}</div>
+              </div>
+              <div className="rounded-2xl border border-evload-border bg-evload-bg/80 px-3 py-2">
+                <div className="text-[11px] uppercase tracking-wide text-evload-muted">Cable</div>
+                <div className={clsx('mt-1 text-sm font-semibold', vehicle?.pluggedIn ? 'text-emerald-300' : 'text-orange-300')}>
+                  {vehicle?.pluggedIn ? 'Connected' : 'Not connected'}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {demo && (
         <div className="bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 text-xs font-bold uppercase tracking-widest rounded-lg px-3 py-2 text-center">
           Demo Mode Active — Simulated Data
@@ -634,154 +900,14 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {vehicleInGarage && !vehicle.pluggedIn && !isVehicleSleeping && (
-        <div className="bg-orange-500/15 border border-orange-500/50 rounded-2xl p-4 sm:p-5">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="text-orange-300 mt-0.5" size={20} />
+      <div className="grid items-stretch gap-4 xl:grid-cols-[1.25fr_1fr]">
+        <section className="h-full bg-evload-surface/90 border border-evload-border rounded-3xl p-4 sm:p-5 shadow-[0_20px_40px_rgba(0,0,0,0.08)]">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-sm font-bold tracking-wide text-orange-200 uppercase">Cable not connected</div>
-              <div className="text-base text-orange-100 mt-1">
-                The charging cable is not plugged in. Connect the cable to start or schedule charging.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="bg-evload-surface border border-evload-border rounded-[2rem] p-4 sm:p-5">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-[11px] uppercase tracking-[0.28em] text-evload-muted font-semibold">Energy Flow</div>
-            <h2 className="mt-1 text-xl font-semibold text-evload-text">Home split</h2>
-          </div>
-          <div className="text-right">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-evload-muted">Grid Total</div>
-            <div className="mt-1 text-2xl font-black text-evload-text">
-              {(homeTotalPowerW / 1000).toFixed(2)} <span className="text-xs font-medium text-evload-muted">kW</span>
-            </div>
-          </div>
-        </div>
-        <div className="mt-5 rounded-[1.75rem] border border-evload-border bg-evload-bg/75 px-4 py-4 sm:px-5">
-          <div className="grid grid-cols-[56px_1fr_56px] items-center gap-3 sm:gap-4">
-            <div className="text-center">
-              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-2xl border border-evload-border bg-evload-surface text-emerald-300">
-                <Home size={16} />
-              </div>
-            </div>
-            <div className="relative">
-              <div className="h-11 w-full overflow-hidden rounded-2xl border border-evload-border bg-evload-surface flex shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-                <div className="h-full bg-[#22c55e] transition-all" style={{ width: `${homeBaseLoadSharePct}%` }} />
-                <div className="h-full bg-[#facc15] transition-all" style={{ width: `${chargerLoadSharePct}%` }} />
-              </div>
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-between px-4 text-[13px] font-semibold text-black/70">
-                <span>{homeBaseLoadSharePct > 12 ? `${(homeNonChargingPowerW / 1000).toFixed(2)} kW` : ''}</span>
-                <span>{chargerLoadSharePct > 12 ? `${(chargerPowerW / 1000).toFixed(2)} kW` : ''}</span>
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-2xl border border-evload-border bg-evload-surface text-yellow-300">
-                <ZapIcon size={16} />
-              </div>
-            </div>
-          </div>
-          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <FlowStatRow
-              icon={<Home size={14} className="text-emerald-100" />}
-              label="Home Total"
-              value={`${(homeNonChargingPowerW / 1000).toFixed(2)} kW`}
-              accentClass="bg-emerald-500/70 text-emerald-100"
-            />
-            <FlowStatRow
-              icon={<ZapIcon size={14} className="text-yellow-950" />}
-              label="EV"
-              value={`${(chargerPowerW / 1000).toFixed(2)} kW`}
-              accentClass="bg-yellow-400/90 text-yellow-950"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-evload-surface border border-evload-border rounded-3xl p-4 sm:p-5 text-evload-text">
-        <div className="rounded-full border border-evload-border bg-evload-bg p-1 flex items-center justify-between">
-          <ModePill active={chargeMode === 'off'} label="Off" onClick={() => applyMode('off')} disabled={controlsDisabled} />
-          <ModePill active={chargeMode === 'plan'} label="Plan" onClick={() => applyMode('plan')} disabled={controlsDisabled} />
-          <ModePill active={chargeMode === 'on'} label="On" onClick={() => applyMode('on')} disabled={controlsDisabled} />
-        </div>
-
-        <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-evload-muted">Power</div>
-            <div className="mt-1 text-2xl font-semibold">
-              {displayChargePowerKw.toFixed(2)} <span className="text-base text-evload-muted">kW</span>
-            </div>
-          </div>
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-evload-muted">Next Charge</div>
-            <div className="mt-1 text-2xl font-semibold flex items-center justify-center gap-1.5">
-              {nextChargeStartTime ? (
-                <>
-                  <Clock3 size={18} className="text-evload-accent" />
-                  {nextChargeStartTime}
-                </>
-              ) : (
-                <span className="text-sm text-evload-muted font-normal lowercase italic">— no schedule —</span>
-              )}
-            </div>
-            {nextCharge?.name && (
-              <div className="mt-1 flex items-center justify-center">
-                <span className="inline-flex items-center gap-1 rounded-full border border-evload-border bg-evload-bg px-2 py-0.5 text-[10px] font-medium text-evload-muted max-w-[120px] truncate" title={nextCharge.name}>
-                  📌 {nextCharge.name}
-                </span>
-              </div>
-            )}
-            <div className="mt-2 flex items-center justify-center">
-              <span className="inline-flex items-center rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-300">
-                Polling Active
-              </span>
-            </div>
-          </div>
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-evload-muted">Charge Cost</div>
-            <div className="mt-1 text-2xl font-semibold">
-              {cumulativeChargeCostEur != null ? cumulativeChargeCostEur.toFixed(2) : '—'} <span className="text-base text-evload-muted">EUR</span>
-            </div>
-            <div className="text-[11px] text-evload-muted mt-1">
-              Meter energy: {chargedEnergyWh != null ? `${chargedEnergyWh} Wh` : '—'}
-            </div>
-            <div className="text-[11px] text-evload-muted">Price: {energyPriceEurPerKwh.toFixed(3)} EUR/kWh</div>
-          </div>
-        </div>
-
-        <div className="mt-4 pt-4 border-t border-evload-border">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold flex items-center gap-2">
-                <Car size={18} /> {vehicle.displayName ?? 'Vehicle'}
-              </h2>
-              <p className="text-sm text-evload-muted mt-1">Proxy: {proxyConnected ? 'Online' : 'Offline'}</p>
-              <p className="text-sm text-evload-muted">Car: {carStatusLabel}</p>
-              {isVehicleSleeping && (
-                <span className="inline-flex items-center mt-1 rounded-full border border-indigo-400/40 bg-indigo-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-indigo-300">
-                  😴 Sleeping — vehicle_data polling suspended
-                </span>
-              )}
-              {vehicle.userPresence === 'VEHICLE_USER_PRESENCE_PRESENT' && (
-                <span className="inline-flex items-center mt-1 rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-300">
-                  👤 User present
-                </span>
-              )}
-              {statusReason && (
-                <p className="text-xs text-evload-muted mt-1">Reason: {statusReason}</p>
-              )}
-              {canWakeVehicle && (
-                <button
-                  onClick={handleWakeVehicle}
-                  disabled={waking || !proxyConnected}
-                  className="mt-2 inline-flex items-center rounded-md border border-evload-border bg-evload-bg px-2.5 py-1 text-xs font-semibold text-evload-text transition-colors hover:bg-evload-border/50 disabled:opacity-60"
-                >
-                  {waking ? 'Waking...' : 'Wake Vehicle'}
-                </button>
-              )}
+              <div className="text-[11px] uppercase tracking-[0.24em] text-evload-muted font-semibold">Charge Cockpit</div>
+              <h2 className="mt-1 text-xl font-semibold text-evload-text flex items-center gap-2"><Car size={18} /> {vehicle.displayName ?? 'Vehicle'}</h2>
+              <div className="mt-1 text-xs text-evload-muted">Proxy: {proxyConnected ? 'Online' : 'Offline'}</div>
+              {statusReason && <div className="mt-1 text-xs text-amber-300">Reason: {statusReason}</div>}
             </div>
             <div className="text-right text-xs text-evload-muted">
               <div>VIN</div>
@@ -789,15 +915,53 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="mt-4">
-            <EvccSocBar
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="relative min-h-[88px] rounded-xl border border-evload-border bg-evload-bg/75 p-2.5">
+              <div className="text-[11px] uppercase tracking-wide text-evload-muted whitespace-nowrap">Live Power</div>
+              <div className="text-lg font-semibold text-evload-text whitespace-nowrap">{displayChargePowerKw.toFixed(2)} kW</div>
+              <div className="absolute left-2 right-2 bottom-2 rounded-md border border-evload-border/60 bg-evload-bg/85 px-2 py-1 text-[11px] text-evload-text/90">
+                {haChargerPowerW != null ? 'HA source' : 'Vehicle source'}
+              </div>
+            </div>
+            <div className="relative min-h-[100px] rounded-xl border border-evload-border bg-evload-bg/75 p-2.5">
+              <div className="text-[11px] uppercase tracking-wide text-evload-muted whitespace-nowrap">Estimated End</div>
+              <div className="text-base font-bold text-evload-text whitespace-nowrap leading-snug">{etaToChargeEnd}</div>
+              {etaEndTime != null && (
+                <div className="text-[11px] text-evload-muted whitespace-nowrap mt-0.5 mb-2.5">
+                  {etaEndTime}
+                </div>
+              )}
+              <div className="absolute left-2 right-2 bottom-2 rounded-md border border-evload-border/60 bg-evload-bg/85 px-2 py-1 text-[11px] text-evload-text/90" title={etaSourceLabel}>
+                {vehicle?.charging ? 'Live charge model' : 'Idle forecast'}
+              </div>
+            </div>
+            <div className="relative min-h-[88px] rounded-xl border border-evload-border bg-evload-bg/75 p-2.5">
+              <div className="text-[11px] uppercase tracking-wide text-evload-muted whitespace-nowrap">Charge Mode</div>
+              <div className="text-lg font-semibold text-evload-text whitespace-nowrap">{chargeMode.toUpperCase()}</div>
+              <div className="absolute left-2 right-2 bottom-2 rounded-md border border-evload-border/60 bg-evload-bg/85 px-2 py-1 text-[11px] text-evload-text/90">
+                {isPlanMode ? 'Plan active' : 'Direct control'}
+              </div>
+            </div>
+            <div className="relative min-h-[88px] rounded-xl border border-evload-border bg-evload-bg/75 p-2.5">
+              <div className="text-[11px] uppercase tracking-wide text-evload-muted whitespace-nowrap">Session Cost</div>
+              <div className="text-lg font-semibold text-evload-text whitespace-nowrap">{cumulativeChargeCostEur != null ? `${cumulativeChargeCostEur.toFixed(2)} EUR` : '—'}</div>
+              <div className="absolute left-2 right-2 bottom-2 rounded-md border border-evload-border/60 bg-evload-bg/85 px-2 py-1 text-[11px] text-evload-text/90">
+                Energy: {chargedEnergyWh != null ? `${chargedEnergyWh} Wh` : '—'}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-col items-center gap-4">
+            <SocRingControl
               actualSoc={soc}
               targetSoc={effectiveTargetSoc}
               carLimitSoc={carLimitSoc}
+              currentRangeKm={currentRangeKm}
+              targetRangeKm={estimatedRangeAtTargetKm}
               charging={vehicle.charging}
-                readonly={isPlanMode}
+              readonly={isPlanMode}
               onTargetChange={(v) => {
-                flog.debug('TARGET_SOC', 'Slider dragged', {
+                flog.debug('TARGET_SOC', 'Ring dragged', {
                   newTargetSoc: v,
                   previousTargetSoc: manualTargetSoc,
                   engineRunning: engine?.running ?? false,
@@ -810,149 +974,191 @@ export default function DashboardPage() {
                 void persistTargetSocPreference(v)
               }}
             />
-            {isPlanMode && (
-              <div className="mt-1 text-[11px] text-evload-muted">Target set by schedule</div>
-            )}
-            {carLimitSoc != null && carLimitSoc < effectiveTargetSoc && (
-              <div className="mt-2 flex items-center gap-2 text-xs">
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300">
-                  Hardware Limit: {carLimitSoc}%
-                </span>
-              </div>
-            )}
-            {timeToTarget.error && (
-              <div className="mt-2 text-xs text-evload-error bg-evload-error/10 border border-evload-error/30 rounded px-2 py-1">
-                {timeToTarget.error}
-              </div>
-            )}
-          </div>
-
-          <div className="mt-4 grid grid-cols-3 gap-3">
-            <div className="text-left">
-              <div className="text-xs uppercase tracking-wide text-evload-muted">Charge</div>
-              <div className="text-4xl font-semibold leading-none mt-1">{soc}%</div>
-              <div className="text-sm text-evload-muted mt-1">{vehicle.batteryRange?.toFixed(0) ?? '0'} km</div>
-            </div>
-            <div className="text-center">
-              <div className="text-xs uppercase tracking-wide text-evload-muted">Engine</div>
-              <div className="text-4xl font-semibold leading-none mt-1">
-                {enginePhaseLabel}
-              </div>
-              <div className="text-sm text-evload-muted mt-1">{engineMessageLabel}</div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs uppercase tracking-wide text-evload-muted">Limit</div>
-              <div className="text-4xl font-semibold leading-none mt-1">{effectiveTargetSoc}%</div>
-              <div className="text-sm text-evload-muted mt-1">
-                {estimatedRangeAtTargetKm != null ? `${estimatedRangeAtTargetKm} km` : '—'}
-              </div>
+            <div className="flex flex-wrap items-center justify-center gap-2.5">
+              {isPlanMode && (
+                <div className="rounded-full border border-evload-border/60 bg-evload-bg/60 px-3 py-1 text-[11px] text-evload-muted">
+                  Target controlled by active plan
+                </div>
+              )}
+              {timeToTarget.error && (
+                <div className="text-xs text-evload-error bg-evload-error/10 border border-evload-error/30 rounded-full px-3 py-1">{timeToTarget.error}</div>
+              )}
               {carLimitSoc != null && carLimitSoc < effectiveTargetSoc && (
-                <div className="text-xs text-evload-error mt-1">Auto limit {carLimitSoc}% is lower</div>
+                <div className="text-xs text-amber-300 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1">Hardware limit active at {carLimitSoc}%</div>
+              )}
+              {canWakeVehicle && (
+                <button
+                  onClick={handleWakeVehicle}
+                  disabled={waking || !proxyConnected}
+                  className="inline-flex items-center rounded-full border border-evload-border bg-evload-bg px-3 py-1 text-xs font-semibold text-evload-text transition-colors hover:bg-evload-border/50 disabled:opacity-60"
+                >
+                  {waking ? 'Waking...' : 'Wake Vehicle'}
+                </button>
               )}
             </div>
           </div>
+        </section>
 
-          <div className="mt-3 rounded-xl border border-evload-border bg-evload-bg/70 px-3 py-2 flex items-center justify-between gap-3">
-            <div>
-              <div className="text-[11px] uppercase tracking-wide text-evload-muted">Charge End ETA</div>
-              <div className="text-lg font-semibold text-evload-text">{etaToChargeEnd}</div>
-            </div>
-            <div className="text-right">
-              <div className="text-[11px] text-evload-muted">{etaSourceLabel}</div>
-              {usableEvloadAveragePowerKw != null && (
-                <div className="text-xs text-evload-muted">Evload average: {usableEvloadAveragePowerKw.toFixed(2)} kW</div>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-4 border-t border-evload-border pt-4">
-            <button
-              type="button"
-              onClick={() => setVehicleDetailsExpanded((prev) => !prev)}
-              className="w-full flex items-center justify-between rounded-xl border border-evload-border bg-evload-bg px-3 py-2 text-left"
-            >
+        <div className="space-y-4 xl:h-full xl:flex xl:flex-col">
+          <section className="bg-evload-surface/90 border border-evload-border rounded-3xl p-4 sm:p-5 shadow-[0_20px_40px_rgba(0,0,0,0.08)] xl:flex-1">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-evload-text">Vehicle Details</div>
-                <div className="text-xs text-evload-muted">Current, voltage, power, energy, ETA, and efficiency</div>
+                <div className="text-[11px] uppercase tracking-[0.24em] text-evload-muted font-semibold">Power Snapshot</div>
+                <h3 className="mt-1 text-lg font-semibold text-evload-text">Home vs EV</h3>
               </div>
-              {vehicleDetailsExpanded ? (
-                <ChevronDown size={16} className="text-evload-muted" />
-              ) : (
-                <ChevronRight size={16} className="text-evload-muted" />
-              )}
-            </button>
+              <div className="text-right">
+                <div className="text-[11px] uppercase tracking-wide text-evload-muted">Grid Total</div>
+                <div className="text-xl font-black text-evload-text">{(homeTotalPowerW / 1000).toFixed(2)} kW</div>
+              </div>
+            </div>
 
-            {vehicleDetailsExpanded && (
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
-                  <div className="text-xs uppercase tracking-wide text-evload-muted">Actual / Requested Current</div>
-                  <div className="mt-1 text-sm font-semibold text-evload-text">
-                    {autoActualCurrentA != null ? `${autoActualCurrentA.toFixed(1)} A` : '—'} / {evloadRequestedCurrentA != null ? `${evloadRequestedCurrentA.toFixed(1)} A` : '—'}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
-                  <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Voltage</div>
-                  <div className="mt-1 text-sm font-semibold text-evload-text">{autoVoltageV != null ? `${Math.round(autoVoltageV)} V` : '—'}</div>
-                </div>
-
-                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
-                  <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Power</div>
-                  <div className="mt-1 text-sm font-semibold text-evload-text">{autoPowerKw > 0 ? `${autoPowerKw.toFixed(2)} kW` : '—'}</div>
-                </div>
-
-                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
-                  <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Energy (da partenza sessione)</div>
-                  <div className="mt-1 text-sm font-semibold text-evload-text">{vehicleChargedEnergyKwh != null ? `${vehicleChargedEnergyKwh.toFixed(2)} kWh` : '—'}</div>
-                  <div className="mt-1 text-[11px] text-evload-muted">charge_energy_added − baseline avvio sessione</div>
-                </div>
-
-                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
-                  <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Energy (raw Tesla proxy)</div>
-                  <div className="mt-1 text-sm font-semibold text-evload-text">{vehicleChargedEnergyRawKwh != null ? `${vehicleChargedEnergyRawKwh.toFixed(2)} kWh` : '—'}</div>
-                  <div className="mt-1 text-[11px] text-evload-muted">charge_energy_added diretto dal proxy</div>
-                </div>
-
-                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
-                  <div className="text-xs uppercase tracking-wide text-evload-muted">Meter Charged Energy</div>
-                  <div className="mt-1 text-sm font-semibold text-evload-text">{meterEnergyKwh != null ? `${meterEnergyKwh.toFixed(2)} kWh` : '—'}</div>
-                </div>
-
-                <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
-                  <div className="text-xs uppercase tracking-wide text-evload-muted">Charging Efficiency</div>
-                  <div className="mt-1 text-sm font-semibold text-evload-text">
-                    {vehicleEfficiencyPct != null ? `${vehicleEfficiencyPct.toFixed(2)}%` : '—'}
-                  </div>
-                  <div className="mt-1 text-[11px] text-evload-muted">
-                    (energia sessione Tesla / contatore) × 100
-                  </div>
-                </div>
-
-                <div className="sm:col-span-2 rounded-xl border border-evload-border bg-evload-bg/70 p-3">
-                  <div className="text-xs uppercase tracking-wide text-evload-muted">Current vs Power Limit Check</div>
-                  <div className="mt-1 text-sm font-semibold text-evload-text">
-                    {isCurrentUnderLimit == null
-                      ? 'Insufficient data'
-                      : isCurrentUnderLimit
-                        ? `OK: ${autoActualCurrentA?.toFixed(1)} A <= ${safeCurrentLimitA?.toFixed(1)} A`
-                        : `WARNING: ${autoActualCurrentA?.toFixed(1)} A > ${safeCurrentLimitA?.toFixed(1)} A`}
-                  </div>
+            <div className="mt-4 flex items-center gap-4">
+              <div
+                className="h-36 w-36 rounded-full border border-evload-border"
+                style={{
+                  background: `conic-gradient(#22c55e 0 ${homeBaseLoadSharePct}%, #facc15 ${homeBaseLoadSharePct}% 100%)`,
+                }}
+              >
+                <div className="m-4 h-28 w-28 rounded-full bg-evload-surface border border-evload-border flex items-center justify-center text-xs font-semibold text-evload-muted">
+                  Split
                 </div>
               </div>
+              <div className="flex-1 space-y-2 text-xs">
+                <div className="flex items-center justify-between rounded-lg border border-evload-border/60 bg-evload-bg/50 px-2 py-1.5">
+                  <span className="text-evload-muted">Home Base</span>
+                  <span className="font-semibold text-evload-text">{homeBaseLoadSharePct.toFixed(1)}%</span>
+                </div>
+                <div className="flex items-center justify-between rounded-lg border border-evload-border/60 bg-evload-bg/50 px-2 py-1.5">
+                  <span className="text-evload-muted">EV Charging</span>
+                  <span className="font-semibold text-evload-text">{chargerLoadSharePct.toFixed(1)}%</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FlowStatRow
+                icon={<Home size={14} className="text-emerald-100" />}
+                label="Home Base"
+                value={`${(homeNonChargingPowerW / 1000).toFixed(2)} kW`}
+                accentClass="bg-emerald-500/70 text-emerald-100"
+              />
+              <FlowStatRow
+                icon={<ZapIcon size={14} className="text-yellow-950" />}
+                label="EV Charging"
+                value={`${(chargerPowerW / 1000).toFixed(2)} kW`}
+                accentClass="bg-yellow-400/90 text-yellow-950"
+              />
+            </div>
+          </section>
+
+          <section
+            className={clsx(
+              'rounded-3xl border p-4 sm:p-5 transition-all xl:flex-1',
+              finishByWakeStatus.tone === 'waking' && 'border-indigo-400/60 bg-indigo-500/10',
+              finishByWakeStatus.tone === 'ready' && 'border-cyan-400/60 bg-cyan-500/10',
+              finishByWakeStatus.tone === 'scheduled' && 'border-emerald-400/60 bg-emerald-500/10',
+              finishByWakeStatus.tone === 'idle' && 'border-evload-border bg-evload-surface'
             )}
-          </div>
+          >
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-evload-text">
+                <Bot size={16} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] uppercase tracking-[0.2em] text-evload-muted">Plan Timeline</div>
+                <h3 className="mt-1 text-base font-bold text-evload-text">{finishByWakeStatus.title}</h3>
+                <p className="mt-1 text-sm text-evload-muted">{finishByWakeStatus.detail}</p>
+                <div className="mt-3 space-y-2 text-xs">
+                  <div className="flex items-center justify-between rounded-lg border border-evload-border/60 bg-evload-bg/50 px-2 py-1.5">
+                    <span className="text-evload-muted">Next Start</span>
+                    <span className="font-semibold text-evload-text">{nextChargeStartTime ?? 'No schedule'}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border border-evload-border/60 bg-evload-bg/50 px-2 py-1.5">
+                    <span className="text-evload-muted">Finish Deadline</span>
+                    <span className="font-semibold text-evload-text">{nextCharge?.finishBy ? new Date(nextCharge.finishBy).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
 
-      <div className="bg-evload-surface border border-evload-border rounded-3xl p-4 sm:p-5 space-y-3">
-        <h2 className="font-semibold text-lg">Engine Live Log</h2>
-        <div className="bg-evload-bg border border-evload-border rounded-xl p-3 h-56 overflow-auto font-mono text-xs leading-5">
-          {(engine?.debugLog?.length ?? 0) === 0 ? (
-            <div className="text-evload-muted">No logs yet. Start charging control to see engine actions.</div>
-          ) : (
-            [...(engine?.debugLog ?? [])].reverse().map((line, idx) => (
-              <div key={`${idx}-${line}`} className="text-evload-text">{line}</div>
-            ))
+      <div className="bg-evload-surface/90 border border-evload-border rounded-3xl p-4 sm:p-5 text-evload-text shadow-[0_20px_40px_rgba(0,0,0,0.08)]">
+        <div className="mt-1 border-t border-evload-border pt-4">
+          <button
+            type="button"
+            onClick={() => setVehicleDetailsExpanded((prev) => !prev)}
+            className="w-full flex items-center justify-between rounded-xl border border-evload-border bg-evload-bg px-3 py-2 text-left"
+          >
+            <div>
+              <div className="text-sm font-semibold text-evload-text">Vehicle Details</div>
+              <div className="text-xs text-evload-muted">Current, voltage, power, energy, ETA, and efficiency</div>
+            </div>
+            {vehicleDetailsExpanded ? (
+              <ChevronDown size={16} className="text-evload-muted" />
+            ) : (
+              <ChevronRight size={16} className="text-evload-muted" />
+            )}
+          </button>
+
+          {vehicleDetailsExpanded && (
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                <div className="text-xs uppercase tracking-wide text-evload-muted">Actual / Requested Current</div>
+                <div className="mt-1 text-sm font-semibold text-evload-text">
+                  {autoActualCurrentA != null ? `${autoActualCurrentA.toFixed(1)} A` : '—'} / {evloadRequestedCurrentA != null ? `${evloadRequestedCurrentA.toFixed(1)} A` : '—'}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Voltage</div>
+                <div className="mt-1 text-sm font-semibold text-evload-text">{autoVoltageV != null ? `${Math.round(autoVoltageV)} V` : '—'}</div>
+              </div>
+
+              <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Power</div>
+                <div className="mt-1 text-sm font-semibold text-evload-text">{autoPowerKw > 0 ? `${autoPowerKw.toFixed(2)} kW` : '—'}</div>
+              </div>
+
+              <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Energy (from session start)</div>
+                <div className="mt-1 text-sm font-semibold text-evload-text">{vehicleChargedEnergyKwh != null ? `${vehicleChargedEnergyKwh.toFixed(2)} kWh` : '—'}</div>
+                <div className="mt-1 text-[11px] text-evload-muted">charge_energy_added minus session-start baseline</div>
+              </div>
+
+              <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                <div className="text-xs uppercase tracking-wide text-evload-muted">Vehicle Energy (raw Tesla proxy)</div>
+                <div className="mt-1 text-sm font-semibold text-evload-text">{vehicleChargedEnergyRawKwh != null ? `${vehicleChargedEnergyRawKwh.toFixed(2)} kWh` : '—'}</div>
+                <div className="mt-1 text-[11px] text-evload-muted">charge_energy_added directly from proxy</div>
+              </div>
+
+              <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                <div className="text-xs uppercase tracking-wide text-evload-muted">Meter Charged Energy</div>
+                <div className="mt-1 text-sm font-semibold text-evload-text">{meterEnergyKwh != null ? `${meterEnergyKwh.toFixed(2)} kWh` : '—'}</div>
+              </div>
+
+              <div className="rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                <div className="text-xs uppercase tracking-wide text-evload-muted">Charging Efficiency</div>
+                <div className="mt-1 text-sm font-semibold text-evload-text">
+                  {vehicleEfficiencyPct != null ? `${vehicleEfficiencyPct.toFixed(2)}%` : '—'}
+                </div>
+                <div className="mt-1 text-[11px] text-evload-muted">
+                  (Tesla session energy / meter energy) x 100
+                </div>
+              </div>
+
+              <div className="sm:col-span-2 rounded-xl border border-evload-border bg-evload-bg/70 p-3">
+                <div className="text-xs uppercase tracking-wide text-evload-muted">Current vs Power Limit Check</div>
+                <div className="mt-1 text-sm font-semibold text-evload-text">
+                  {isCurrentUnderLimit == null
+                    ? 'Insufficient data'
+                    : isCurrentUnderLimit
+                      ? `OK: ${autoActualCurrentA?.toFixed(1)} A <= ${safeCurrentLimitA?.toFixed(1)} A`
+                      : `WARNING: ${autoActualCurrentA?.toFixed(1)} A > ${safeCurrentLimitA?.toFixed(1)} A`}
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>

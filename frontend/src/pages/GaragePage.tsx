@@ -198,7 +198,7 @@ export default function GaragePage() {
   const nextScheduleMsg = engine?.mode === 'plan' ? `Plan armed -> ${engine.targetSoc}%` : null
 
   return (
-    <div className="relative min-h-screen bg-evload-bg text-evload-text flex flex-col select-none">
+    <div className="relative min-h-screen text-evload-text flex flex-col select-none">
 
       {/* ── Screen saver overlay ─────────────────────────────────────────── */}
       {(screenDim || screenOff) && (
@@ -220,7 +220,7 @@ export default function GaragePage() {
       )}
 
       {/* ── Header bar ──────────────────────────────────────────────────── */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-evload-border bg-evload-surface shrink-0">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-evload-border bg-evload-surface/90 backdrop-blur shrink-0">
         <div className="flex items-center gap-2">
           <Zap className="text-evload-accent" size={22} />
           <span className="font-bold text-lg">evload</span>
@@ -239,10 +239,10 @@ export default function GaragePage() {
       </header>
 
       {/* ── Main content ────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col gap-4 p-4 overflow-auto">
+      <div className="flex-1 flex flex-col gap-4 p-4 overflow-auto max-w-6xl mx-auto w-full">
 
         {/* ── Status card ──────────────────────────────────────────── */}
-        <div className={clsx('rounded-2xl border p-5 bg-evload-surface flex flex-col gap-4', chargingBorder)}>
+        <div className={clsx('ev-card-strong flex flex-col gap-4', chargingBorder)}>
 
           {/* SOC bar */}
           <div className="flex flex-col gap-2">
@@ -284,19 +284,19 @@ export default function GaragePage() {
 
           {/* Metrics grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-            <div className="rounded-xl bg-evload-bg p-3">
+            <div className="rounded-xl border border-evload-border bg-evload-bg/85 p-3">
               <div className="text-2xl font-bold">{formatKw(vehicle?.chargeRateKw)}</div>
               <div className="text-xs text-evload-muted mt-1">Charging power</div>
             </div>
-            <div className="rounded-xl bg-evload-bg p-3">
+            <div className="rounded-xl border border-evload-border bg-evload-bg/85 p-3">
               <div className="text-2xl font-bold">{formatETA(vehicle?.timeToFullChargeH)}</div>
               <div className="text-xs text-evload-muted mt-1">Charge ETA</div>
             </div>
-            <div className="rounded-xl bg-evload-bg p-3">
+            <div className="rounded-xl border border-evload-border bg-evload-bg/85 p-3">
               <div className="text-2xl font-bold">{formatW(ha?.powerW)}</div>
               <div className="text-xs text-evload-muted mt-1">Home load</div>
             </div>
-            <div className="rounded-xl bg-evload-bg p-3">
+            <div className="rounded-xl border border-evload-border bg-evload-bg/85 p-3">
               <div className="text-2xl font-bold">{vehicle?.chargerActualCurrent != null ? `${vehicle.chargerActualCurrent}A` : '—'}</div>
               <div className="text-xs text-evload-muted mt-1">Current</div>
             </div>
@@ -316,7 +316,7 @@ export default function GaragePage() {
         </div>
 
         {/* ── Car Options ───────────────────────────────────────── */}
-        <div className="rounded-2xl bg-evload-surface border border-evload-border p-4 flex flex-col gap-3">
+        <div className="ev-card flex flex-col gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-widest text-evload-muted mb-0.5">Vehicle Controls</div>
             <div className="text-[11px] text-evload-muted">Direct vehicle commands. Requires active proxy connectivity.</div>
@@ -393,7 +393,7 @@ export default function GaragePage() {
         </div>
 
         {/* ── Screen Options ─────────────────────────────────────── */}
-        <div className="rounded-2xl bg-evload-surface border border-evload-border p-4 flex flex-col gap-3">
+        <div className="ev-card flex flex-col gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-widest text-evload-muted mb-0.5">Screen Options</div>
             <div className="text-[11px] text-evload-muted">Control tablet screen behavior in garage mode.</div>
@@ -463,7 +463,7 @@ export default function GaragePage() {
 
         {/* ── SOC Slider (shown after Start tap) ───────────────────── */}
         {showSocSlider && !engineRunning && (
-          <div className="rounded-2xl bg-evload-surface border border-evload-border p-5 flex flex-col gap-4">
+          <div className="ev-card-strong flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <span className="font-semibold">Target SoC</span>
               <span className="text-2xl font-bold text-evload-accent">{targetSoc}%</span>
@@ -497,7 +497,7 @@ export default function GaragePage() {
 
         {/* ── Status message ────────────────────────────────────────── */}
         {statusMsg && (
-          <div className="text-center text-sm py-2 px-4 rounded-xl bg-evload-surface border border-evload-border">
+          <div className="text-center text-sm py-2 px-4 rounded-xl bg-evload-surface/90 border border-evload-border shadow-[0_10px_24px_rgba(0,0,0,0.1)]">
             {statusMsg}
           </div>
         )}

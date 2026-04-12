@@ -312,13 +312,40 @@ if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --o
   git stash push --include-untracked -m "$STASH_NAME" >/dev/null 2>&1 || true
 fi
 
-git fetch origin "${branch}"
-git checkout -B "${branch}" FETCH_HEAD
-git reset --hard FETCH_HEAD
-git branch --set-upstream-to="origin/${branch}" "${branch}" >/dev/null 2>&1 || true
-echo "  Checked out branch: $(git rev-parse --abbrev-ref HEAD)"
-echo "  Local HEAD: $(git log -1 --format='%h %s')"
-echo "✅ Source updated to origin/${branch}"
+if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+  git fetch origin "${branch}"
+  git checkout -B "${branch}" FETCH_HEAD
+  git reset --hard FETCH_HEAD
+  git branch --set-upstream-to="origin/${branch}" "${branch}" >/dev/null 2>&1 || true
+  echo "  Checked out branch: $(git rev-parse --abbrev-ref HEAD)"
+  echo "  Local HEAD: $(git log -1 --format='%h %s')"
+  echo "✅ Source updated to origin/${branch}"
+else
+  echo "⚠️  Remote branch origin/${branch} not found."
+  if git show-ref --verify --quiet "refs/heads/${branch}"; then
+    echo "ℹ️  Falling back to local branch ${branch}."
+    git checkout "${branch}"
+    UPSTREAM_REF="$(git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>/dev/null || true)"
+    if [ -n "$UPSTREAM_REF" ]; then
+      echo "ℹ️  Pulling latest changes from upstream $UPSTREAM_REF"
+      if git pull --ff-only; then
+        echo "✅ Fast-forward pull completed from $UPSTREAM_REF"
+      else
+        echo "⚠️  Unable to fast-forward from $UPSTREAM_REF. Keeping current local HEAD."
+      fi
+    else
+      echo "ℹ️  No upstream configured for ${branch}; keeping current local HEAD."
+      echo "   To publish this branch run: git push -u origin ${branch}"
+    fi
+    echo "  Checked out branch: $(git rev-parse --abbrev-ref HEAD)"
+    echo "  Local HEAD: $(git log -1 --format='%h %s')"
+    echo "✅ Source ready from local branch ${branch}"
+  else
+    echo "❌ Branch '${branch}' does not exist on origin and is not available locally."
+    echo "   Push the branch first: git push -u origin ${branch}"
+    exit 1
+  fi
+fi
 echo ""
 
 echo "📦 [2/5] Installing dependencies (may take a few minutes)..."

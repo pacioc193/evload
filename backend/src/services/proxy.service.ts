@@ -150,7 +150,9 @@ let lastBleReachable: boolean | null = null
 let vehicleDataWindowStartMs: number | null = null
 
 function proxyUrl(): string {
-  return getConfig().proxy.url
+  const cfg = getConfig()
+  if (cfg.demo) return 'http://127.0.0.1:8080'
+  return cfg.proxy.url
 }
 
 function vehicleId(): string {

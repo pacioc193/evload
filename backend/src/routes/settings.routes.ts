@@ -9,6 +9,8 @@ import { requireAuth } from '../middleware/auth.middleware'
 import { getConfig, reloadConfig } from '../config'
 import { logger, setLoggerLevel } from '../logger'
 import { setPassword, verifyPassword } from '../auth'
+import { startFleetSimulator, stopFleetSimulator } from '../services/fleet-simulator.service'
+import { triggerImmediatePoll } from '../services/proxy.service'
 import {
   buildTimestampPayload,
   extractMissingTemplatePlaceholders,
@@ -24,12 +26,14 @@ const execFileAsync = promisify(execFile)
 const CONFIG_PATH = process.env.CONFIG_PATH ?? path.join(process.cwd(), 'config.yaml')
 const EXAMPLE_PATH = path.join(__dirname, '../../config.example.yaml')
 const LOG_DIR = path.join(process.cwd(), 'logs')
+const DEMO_PROXY_URL = 'http://127.0.0.1:8080'
 
 const router = Router()
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 })
 
 router.get('/', limiter, requireAuth, (_req, res) => {
   const cfg = getConfig()
+  const effectiveProxyUrl = cfg.demo ? DEMO_PROXY_URL : cfg.proxy.url
   res.json({
     demo: cfg.demo,
     logLevel: cfg.logLevel,
@@ -39,7 +43,7 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     haChargerEntityId: cfg.homeAssistant.chargerEntityId,
     haMaxHomePowerW: cfg.homeAssistant.maxHomePowerW,
     resumeDelaySec: cfg.homeAssistant.resumeDelaySec,
-    proxyUrl: cfg.proxy.url,
+    proxyUrl: effectiveProxyUrl,
     vehicleId: cfg.proxy.vehicleId,
     vehicleName: cfg.proxy.vehicleName,
     chargingPollIntervalMs: cfg.proxy.chargingPollIntervalMs,
@@ -52,6 +56,8 @@ router.get('/', limiter, requireAuth, (_req, res) => {
     defaultAmps: cfg.charging.defaultAmps,
     startAmps: cfg.charging.startAmps,
     planWakeBeforeMinutes: cfg.charging.planWakeBeforeMinutes,
+    nominalVoltageV: cfg.charging.nominalVoltageV,
+    finishBySafetyMarginPct: cfg.charging.finishBySafetyMarginPct,
     maxAmps: cfg.charging.maxAmps,
     minAmps: cfg.charging.minAmps,
     stopChargeOnManualStart: cfg.charging.stopChargeOnManualStart,
@@ -88,6 +94,8 @@ router.patch('/', limiter, requireAuth, async (req, res) => {
     defaultAmps: number
     startAmps: number
     planWakeBeforeMinutes: number
+    nominalVoltageV: number
+    finishBySafetyMarginPct: number
     maxAmps: number
     minAmps: number
     stopChargeOnManualStart: boolean
@@ -136,6 +144,7 @@ router.patch('/', limiter, requireAuth, async (req, res) => {
   }
 
   const activeCfg = getConfig()
+  const requestedDemo = incoming.demo !== undefined ? Boolean(incoming.demo) : Boolean(parsed['demo'] ?? activeCfg.demo)
 
   const ha = (parsed['homeAssistant'] as Record<string, unknown>) ?? {}
   if (incoming.haUrl !== undefined) ha['url'] = incoming.haUrl
@@ -169,6 +178,16 @@ router.patch('/', limiter, requireAuth, async (req, res) => {
   if (incoming.bodyPollIntervalMs !== undefined) proxy['bodyPollIntervalMs'] = incoming.bodyPollIntervalMs
   if (incoming.vehicleDataWindowMs !== undefined) proxy['vehicleDataWindowMs'] = incoming.vehicleDataWindowMs
   if (incoming.rejectUnauthorized !== undefined) proxy['rejectUnauthorized'] = incoming.rejectUnauthorized
+  if (requestedDemo) {
+    proxy['url'] = DEMO_PROXY_URL
+    if (!String(proxy['vehicleId'] ?? '').trim()) {
+      proxy['vehicleId'] = 'DEMO000000000001'
+    }
+    if (!String(proxy['vehicleName'] ?? '').trim()) {
+      proxy['vehicleName'] = 'Demo Vehicle'
+    }
+  }
+
   parsed['proxy'] = proxy
 
   const charging = (parsed['charging'] as Record<string, unknown>) ?? {}
@@ -177,6 +196,8 @@ router.patch('/', limiter, requireAuth, async (req, res) => {
   if (incoming.defaultAmps !== undefined) charging['defaultAmps'] = incoming.defaultAmps
   if (incoming.startAmps !== undefined) charging['startAmps'] = incoming.startAmps
   if (incoming.planWakeBeforeMinutes !== undefined) charging['planWakeBeforeMinutes'] = incoming.planWakeBeforeMinutes
+  if (incoming.nominalVoltageV !== undefined) charging['nominalVoltageV'] = incoming.nominalVoltageV
+  if (incoming.finishBySafetyMarginPct !== undefined) charging['finishBySafetyMarginPct'] = incoming.finishBySafetyMarginPct
   if (incoming.maxAmps !== undefined) charging['maxAmps'] = incoming.maxAmps
   if (incoming.minAmps !== undefined) charging['minAmps'] = incoming.minAmps
   if (incoming.stopChargeOnManualStart !== undefined) charging['stopChargeOnManualStart'] = incoming.stopChargeOnManualStart
@@ -278,6 +299,19 @@ router.patch('/', limiter, requireAuth, async (req, res) => {
       process.env.TZ = 'UTC'
     }
     initTelegram()
+
+    if (activeCfg.demo !== nextCfg.demo) {
+      if (nextCfg.demo) {
+        startFleetSimulator()
+        logger.info('Demo mode enabled: simulator started and proxy URL forced', { demoProxyUrl: DEMO_PROXY_URL })
+      } else {
+        stopFleetSimulator()
+        logger.info('Demo mode disabled: simulator stopped')
+      }
+      triggerImmediatePoll().catch((err) => {
+        logger.warn('Immediate proxy poll failed after demo toggle', { err })
+      })
+    }
   } catch (err) {
     logger.warn('Config reload failed after settings update', { err })
   }

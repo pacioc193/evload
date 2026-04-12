@@ -141,30 +141,30 @@ interface TestPayloadPreset {
 }
 
 const EVENT_EXAMPLE_TEMPLATES: Record<string, string> = {
-  engine_started: '🔌 Ricarica avviata\n📅 {{timestamp_date}}\n🎯 Obiettivo: {{targetSoc}}%\n⚡ Corrente: {{targetAmps}}A\n🚗 Veicolo: {{vehicleId}}',
-  engine_stopped: '🏁 Sessione terminata\n📅 {{timestamp_date}}\n🔖 Sessione: {{sessionId}}\n📋 Motivo: {{reason}}',
-  charge_start_blocked: '⚠️ Avvio ricarica bloccato\n📅 {{timestamp_date}}\n❌ Motivo: {{reason}}\n🔌 Stato: {{chargingState}}\n🔋 SoC: {{soc}}%',
-  ha_throttled: '⚡ Corrente ridotta (limite casa)\n📅 {{timestamp_date}}\n🏠 Casa: {{homePowerW}}W / Max: {{maxHomePowerW}}W\n🔌 Corrente limitata: {{throttledAmps}}A',
-  failsafe_activated: '🚨 Failsafe attivato\n📅 {{timestamp_date}}\n❗ Motivo: {{reason}}',
-  failsafe_cleared: '✅ Failsafe disattivato\n📅 {{timestamp_date}}\n✔️ Motivo: {{reason}}',
-  soc_increased: '🔋 Aggiornamento carica\n📅 {{timestamp_date}}\n⚡ SoC: {{soc}}% (+{{deltaSoc}}%)',
-  start_charging: '⚡ Ricarica avviata\n📅 {{timestamp_date}}\n📋 Motivo: {{reason}}',
-  stop_charging: '🛑 Ricarica fermata\n📅 {{timestamp_date}}\n📋 Motivo: {{reason}}',
-  plan_start: '🗓️ Piano di ricarica avviato\n📅 {{timestamp_date}}\n📌 Piano: {{planName}}\n🎯 Obiettivo: {{targetSoc}}%',
-  plan_completed: '✅ Piano completato\n📅 {{timestamp_date}}\n📌 Piano: {{planName}}\n📋 Motivo: {{reason}}',
-  plan_skipped: '⏭️ Piano saltato\n📅 {{timestamp_date}}\n📌 Piano: {{planName}}\n📋 Motivo: {{reason}}',
-  plan_wake: '⏰ Sveglia pre-ricarica\n📅 {{timestamp_date}}\n📌 Piano: {{planName}}\n⏱️ Avvio tra: {{wakeBeforeMinutes}} min',
-  target_soc_reached: '🏆 Obiettivo SoC raggiunto\n📅 {{timestamp_date}}\n🔋 SoC: {{soc}}% / Obiettivo: {{targetSoc}}%',
-  ha_paused: '⏸️ Ricarica in pausa (limite casa)\n📅 {{timestamp_date}}\n🏠 Casa: {{homePowerW}}W / Max: {{maxHomePowerW}}W\n⏱️ Riprova tra: {{retrySec}}s',
-  charging_paused: '⏸️ Ricarica in pausa\n📅 {{timestamp_date}}\n📋 Motivo: {{reason}}',
-  charging_resumed: '▶️ Ricarica ripresa\n📅 {{timestamp_date}}\n📋 Motivo: {{reason}}',
-  home_power_limit_exceeded: '🔴 Limite potenza casa superato\n📅 {{timestamp_date}}\n🏠 Casa: {{homePowerW}}W / Limite: {{limitW}}W',
-  home_power_limit_restored: '🟢 Potenza casa rientrata nel limite\n📅 {{timestamp_date}}\n🏠 Casa: {{homePowerW}}W / Limite: {{limitW}}W',
-  vehicle_connected: '🚗 Veicolo connesso\n📅 {{timestamp_date}}\n🚘 ID: {{vehicleId}}',
-  vehicle_disconnected: '🔌 Veicolo disconnesso\n📅 {{timestamp_date}}\n🚘 ID: {{vehicleId}}',
-  vehicle_in_garage: '🏠 Veicolo in garage\n📅 {{timestamp_date}}\n🚘 ID: {{vehicleId}}',
-  vehicle_not_in_garage: '🚙 Veicolo non in garage\n📅 {{timestamp_date}}\n🚘 ID: {{vehicleId}}',
-  proxy_error: '❌ Errore proxy veicolo\n📅 {{timestamp_date}}\n🚘 Veicolo: {{vehicleId}}\n❗ Motivo: {{reason}}',
+  engine_started: '🔌 Charging started\n📅 {{timestamp_date}}\n🎯 Target: {{targetSoc}}%\n⚡ Current: {{targetAmps}}A\n🚗 Vehicle: {{vehicleId}}',
+  engine_stopped: '🏁 Session ended\n📅 {{timestamp_date}}\n🔖 Session: {{sessionId}}\n📋 Reason: {{reason}}',
+  charge_start_blocked: '⚠️ Charging start blocked\n📅 {{timestamp_date}}\n❌ Reason: {{reason}}\n🔌 State: {{chargingState}}\n🔋 SoC: {{soc}}%',
+  ha_throttled: '⚡ Current reduced (home limit)\n📅 {{timestamp_date}}\n🏠 Home: {{homePowerW}}W / Max: {{maxHomePowerW}}W\n🔌 Limited current: {{throttledAmps}}A',
+  failsafe_activated: '🚨 Failsafe activated\n📅 {{timestamp_date}}\n❗ Reason: {{reason}}',
+  failsafe_cleared: '✅ Failsafe cleared\n📅 {{timestamp_date}}\n✔️ Reason: {{reason}}',
+  soc_increased: '🔋 Charge update\n📅 {{timestamp_date}}\n⚡ SoC: {{soc}}% (+{{deltaSoc}}%)',
+  start_charging: '⚡ Charging started\n📅 {{timestamp_date}}\n📋 Reason: {{reason}}',
+  stop_charging: '🛑 Charging stopped\n📅 {{timestamp_date}}\n📋 Reason: {{reason}}',
+  plan_start: '🗓️ Charging plan started\n📅 {{timestamp_date}}\n📌 Plan: {{planName}}\n🎯 Target: {{targetSoc}}%',
+  plan_completed: '✅ Plan completed\n📅 {{timestamp_date}}\n📌 Plan: {{planName}}\n📋 Reason: {{reason}}',
+  plan_skipped: '⏭️ Plan skipped\n📅 {{timestamp_date}}\n📌 Plan: {{planName}}\n📋 Reason: {{reason}}',
+  plan_wake: '⏰ Pre-charge wake-up\n📅 {{timestamp_date}}\n📌 Plan: {{planName}}\n⏱️ Starts in: {{wakeBeforeMinutes}} min',
+  target_soc_reached: '🏆 Target SoC reached\n📅 {{timestamp_date}}\n🔋 SoC: {{soc}}% / Target: {{targetSoc}}%',
+  ha_paused: '⏸️ Charging paused (home limit)\n📅 {{timestamp_date}}\n🏠 Home: {{homePowerW}}W / Max: {{maxHomePowerW}}W\n⏱️ Retry in: {{retrySec}}s',
+  charging_paused: '⏸️ Charging paused\n📅 {{timestamp_date}}\n📋 Reason: {{reason}}',
+  charging_resumed: '▶️ Charging resumed\n📅 {{timestamp_date}}\n📋 Reason: {{reason}}',
+  home_power_limit_exceeded: '🔴 Home power limit exceeded\n📅 {{timestamp_date}}\n🏠 Home: {{homePowerW}}W / Limit: {{limitW}}W',
+  home_power_limit_restored: '🟢 Home power back within limit\n📅 {{timestamp_date}}\n🏠 Home: {{homePowerW}}W / Limit: {{limitW}}W',
+  vehicle_connected: '🚗 Vehicle connected\n📅 {{timestamp_date}}\n🚘 ID: {{vehicleId}}',
+  vehicle_disconnected: '🔌 Vehicle disconnected\n📅 {{timestamp_date}}\n🚘 ID: {{vehicleId}}',
+  vehicle_in_garage: '🏠 Vehicle in garage\n📅 {{timestamp_date}}\n🚘 ID: {{vehicleId}}',
+  vehicle_not_in_garage: '🚙 Vehicle not in garage\n📅 {{timestamp_date}}\n🚘 ID: {{vehicleId}}',
+  proxy_error: '❌ Vehicle proxy error\n📅 {{timestamp_date}}\n🚘 Vehicle: {{vehicleId}}\n❗ Reason: {{reason}}',
 }
 
 function CollapsibleHeader({
@@ -338,24 +338,24 @@ export default function NotificationsPage() {
     const examples: TelegramNotificationRule[] = [
       {
         id: `example-1`,
-        name: 'Ricarica avviata',
+        name: 'Charging started',
         enabled: true,
         event: 'engine_started',
-        template: '🔌 Ricarica avviata\n📅 {{timestamp_date}}\n🎯 Obiettivo: {{targetSoc}}%\n⚡ Corrente: {{targetAmps}}A\n🚗 Veicolo: {{vehicleId}}',
+        template: '🔌 Charging started\n📅 {{timestamp_date}}\n🎯 Target: {{targetSoc}}%\n⚡ Current: {{targetAmps}}A\n🚗 Vehicle: {{vehicleId}}',
       },
       {
         id: `example-2`,
-        name: 'Potenza casa superata',
+        name: 'Home power exceeded',
         enabled: true,
         event: 'home_power_limit_exceeded',
-        template: '🔴 Limite potenza casa superato\n📅 {{timestamp_date}}\n🏠 Casa: {{homePowerW}}W / Limite: {{limitW}}W',
+        template: '🔴 Home power limit exceeded\n📅 {{timestamp_date}}\n🏠 Home: {{homePowerW}}W / Limit: {{limitW}}W',
       },
       {
         id: `example-3`,
-        name: 'Avanzamento ricarica (ogni 10%)',
+        name: 'Charge progress (every 10%)',
         enabled: true,
         event: 'soc_increased',
-        template: '🔋 Aggiornamento carica\n📅 {{timestamp_date}}\n⚡ SoC: {{soc}}% (+{{deltaSoc}}%)',
+        template: '🔋 Charge update\n📅 {{timestamp_date}}\n⚡ SoC: {{soc}}% (+{{deltaSoc}}%)',
         condition: {
           field: 'soc',
           operator: 'mod_step',
@@ -364,31 +364,31 @@ export default function NotificationsPage() {
       },
       {
         id: `example-4`,
-        name: 'SoC obiettivo raggiunto',
+        name: 'Target SoC reached',
         enabled: true,
         event: 'target_soc_reached',
-        template: '🏆 Obiettivo SoC raggiunto\n📅 {{timestamp_date}}\n🔋 SoC: {{soc}}% / Obiettivo: {{targetSoc}}%',
+        template: '🏆 Target SoC reached\n📅 {{timestamp_date}}\n🔋 SoC: {{soc}}% / Target: {{targetSoc}}%',
       },
       {
         id: `example-5`,
-        name: 'Avvio ricarica bloccato',
+        name: 'Charging start blocked',
         enabled: true,
         event: 'charge_start_blocked',
-        template: '⚠️ Avvio ricarica bloccato\n📅 {{timestamp_date}}\n❌ Motivo: {{reason}}\n🔌 Stato: {{chargingState}}\n🔋 SoC: {{soc}}%',
+        template: '⚠️ Charging start blocked\n📅 {{timestamp_date}}\n❌ Reason: {{reason}}\n🔌 State: {{chargingState}}\n🔋 SoC: {{soc}}%',
       },
       {
         id: `example-6`,
-        name: 'Piano avviato',
+        name: 'Plan started',
         enabled: true,
         event: 'plan_start',
-        template: '🗓️ Piano di ricarica avviato\n📅 {{timestamp_date}}\n📌 Piano: {{planName}}\n🎯 Obiettivo: {{targetSoc}}%',
+        template: '🗓️ Charging plan started\n📅 {{timestamp_date}}\n📌 Plan: {{planName}}\n🎯 Target: {{targetSoc}}%',
       },
       {
         id: `example-7`,
-        name: 'Sveglia pre-piano',
+        name: 'Pre-plan wake-up',
         enabled: true,
         event: 'plan_wake',
-        template: '⏰ Sveglia pre-ricarica\n📅 {{timestamp_date}}\n📌 Piano: {{planName}}\n⏱️ Avvio tra: {{wakeBeforeMinutes}} min',
+        template: '⏰ Pre-charge wake-up\n📅 {{timestamp_date}}\n📌 Plan: {{planName}}\n⏱️ Starts in: {{wakeBeforeMinutes}} min',
       },
     ]
     setSettings((prev) => prev ? { ...prev, telegramRules: examples } : prev)
@@ -637,23 +637,30 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="ev-page">
+      <section className="ev-hero">
+        <div className="relative flex flex-col gap-2">
+          <h1 className="text-2xl font-black tracking-tight sm:text-3xl flex items-center gap-2"><Bell size={24} />Notifications Panel</h1>
+          <p className="text-sm text-evload-muted">Advanced Telegram rule management with quick testing and guided placeholders.</p>
+        </div>
+      </section>
+
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Bell size={22} />Notifications Panel</h1>
+        <h2 className="text-lg font-semibold text-evload-muted">Controls</h2>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
             onClick={() => {
               setPhModalContext(undefined);
               setIsPhModalOpen(true);
             }}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-evload-bg/50 border border-evload-border hover:bg-evload-border rounded-lg text-sm font-medium transition-colors"
+            className="ev-btn-ghost flex-1 sm:flex-none"
           >
             <HelpCircle size={15} /> Placeholders
           </button>
           <button
             onClick={saveNotifications}
             disabled={saving}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+            className="ev-btn-primary flex-1 sm:flex-none disabled:opacity-50"
           >
             <Save size={15} />{saving ? 'Saving...' : 'Save'}
           </button>
@@ -669,7 +676,7 @@ export default function NotificationsPage() {
         currentEvent={phModalContext}
       />
 
-      <div className="bg-evload-surface border border-evload-border rounded-xl p-4 space-y-3">
+      <div className="ev-card-strong space-y-3">
         <div className="flex items-center justify-between py-2 border border-evload-border rounded-lg px-3">
           <div>
             <div className="font-medium text-sm">Telegram Notifications</div>
@@ -692,7 +699,7 @@ export default function NotificationsPage() {
             value={settings.telegramBotToken || ''}
             placeholder={settings.telegramBotToken ? '********' : 'Enter Bot Token...'}
             onChange={(e) => setSettings((prev) => prev ? { ...prev, telegramBotToken: e.target.value } : prev)}
-            className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent placeholder:text-evload-muted/50"
+            className="ev-input placeholder:text-evload-muted/50"
           />
         </div>
         <div>
@@ -703,7 +710,7 @@ export default function NotificationsPage() {
               const parsed = e.target.value.split(',').map((v) => v.trim()).filter(Boolean)
               setSettings((prev) => prev ? { ...prev, telegramAllowedChatIds: parsed } : prev)
             }}
-            className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
+            className="ev-input"
           />
         </div>
         {message && (
@@ -711,7 +718,7 @@ export default function NotificationsPage() {
         )}
       </div>
 
-      <div className="bg-evload-surface border border-evload-border rounded-xl p-4 space-y-3">
+      <div className="ev-card-strong space-y-3">
         <div className="flex items-center justify-between">
           <CollapsibleHeader
             title="Event Message Widget"
@@ -895,7 +902,7 @@ export default function NotificationsPage() {
 
       <div id="test-center-anchor" className="h-0" />
 
-      <div className="bg-evload-surface border border-evload-border rounded-xl p-4 space-y-3">
+      <div className="ev-card-strong space-y-3">
         <CollapsibleHeader
           title="Rules Builder"
           subtitle="Advanced conditions and multiple rules"

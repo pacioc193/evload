@@ -82,7 +82,7 @@ function readExpandedPanels(): Record<PanelKey, boolean> {
 
 function SectionCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-evload-border bg-evload-bg/60 p-3 space-y-3">
+    <div className="rounded-2xl border border-evload-border bg-evload-bg/70 p-4 space-y-3 shadow-[0_12px_28px_rgba(0,0,0,0.08)]">
       <h4 className="text-xs uppercase tracking-wider text-evload-muted font-semibold">{title}</h4>
       {children}
     </div>
@@ -105,7 +105,7 @@ function CollapsiblePanel({
   action?: ReactNode
 }) {
   return (
-    <section className="bg-evload-surface border border-evload-border rounded-xl overflow-hidden">
+    <section className="bg-evload-surface/92 border border-evload-border rounded-2xl overflow-hidden shadow-[0_18px_42px_rgba(0,0,0,0.09)]">
       <div className="flex items-center gap-3 px-5 py-4">
         <button
           type="button"
@@ -120,7 +120,7 @@ function CollapsiblePanel({
         </button>
         {action}
       </div>
-      {expanded && <div className="px-5 pb-5 border-t border-evload-border">{children}</div>}
+      {expanded && <div className="px-5 pb-5 border-t border-evload-border/80">{children}</div>}
     </section>
   )
 }
@@ -155,9 +155,9 @@ function Tooltip({ text }: { text: string }) {
 }
 
 function Field({
-  label, value, onChange, type = 'text', unit, placeholder, description, listId,
+  label, value, onChange, type = 'text', unit, placeholder, description, listId, disabled = false,
 }: {
-  label: string; value: string | number; onChange: (v: string) => void; type?: string; unit?: string; placeholder?: string; description?: string; listId?: string
+  label: string; value: string | number; onChange: (v: string) => void; type?: string; unit?: string; placeholder?: string; description?: string; listId?: string; disabled?: boolean
 }) {
   return (
     <div>
@@ -172,7 +172,8 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         list={listId}
         placeholder={placeholder}
-        className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
+        disabled={disabled}
+        className="ev-input"
       />
     </div>
   )
@@ -210,7 +211,7 @@ function SelectField({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm text-evload-text focus:outline-none focus:border-evload-accent"
+        className="ev-input"
       >
         {!options.includes(value) && (
           <option value={value}>{value} (custom)</option>
@@ -645,7 +646,7 @@ export default function SettingsPage() {
   }
 
   const numberFields = new Set<keyof AppSettings>([
-    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'planWakeBeforeMinutes', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs', 'chargeStartGraceSec',
+    'haMaxHomePowerW', 'resumeDelaySec', 'batteryCapacityKwh', 'energyPriceEurPerKwh', 'defaultAmps', 'startAmps', 'planWakeBeforeMinutes', 'nominalVoltageV', 'finishBySafetyMarginPct', 'maxAmps', 'minAmps', 'rampIntervalSec', 'chargeStartRetryMs', 'chargeStartGraceSec',
     'chargingPollIntervalMs', 'windowPollIntervalMs', 'bodyPollIntervalMs', 'vehicleDataWindowMs',
   ])
 
@@ -922,11 +923,19 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="ev-page">
+      <section className="ev-hero">
+        <div className="relative flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-black tracking-tight sm:text-3xl">Settings</h1>
+            <p className="mt-1 text-sm text-evload-muted">Complete configuration with structured panels and operational controls.</p>
+          </div>
+        </div>
+      </section>
+
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Settings</h1>
         <button onClick={() => { clearToken(); navigate('/login') }}
-          className="flex items-center gap-2 px-4 py-2 bg-evload-border hover:bg-evload-bg text-evload-text rounded-lg font-medium transition-colors text-sm">
+          className="ev-btn-ghost">
           <LogOut size={16} />Sign Out
         </button>
       </div>
@@ -948,7 +957,7 @@ export default function SettingsPage() {
                   <span className={`text-xs ${settingsMsg.includes('failed') ? 'text-evload-error' : 'text-evload-success'}`}>{settingsMsg}</span>
                 )}
                 <button onClick={() => handleSettingsSave('ha')}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-evload-accent hover:bg-red-700 text-white rounded-lg font-medium transition-colors text-xs">
+                  className="ev-btn-primary px-3 py-1.5 text-xs">
                   <Save size={12} />Save
                 </button>
                 <span className={`w-2 h-2 rounded-full ${haStatusOk ? 'bg-evload-success' : 'bg-evload-error'}`} />
@@ -1135,8 +1144,14 @@ export default function SettingsPage() {
                   value={settings.proxyUrl}
                   onChange={upd('proxyUrl')}
                   placeholder="http://proxy.local"
+                  disabled={settings.demo}
                   description="Base URL for the Tesla proxy API. All vehicle requests are routed through this address."
                 />
+                {settings.demo && (
+                  <div className="text-xs text-evload-muted rounded-lg border border-evload-border bg-evload-bg/60 px-3 py-2">
+                    Demo mode forces proxy URL to <span className="font-mono text-evload-text">http://127.0.0.1:8080</span>.
+                  </div>
+                )}
                 <div className="flex items-center justify-between rounded-lg border border-evload-border bg-evload-bg/60 px-4 py-3">
                   <div className="flex items-center gap-1.5">
                     <span className="font-medium text-sm">Verify TLS</span>
@@ -1333,12 +1348,28 @@ export default function SettingsPage() {
               <SectionCard title="Plan Mode">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <Field
-                    label="Pre-wake (min)"
+                    label="Pre-wake"
                     value={settings.planWakeBeforeMinutes}
                     onChange={upd('planWakeBeforeMinutes')}
                     type="number"
                     unit="min"
                     description="Minutes before a planned charge to send a wake-up command to the vehicle. Set to 0 to disable."
+                  />
+                  <Field
+                    label="Nominal Voltage"
+                    value={settings.nominalVoltageV}
+                    onChange={upd('nominalVoltageV')}
+                    type="number"
+                    unit="V"
+                    description="Nominal AC voltage used for finish-by charging window calculations when the vehicle is asleep and live charger voltage is unavailable. Typical: 220 V (EU domestic), 230 V (EU standard)."
+                  />
+                  <Field
+                    label="Finish-by Safety Margin"
+                    value={settings.finishBySafetyMarginPct}
+                    onChange={upd('finishBySafetyMarginPct')}
+                    type="number"
+                    unit="%"
+                    description="Extra safety margin added to the estimated charging duration for finish-by plans. E.g. 10% means charging starts 10% earlier than the raw estimate, absorbing ramp-up time and inefficiencies."
                   />
                 </div>
               </SectionCard>
@@ -1806,12 +1837,12 @@ export default function SettingsPage() {
 
           {backupStatus?.lastBackupAt && (
             <p className="text-xs text-evload-muted">
-              Ultimo backup: {new Date(backupStatus.lastBackupAt).toLocaleString()}
+              Last backup: {new Date(backupStatus.lastBackupAt).toLocaleString()}
             </p>
           )}
           {backupStatus?.nextBackupAt && backupStatus.connected && backupStatus.enabled && (
             <p className="text-xs text-evload-muted">
-              Prossimo backup: {new Date(backupStatus.nextBackupAt).toLocaleString()}
+              Next backup: {new Date(backupStatus.nextBackupAt).toLocaleString('en-GB')}
             </p>
           )}
 
@@ -1830,7 +1861,7 @@ export default function SettingsPage() {
                   className="flex-1 bg-evload-bg border border-evload-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-evload-accent"
                 />
                 <button
-                  title="Sfoglia cartelle su Drive"
+                  title="Browse Drive folders"
                   disabled={foldersLoading}
                   onClick={async () => {
                     setFoldersLoading(true)
@@ -1840,7 +1871,7 @@ export default function SettingsPage() {
                       setDriveFolders(res.folders)
                       setFolderPickerOpen(true)
                     } catch {
-                      setBackupMsg('Impossibile caricare le cartelle Drive')
+                      setBackupMsg('Failed to load Drive folders')
                       setBackupError(true)
                       setTimeout(() => setBackupMsg(''), 4000)
                     } finally {
@@ -1850,7 +1881,7 @@ export default function SettingsPage() {
                   className="flex items-center gap-1 px-3 py-2 bg-evload-surface border border-evload-border rounded-lg text-sm hover:bg-evload-border disabled:opacity-50"
                 >
                   <FolderOpen size={16} className={foldersLoading ? 'animate-pulse' : ''} />
-                  Sfoglia
+                  Browse
                 </button>
               </div>
 

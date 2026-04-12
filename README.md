@@ -19,6 +19,29 @@ The project is designed for home charging scenarios where you want to:
 
 ## Highlights
 
+- **Settings + Demo mode reliability fix**: demo toggle now applies live at runtime (simulator start/stop) and refreshes proxy polling immediately to prevent stale Settings runtime errors after mode changes
+- **Demo proxy URL is now forced**: when demo mode is enabled, EVLoad forces proxy routing to `http://127.0.0.1:8080` and auto-fills demo vehicle defaults when needed
+- **Simulator aligned with current polling logic**: fleet simulator now serves `body_controller_state` and additional command coverage used by current engine/dashboard flows
+- **Target SoC ring anti-wrap fix**: circular target drag now stays stable at the top seam and no longer wraps from `100%` back to `0%` during pointer movement
+- **SOC ring rendering corrected + space optimization**: fixed circular SoC control coloring behavior (solid actual arc + dashed target arc), enlarged the ring footprint, and rebalanced cockpit layout to prioritize SoC readability
+- **Control and status hierarchy refined**: moved `Off/Plan/On` selector above `Car/Engine/Cable` cards, moved `Reason` directly under `Proxy` in the cockpit header, and relocated range info away from the ring so the chart can stay at maximum visual size
+- **Circular SoC target control**: removed the linear target bar and introduced a draggable circular control around the SoC widget (solid arc = actual SoC, dashed arc = target delta, direct knob drag on ring)
+- **Cockpit de-duplication pass**: moved `Current range` / `Range at target` below the SoC control and removed repeated car/engine status lines to keep a cleaner single-source status narrative
+- **Cockpit KPI placement improved**: main KPI tiles are now rendered above the full charge cockpit area (including the SoC block), so the metric row aligns with the entire section rather than only the target-slider side
+- **Target SoC integrated in SoC widget**: the circular SoC module now includes a dedicated in-widget `Target xx%` sub-label to keep actual vs target immediately readable in one visual focus point
+- **Dashboard micro-UX refinements**: target SoC is now shown directly inside the cockpit SoC bar, cable state is integrated with car/engine status, right-side intelligence cards are reordered (`Power Snapshot` before `Plan Timeline`), and KPI cards now enforce no-wrap alignment for cleaner large-screen readability
+- **Power Snapshot now uses a donut chart**: replaced the previous split bar with a donut-style Home vs EV visualization plus explicit percentage rows for faster at-a-glance interpretation
+- **Dashboard information architecture reworked**: the dashboard now uses a completely different modern layout (`Charge Cockpit`, `Plan Timeline`, `Power Snapshot`) focused on high-signal operational decisions instead of long stacked sections
+- **Engine Live Log removed from Dashboard**: runtime telemetry and control remain visible in structured cards while the live engine log panel was removed to reduce cognitive noise
+- **Full UI redesign across tabs**: Dashboard, Climate, Garage, Statistics, Notifications, Settings, and shared Layout now use a unified premium design system with modern cards, richer spacing, and stronger visual hierarchy
+- **Shared design primitives**: introduced reusable frontend style primitives (`ev-hero`, `ev-card`, `ev-card-strong`, `ev-input`, `ev-btn-primary`, `ev-btn-ghost`) to keep all pages visually consistent and faster to evolve
+- **Dashboard modernized (mobile-first)**: refreshed visual hierarchy with premium card styling, atmospheric gradients, stronger typography, and optimized responsive spacing for smartphone usage
+- **Finish-by wake status clarity**: Dashboard now exposes a dedicated "Finish-by Wake & Sync" status block with clear runtime phases (wake request, SoC wait, SoC acquired, schedule computed)
+- **Planner visual continuity on Dashboard controls**: mode selector pills now reuse the planner-like accent background effect for a more cohesive UX language
+- **Planner UX alignment + 4 clear schedule modes**: planner flow is fully English and now exposes four explicit charge plan modes in the scheduler builder: `Start at`, `End at`, `Time range`, and `Finish by` (including weekly variants and proper schedule card rendering)
+- **Planner option help + label cleanup**: planner mode hints now use the same tooltip interaction style as Settings (`?` popovers), and duplicate unit labels were cleaned up (for example `Pre-wake` now shows `min` only once)
+- **Scheduler test coverage upgraded**: added a dedicated backend test suite for scheduler charge modes with focused coverage for `start_at`, `end_at`, `start_end`, and `finish_by` (plus weekly rolling and next-plan resolution checks)
+- **Version bump 1.6.6**: Smart finish-by scheduler — vehicle auto-wake when SOC data unavailable, nominal voltage and configurable safety margin for charging window calculation, two new Telegram notification events
 - **Version bump 1.6.5**: release metadata aligned across backend source-of-truth (`backend/src/version.ts`) and all package manifests, prepared for first Git tag/release flow
 - **Versioning fallback for first tag**: when `releases/latest` is not available yet, backend now falls back to GitHub `tags` API, so the UI can still detect updates from tag-only releases
 - **VIN anonimizzazione nei log**: TuVIN dell'auto nei log backend viene anonimizzato, mostrando solo le ultime 4 cifre per privacy
@@ -44,6 +67,7 @@ The project is designed for home charging scenarios where you want to:
 - **Versioning UX refresh**: the Settings version history now defaults to a concise recent list, supports progressive "Show 5 more" expansion, and adds per-release "Read more/Show less" summaries to avoid long scrolling noise
 - **OTA safety guards**: OTA start is now blocked by default when runtime is in an unsafe state (engine running, active charging/session, plan armed, failsafe active, or proxy disconnected); UI now shows guard-by-guard status and blocking reasons from backend `409` responses, and an explicit `force=true` override is required to bypass guards
 - **OTA updater robustness**: before branch checkout, OTA now auto-stashes local changes (including untracked files) to avoid `checkout` aborts; during OTA the backend uses live-safe `npm install` (non-destructive while service is running) with `npm ci` fallback, while frontend keeps clean `npm ci` with fallback to `npm install --no-package-lock`
+- **OTA branch fallback for local-only branches**: if `origin/<branch>` does not exist (for example a local branch not pushed yet), OTA no longer fails immediately; it falls back to the local branch, attempts a fast-forward pull only when an upstream is configured, and prints explicit guidance to run `git push -u origin <branch>` when needed
 - **Single targetSoc and scheduleLead removal**: unified to one persisted targetSoc (removed `targetSocOff`/`targetSocOn` distinction); removed `scheduleLeadTimeSec` and pre-wake logic entirely
 - **Dashboard SoC slider sync fix**: the Target SoC slider was resetting every second during active drag because the WS engine object reference changes on every 1s broadcast; fixed by tracking only the primitive `targetSoc` value in the effect dependency array
 - **Garage unlatch always available**: the Unlatch button in Garage mode is no longer gated on `vehicle.pluggedIn`; it can now open the charge-port door even when the car is idle or sleeping in the garage
@@ -246,6 +270,7 @@ The engine log shows `charge_stop skipped: vehicle not connected` when this guar
 - Statistics charts (SoC, Power/Current, Voltage) use telemetry `recordedAt` datetime on the X axis
 - **Statistics chart zoom**: each chart card has an expand (⤢) button that opens the chart in a fullscreen popup modal (closes on Escape, overlay click, or ✕); inside the popup, drag horizontally on the chart to zoom the X axis — the Y axis auto-adjusts to visible data; a "Reset zoom" button restores the full view
 - Dashboard "Evload average" uses a rolling-meter-energy slope over recent samples for responsive ETA and power estimation
+- Dashboard includes a dedicated "Finish-by Wake & Sync" runtime status card to surface scheduler wake/sync progress in plain language
 - OFF mode stop resilience: failed `charge_stop` commands are retried in background with bounded attempts and retriggered on proxy reconnect
 - Engine auto-resync for current requests: if Tesla `charge_current_request` diverges from evload setpoint, backend retries `set_charging_amps` until aligned
 - Dashboard target SoC persistence split by mode (`on` / `off`) and shared across browser sessions via backend API
@@ -675,6 +700,32 @@ The simulator supports:
 - `set_temps`
 
 This is useful for validating UI behavior and proxy contract assumptions without a live car.
+
+### How To Use Engine Demo Mode
+
+Use this flow when you want to test engine behavior without a real car/proxy.
+
+1. Open Settings in the EVLoad UI.
+2. Go to Engine Options.
+3. Enable Demo mode.
+4. Save settings.
+5. Return to Dashboard and use normal controls (`Off`, `Plan`, `On`) to test engine flows.
+
+Note: in demo mode, Proxy URL is forced to `http://127.0.0.1:8080`.
+
+What to expect in demo mode:
+
+- charging commands are handled by the internal simulator
+- SoC, power, and charging state evolve as simulated data
+- planner/scheduler logic can be tested without BLE/proxy connectivity
+
+Alternative via YAML configuration:
+
+1. Open Settings -> YAML.
+2. Set `demo: true`.
+3. Save configuration.
+
+Tip: when switching back to real vehicle control, disable demo mode (`demo: false`) before validating live commands.
 
 ## Development Commands
 

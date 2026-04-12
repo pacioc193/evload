@@ -3,13 +3,27 @@ import { startEngine, getEngineStatus } from '../engine/charging.engine'
 import { sendProxyCommand, getVehicleState, requestWakeMode } from './proxy.service'
 import { getConfig } from '../config'
 import { isFailsafeActive } from './failsafe.service'
-import { dispatchTelegramNotificationEvent } from './notification-rules.service'
+import { buildTimestampPayload, dispatchTelegramNotificationEvent } from './notification-rules.service'
 import { prisma } from '../prisma'
 
 let schedulerTimer: NodeJS.Timeout | null = null
 
 /** IDs of scheduled charges for which we have already sent the pre-wake command. */
 const preWakeArmedIds = new Set<number>()
+
+/**
+ * IDs of finish_by scheduled charges for which we have sent a wake-up command
+ * to retrieve the current SoC. Cleared once SoC is available and normal
+ * calculation proceeds, or when the charge starts / is disabled.
+ */
+const finishByWakeArmedIds = new Set<number>()
+
+/**
+ * IDs of finish_by scheduled charges for which we have already dispatched the
+ * plan_finish_by_scheduled notification (avoids spamming every 30 s tick).
+ * Cleared when the charge actually starts (weekly resets the entry too).
+ */
+const finishByScheduledNotifiedIds = new Set<number>()
 
 async function startEngineWithWake(scheduleId: number, vehicleId: string, targetSoc: number, targetAmps?: number, planName?: string): Promise<void> {
   logger.debug('Scheduler: startEngineWithWake', { scheduleId, vehicleId, targetSoc, targetAmps, planName })
@@ -122,41 +136,115 @@ async function runSchedulerTick(): Promise<void> {
   })
 
   const vState = getVehicleState()
-  const currentSoc = vState.stateOfCharge ?? 0
+  const currentSoc: number | null = vState.stateOfCharge
   const batteryKwh = cfg.charging.batteryCapacityKwh
-  const chargerVoltage = vState.chargerVoltage ?? 230
+  // Use nominal voltage for estimation: live charger voltage is unavailable while
+  // the vehicle is asleep, and the problem spec calls for "220 × A" nominal power.
+  const nominalVoltage = cfg.charging.nominalVoltageV
+  const safetyMargin = 1 + cfg.charging.finishBySafetyMarginPct / 100
 
   for (const sc of pendingFinishBy) {
     if (!sc.finishBy) continue
+
+    const planName = sc.name ?? `#${sc.id}`
+
+    // ── 1. Wake the vehicle if we don't have SoC data ────────────────────────
+    if (currentSoc === null) {
+      if (!finishByWakeArmedIds.has(sc.id)) {
+        finishByWakeArmedIds.add(sc.id)
+        logger.info(`⏰ [FINISH_BY_WAKE] finish_by id=${sc.id} has no SoC data — sending wake-up command`, { planName, finishBy: sc.finishBy.toISOString() })
+        requestWakeMode(true).catch((err) =>
+          logger.error('⏰ [FINISH_BY_WAKE] requestWakeMode failed', { err, chargeId: sc.id })
+        )
+        dispatchTelegramNotificationEvent('plan_finish_by_wake', {
+          planId: String(sc.id),
+          planName,
+          targetSoc: sc.targetSoc,
+          finishBy: sc.finishBy.toISOString(),
+        }).catch(() => {})
+      } else {
+        logger.verbose(`⏰ [FINISH_BY_WAKE] finish_by id=${sc.id} waiting for SoC data after wake command`, { planName })
+      }
+      continue // re-evaluate on next tick once vehicle reports SoC
+    }
+
+    // SoC available — clear wake flag
+    if (finishByWakeArmedIds.has(sc.id)) {
+      logger.info(`⏰ [FINISH_BY_WAKE] SoC now available for finish_by id=${sc.id} (${currentSoc}%) — proceeding with calculation`, { planName })
+      finishByWakeArmedIds.delete(sc.id)
+    }
+
+    // ── 2. Calculate charging window with safety margin ──────────────────────
     const amps = sc.targetAmps ?? cfg.charging.defaultAmps
-    const powerKw = (amps * chargerVoltage) / 1000
+    // Power in kW using configured nominal voltage (car may be asleep so live
+    // charger voltage is unreliable; the plan amps are the authoritative value).
+    const powerKw = (amps * nominalVoltage) / 1000
     const requiredKwh = ((sc.targetSoc - currentSoc) / 100) * batteryKwh
     if (requiredKwh <= 0) {
+      finishByWakeArmedIds.delete(sc.id)
+      finishByScheduledNotifiedIds.delete(sc.id)
       await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
-      logger.info(`Finish-by charge id=${sc.id} already at/above target SoC ${sc.targetSoc}%`)
+      logger.info(`⏰ [FINISH_BY] id=${sc.id} already at/above target SoC ${sc.targetSoc}% (current ${currentSoc}%)`, { planName })
       continue
     }
-    const requiredMs = (requiredKwh / powerKw) * 3600 * 1000
+
+    // Apply safety margin so we start earlier and absorb inefficiencies / ramp-up
+    const rawRequiredMs = (requiredKwh / powerKw) * 3600 * 1000
+    const requiredMs = rawRequiredMs * safetyMargin
     const startMs = sc.finishBy.getTime() - requiredMs
+    const computedStartAt = new Date(startMs)
+    const estimatedChargeHours = +(rawRequiredMs / 3600_000).toFixed(2)
+
+    logger.verbose(`⏰ [FINISH_BY] id=${sc.id} plan="${planName}" soc=${currentSoc}→${sc.targetSoc}% ` +
+      `powerKw=${powerKw.toFixed(2)} requiredKwh=${requiredKwh.toFixed(2)} ` +
+      `rawDuration=${(rawRequiredMs / 60000).toFixed(1)}min margin=${cfg.charging.finishBySafetyMarginPct}% ` +
+      `computedStart=${computedStartAt.toISOString()} finishBy=${sc.finishBy.toISOString()}`)
+
+    // ── 3. Notify once when start time is computed and still in the future ───
+    if (Date.now() < startMs && !finishByScheduledNotifiedIds.has(sc.id)) {
+      finishByScheduledNotifiedIds.add(sc.id)
+      const tz = cfg.timezone
+      const computedStartAtTime = computedStartAt.toLocaleTimeString('it-IT', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: tz || 'UTC',
+      })
+      logger.info(`⏰ [FINISH_BY] Charging start scheduled for ${computedStartAt.toISOString()} (plan "${planName}", id=${sc.id})`)
+      dispatchTelegramNotificationEvent('plan_finish_by_scheduled', {
+        planId: String(sc.id),
+        planName,
+        targetSoc: sc.targetSoc,
+        currentSoc,
+        chargeStartsAt: computedStartAt.toISOString(),
+        chargeStartsAt_time: computedStartAtTime,
+        finishBy: sc.finishBy.toISOString(),
+        estimatedChargeHours,
+        safetyMarginPct: cfg.charging.finishBySafetyMarginPct,
+      }).catch(() => {})
+    }
+
+    // ── 4. Start charging when the window opens ──────────────────────────────
     if (Date.now() >= startMs) {
+      finishByWakeArmedIds.delete(sc.id)
+      finishByScheduledNotifiedIds.delete(sc.id)
       if (sc.scheduleType === 'finish_by_weekly') {
         const nextFinishBy = new Date(sc.finishBy.getTime() + 7 * 24 * 60 * 60 * 1000)
         await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { finishBy: nextFinishBy } })
       } else {
         await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
       }
-      logger.info(`Executing finish_by charge id=${sc.id} targetSoc=${sc.targetSoc} (must finish by ${sc.finishBy.toISOString()})`)
-      const planName = sc.name ?? `#${sc.id}`
+      logger.info(`⏰ [FINISH_BY] Executing id=${sc.id} plan="${planName}" targetSoc=${sc.targetSoc}% (must finish by ${sc.finishBy.toISOString()})`)
       if (!isFailsafeActive() && !getEngineStatus().running) {
         try {
           dispatchTelegramNotificationEvent('plan_start', { planId: String(sc.id), planName, targetSoc: sc.targetSoc }).catch(() => {})
           await startEngineWithWake(sc.id, sc.vehicleId || cfg.proxy.vehicleId, sc.targetSoc, amps, planName)
         } catch (err) {
-          logger.error(`Finish-by charge id=${sc.id} failed to start engine`, { err })
+          logger.error(`⏰ [FINISH_BY] id=${sc.id} failed to start engine`, { err })
         }
       } else {
         dispatchTelegramNotificationEvent('plan_skipped', { planId: String(sc.id), planName, reason: 'failsafe_active_or_running' }).catch(() => {})
-        logger.warn(`Finish-by charge id=${sc.id} skipped (failsafe or engine already running)`)
+        logger.warn(`⏰ [FINISH_BY] id=${sc.id} skipped (failsafe or engine already running)`)
       }
     }
   }
@@ -182,6 +270,30 @@ async function runSchedulerTick(): Promise<void> {
         dispatchTelegramNotificationEvent('plan_completed', { planId: String(sc.id), planName, reason: 'finish_by_window_reached' }).catch(() => {})
       } catch (err) {
         logger.error(`Scheduled start_end charge id=${sc.id} failed to stop charging`, { err })
+      }
+    }
+  }
+
+  const pendingEndAtStop = await prisma.scheduledCharge.findMany({
+    where: { enabled: true, scheduleType: { in: ['end_at', 'end_at_weekly'] }, finishBy: { lte: now } },
+  })
+
+  for (const sc of pendingEndAtStop) {
+    if (sc.scheduleType === 'end_at_weekly' && sc.finishBy) {
+      const nextFinish = new Date(sc.finishBy.getTime() + 7 * 24 * 60 * 60 * 1000)
+      await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { finishBy: nextFinish } })
+    } else {
+      await prisma.scheduledCharge.update({ where: { id: sc.id }, data: { enabled: false } })
+    }
+
+    logger.info(`Executing end_at charge stop id=${sc.id} finishBy=${sc.finishBy?.toISOString()}`)
+    const planName = sc.name ?? `#${sc.id}`
+    if (!isFailsafeActive()) {
+      try {
+        await sendProxyCommand(sc.vehicleId || cfg.proxy.vehicleId, 'charge_stop', {})
+        dispatchTelegramNotificationEvent('plan_completed', { planId: String(sc.id), planName, reason: 'end_at_reached' }).catch(() => {})
+      } catch (err) {
+        logger.error(`Scheduled end_at charge id=${sc.id} failed to stop charging`, { err })
       }
     }
   }
@@ -318,6 +430,22 @@ export interface NextPlannedCharge {
   finishBy: Date | null
 }
 
+export interface SchedulerRuntimeStatus {
+  preWakeArmedCount: number
+  finishByWakePendingCount: number
+  finishByScheduledNotifiedCount: number
+  timestamp: string
+}
+
+export function getSchedulerRuntimeStatus(): SchedulerRuntimeStatus {
+  return {
+    preWakeArmedCount: preWakeArmedIds.size,
+    finishByWakePendingCount: finishByWakeArmedIds.size,
+    finishByScheduledNotifiedCount: finishByScheduledNotifiedIds.size,
+    timestamp: new Date().toISOString(),
+  }
+}
+
 export async function resolveNextPlannedCharge(now: Date = new Date()): Promise<NextPlannedCharge | null> {
   const cfg = getConfig()
 
@@ -364,15 +492,16 @@ export async function resolveNextPlannedCharge(now: Date = new Date()): Promise<
   const vState = getVehicleState()
   const currentSoc = vState.stateOfCharge ?? 0
   const batteryKwh = cfg.charging.batteryCapacityKwh
-  const chargerVoltage = vState.chargerVoltage ?? 230
+  const nominalVoltage = cfg.charging.nominalVoltageV
+  const safetyMargin = 1 + cfg.charging.finishBySafetyMarginPct / 100
 
   for (const sc of pendingFinishBy) {
     if (!sc.finishBy) continue
     const amps = sc.targetAmps ?? cfg.charging.defaultAmps
-    const powerKw = (amps * chargerVoltage) / 1000
+    const powerKw = (amps * nominalVoltage) / 1000
     const requiredKwh = ((sc.targetSoc - currentSoc) / 100) * batteryKwh
     if (requiredKwh <= 0) continue
-    const requiredMs = (requiredKwh / powerKw) * 3600 * 1000
+    const requiredMs = (requiredKwh / powerKw) * 3600 * 1000 * safetyMargin
     const computedStartAt = new Date(sc.finishBy.getTime() - requiredMs)
     if (computedStartAt > now) {
       return {

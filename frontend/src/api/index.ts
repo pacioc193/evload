@@ -169,6 +169,8 @@ export interface AppSettings {
   defaultAmps: number
   startAmps: number
   planWakeBeforeMinutes: number
+  nominalVoltageV: number
+  finishBySafetyMarginPct: number
   maxAmps: number
   minAmps: number
   stopChargeOnManualStart: boolean
@@ -335,9 +337,21 @@ export interface NextPlannedCharge {
   finishBy: string | null
 }
 
+export interface SchedulerRuntimeStatus {
+  preWakeArmedCount: number
+  finishByWakePendingCount: number
+  finishByScheduledNotifiedCount: number
+  timestamp: string
+}
+
 export async function getNextPlannedCharge() {
   const res = await api.get('/schedule/next-charge')
   return res.data as NextPlannedCharge | null
+}
+
+export async function getSchedulerRuntimeStatus() {
+  const res = await api.get('/schedule/runtime-status')
+  return res.data as SchedulerRuntimeStatus
 }
 
 export async function getScheduledCharges() {
@@ -348,7 +362,9 @@ export async function getScheduledCharges() {
 export async function createScheduledCharge(
   options:
     | { scheduleType: 'start_at'; scheduledAt: string; targetSoc: number; targetAmps?: number; name?: string }
+    | { scheduleType: 'end_at'; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
     | { scheduleType: 'finish_by'; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
+    | { scheduleType: 'end_at_weekly'; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
     | { scheduleType: 'finish_by_weekly'; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
     | { scheduleType: 'start_end'; scheduledAt: string; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }
     | { scheduleType: 'start_end_weekly'; scheduledAt: string; finishBy: string; targetSoc: number; targetAmps?: number; name?: string }

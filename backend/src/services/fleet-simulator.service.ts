@@ -3,6 +3,8 @@ import http from 'http'
 import { logger } from '../logger'
 import { getConfig } from '../config'
 
+const DEMO_PROXY_URL = 'http://127.0.0.1:8080'
+
 interface SimulatorState {
   vehicleId: string
   vin: string
@@ -233,6 +235,23 @@ function vehicleDataResponseFor(): Record<string, unknown> {
   }
 }
 
+function bodyControllerResponseFor(): Record<string, unknown> {
+  const sleepStatus = state.state === 'asleep' ? 'VEHICLE_SLEEP_STATUS_ASLEEP' : 'VEHICLE_SLEEP_STATUS_AWAKE'
+  return {
+    result: true,
+    reason: 'The request was successfully processed.',
+    vin: state.vin,
+    command: 'body_controller_state',
+    response: {
+      vehicle_sleep_status: sleepStatus,
+      user_presence: 'VEHICLE_USER_PRESENCE_NOT_PRESENT',
+      closure_statuses: {
+        charge_port: state.chargePortDoorOpen ? 'open' : 'closed',
+      },
+    },
+  }
+}
+
 function applyCommand(cmd: string, body: Record<string, unknown>): Record<string, unknown> {
   switch (cmd) {
     case 'charge_start':
@@ -270,10 +289,18 @@ function applyCommand(cmd: string, body: Record<string, unknown>): Record<string
     }
     case 'wake_up':
       state.state = 'online'
+      state.chargingState = state.pluggedIn ? 'Connected' : 'Disconnected'
       break
     case 'sleep':
       state.state = 'asleep'
       state.chargerActualCurrent = 0
+      break
+    case 'charge_port_door_open':
+      state.chargePortDoorOpen = true
+      state.chargePortLatch = state.pluggedIn ? 'Engaged' : 'Disengaged'
+      break
+    case 'charge_port_door_close':
+      state.chargePortDoorOpen = false
       break
     default:
       return { result: false, reason: `Unsupported command: ${cmd}` }
@@ -297,7 +324,7 @@ export function startFleetSimulator(): void {
 
   syncStateFromConfig()
 
-  const parsed = new URL(cfg.proxy.url)
+  const parsed = new URL(DEMO_PROXY_URL)
   const host = parsed.hostname || '127.0.0.1'
   const port = parseInt(parsed.port || '8080', 10)
 
@@ -317,6 +344,11 @@ export function startFleetSimulator(): void {
   app.get('/api/1/vehicles/:vehicleId/vehicle_data', (req, res) => {
     if (!ensureVehicle(req, res)) return
     jsonResult(res, vehicleDataResponseFor())
+  })
+
+  app.get('/api/1/vehicles/:vehicleId/body_controller_state', (req, res) => {
+    if (!ensureVehicle(req, res)) return
+    jsonResult(res, bodyControllerResponseFor())
   })
 
   app.get('/api/1/vehicles/:vehicleId/data_request/charge_state', (req, res) => {
@@ -379,7 +411,7 @@ export function startFleetSimulator(): void {
   })
 
   simServer = app.listen(port, host, () => {
-    logger.info(`Fleet simulator listening on ${host}:${port} for vehicleId=${state.vehicleId}`)
+    logger.info(`Fleet simulator listening on ${host}:${port} for vehicleId=${state.vehicleId} (demo proxy: ${DEMO_PROXY_URL})`)
   })
 
   simTick = setInterval(() => {

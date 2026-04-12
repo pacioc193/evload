@@ -43,6 +43,14 @@ const ConfigSchema = z.object({
     minAmps: z.number().min(1).max(48).default(5),
     startAmps: z.number().min(1).max(48).default(8),
     planWakeBeforeMinutes: z.number().min(0).default(0),
+    // Nominal AC voltage (V) used in finish_by charging-window calculations when
+    // live charger voltage is unavailable (vehicle sleeping). Typical AC values:
+    // 220 V (EU domestic), 230 V (EU official), 240 V (US/UK).
+    nominalVoltageV: z.number().min(100).max(480).default(220),
+    // Extra safety margin (%) added to the estimated charging duration for finish_by
+    // plans, to account for charging inefficiencies, ramp-up time and network delays.
+    // E.g. 10 means the system starts charging 10% earlier than the raw estimate.
+    finishBySafetyMarginPct: z.number().min(0).max(50).default(10),
     stopChargeOnManualStart: z.boolean().default(false),
     rampIntervalSec: z.number().min(1).default(10),
     chargeStartRetryMs: z.number().min(500).default(10000),

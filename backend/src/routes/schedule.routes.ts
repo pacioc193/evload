@@ -4,7 +4,7 @@ import { requireAuth } from '../middleware/auth.middleware'
 import { getConfig } from '../config'
 import { logger } from '../logger'
 import { prisma } from '../prisma'
-import { resolveNextPlannedCharge } from '../services/scheduler.service'
+import { resolveNextPlannedCharge, getSchedulerRuntimeStatus } from '../services/scheduler.service'
 
 const router = Router()
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 60 })
@@ -16,6 +16,15 @@ router.get('/next-charge', limiter, requireAuth, async (_req, res) => {
   } catch (err) {
     logger.error('Failed to resolve next planned charge', { err })
     res.status(500).json({ error: 'Failed to resolve next planned charge' })
+  }
+})
+
+router.get('/runtime-status', limiter, requireAuth, (_req, res) => {
+  try {
+    res.json(getSchedulerRuntimeStatus())
+  } catch (err) {
+    logger.error('Failed to read scheduler runtime status', { err })
+    res.status(500).json({ error: 'Failed to read scheduler runtime status' })
   }
 })
 
@@ -41,16 +50,16 @@ router.post('/charges', limiter, requireAuth, async (req, res) => {
     name?: string
   }
   const type = scheduleType ?? 'start_at'
-  if (type !== 'start_at' && type !== 'finish_by' && type !== 'start_end' && type !== 'weekly' && type !== 'finish_by_weekly' && type !== 'start_end_weekly') {
-    res.status(400).json({ error: 'scheduleType must be start_at, finish_by, start_end, weekly, finish_by_weekly or start_end_weekly' })
+  if (type !== 'start_at' && type !== 'end_at' && type !== 'finish_by' && type !== 'start_end' && type !== 'weekly' && type !== 'end_at_weekly' && type !== 'finish_by_weekly' && type !== 'start_end_weekly') {
+    res.status(400).json({ error: 'scheduleType must be start_at, end_at, finish_by, start_end, weekly, end_at_weekly, finish_by_weekly or start_end_weekly' })
     return
   }
   if ((type === 'start_at' || type === 'weekly') && !scheduledAt) {
     res.status(400).json({ error: 'scheduledAt is required for start_at/weekly schedules' })
     return
   }
-  if ((type === 'finish_by' || type === 'finish_by_weekly') && !finishBy) {
-    res.status(400).json({ error: 'finishBy is required for finish_by schedules' })
+  if ((type === 'end_at' || type === 'end_at_weekly' || type === 'finish_by' || type === 'finish_by_weekly') && !finishBy) {
+    res.status(400).json({ error: 'finishBy is required for end_at/finish_by schedules' })
     return
   }
   if ((type === 'start_end' || type === 'start_end_weekly') && (!scheduledAt || !finishBy)) {

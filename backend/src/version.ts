@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { logger } from './logger'
 
-export const VERSION = '1.6.5'
+export const VERSION = '1.6.6'
 
 export interface VersionInfo {
   current: string
@@ -16,6 +16,11 @@ export interface VersionHistoryEntry {
 }
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: '1.6.6',
+    releasedAt: '2026-04-11',
+    summary: 'Smart finish-by scheduler: when a finish_by/finish_by_weekly charge has no SoC data (vehicle asleep), the scheduler now wakes the vehicle, waits for live SoC, then calculates the charging window using the configured nominal voltage (default 220 V) and a configurable safety margin (default 10%, added to the raw estimated duration). Two new Telegram notification events: plan_finish_by_wake (emitted when waking vehicle to obtain SoC) and plan_finish_by_scheduled (emitted once when the computed charge-start time is determined, with {{chargeStartsAt_time}}, {{currentSoc}}, {{estimatedChargeHours}} and {{safetyMarginPct}} placeholders). New settings: Nominal Voltage and Finish-by Safety Margin in Settings → Charging → Plan Mode. resolveNextPlannedCharge() also applies the safety margin for the Dashboard "next charge" widget.',
+  },
   {
     version: '1.6.5',
     releasedAt: '2026-04-11',
